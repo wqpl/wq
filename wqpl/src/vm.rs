@@ -28,7 +28,7 @@ use crate::vm::inst::Instruction;
 use crate::vm::owned_const::extract_owned_consts;
 use crate::vm::trace::TraceRecord;
 use crate::wqdb::Wqdb;
-use crate::wqdb::data::{Backtrace, ChunkId, DebugInfo, DebugLocalsFrame};
+use crate::wqdb::data::{ChunkId, CrashSnapshot, DebugInfo};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) type GlobalMap = crate::session::Bindings;
@@ -78,8 +78,8 @@ pub(crate) struct Vm {
     pub(crate) wqdb: Wqdb,
     pub(crate) debug_info: DebugInfo,
     pub(crate) pause_handler: Option<Box<dyn PauseHandler>>,
-    pub(crate) current_chunk: ChunkId,
-    pub(crate) call_stack: Vec<Frame>,
+    pub(crate) current_chunk: Option<ChunkId>,
+    pub(crate) call_stack: Vec<CallFrame>,
     /// Lightweight backtrace mode: build minimal debug info for frames on error
     pub(crate) bt_mode: bool,
     /// Per-run debug metadata required by runtime features like `@d`.
@@ -87,8 +87,8 @@ pub(crate) struct Vm {
     /// Base byte offset into current source file for this execution (for loader
     /// slices)
     pub(crate) debug_src_offset: usize,
-    pub(crate) last_backtrace: Option<Backtrace>,
-    pub(crate) last_locals_snapshot: Option<Vec<DebugLocalsFrame>>,
+    pub(crate) last_crash: Option<Arc<CrashSnapshot>>,
+    pub(crate) next_crash_id: u64,
     pub(crate) hooks: Option<NonNull<dyn InterpreterHook>>,
     pub(crate) try_stack: Vec<TryFrame>,
     pub(crate) returned: bool,
@@ -109,17 +109,29 @@ pub(crate) struct Vm {
     pub(crate) trace_bases: Vec<usize>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct Frame {
+#[derive(Clone)]
+pub(crate) struct TailFrame {
     pub chunk: ChunkId,
     pub pc: usize,
     pub func_name: std::sync::Arc<str>,
+    pub instructions: Arc<[Instruction]>,
+}
+
+pub(crate) struct CallFrame {
+    pub chunk: ChunkId,
+    pub pc: usize,
+    pub func_name: std::sync::Arc<str>,
+    pub instructions: Arc<[Instruction]>,
+    pub locals: Option<Arc<[(usize, Value)]>>,
+    pub tail_frames: Vec<TailFrame>,
+    pub tail_frames_overflowed: bool,
+    pub tail_depth: usize,
 }
 
 const TAIL_CALL_JOURNAL_CAP: usize = 128;
 
 pub(crate) struct TailCallJournal {
-    frames: VecDeque<Frame>,
+    frames: VecDeque<TailFrame>,
     overflowed: bool,
 }
 
@@ -133,7 +145,7 @@ impl Default for TailCallJournal {
 }
 
 impl TailCallJournal {
-    fn push(&mut self, frame: Frame) {
+    fn push(&mut self, frame: TailFrame) {
         if self.frames.len() == TAIL_CALL_JOURNAL_CAP {
             self.frames.pop_front();
             self.overflowed = true;
@@ -146,8 +158,12 @@ impl TailCallJournal {
         self.overflowed = false;
     }
 
-    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &Frame> {
+    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &TailFrame> {
         self.frames.iter()
+    }
+
+    pub(crate) fn snapshot(&self) -> Vec<TailFrame> {
+        self.frames.iter().cloned().collect()
     }
 
     pub(crate) fn overflowed(&self) -> bool {
@@ -161,8 +177,6 @@ pub(crate) struct TryFrame {
     pub(crate) end_pc: usize,
     pub(crate) stack_start: usize,
     pub(crate) saved_pending_named_meta: Option<Arc<crate::vm::inst::NamedArgMeta>>,
-    pub(crate) saved_last_backtrace: Option<Backtrace>,
-    pub(crate) saved_last_locals_snapshot: Option<Vec<DebugLocalsFrame>>,
     pub(crate) saved_trace_depth: u32,
     pub(crate) saved_trace_bases_len: usize,
     pub(crate) saved_trace_buf_len: usize,
@@ -247,14 +261,14 @@ impl Vm {
             wqdb: Wqdb::default(),
             debug_info: DebugInfo::default(),
             pause_handler: None,
-            current_chunk: ChunkId(0),
+            current_chunk: None,
             call_stack: Vec::new(),
             bt_mode: false,
             runtime_debug_info: false,
 
             debug_src_offset: 0,
-            last_backtrace: None,
-            last_locals_snapshot: None,
+            last_crash: None,
+            next_crash_id: 0,
             hooks: None,
             try_stack: Vec::new(),
             returned: false,
@@ -359,11 +373,7 @@ impl Vm {
         interpreter: &mut I,
     ) -> WqResult<Value> {
         let limit = self.instructions.len();
-        let result = interpreter.interpret(self, limit);
-        if result.is_err() {
-            self.capture_bt_if_empty();
-        }
-        result
+        interpreter.interpret(self, limit)
     }
 }
 
@@ -398,18 +408,23 @@ impl Vm {
     }
 
     #[inline]
-    pub(crate) fn push_tail_call_frame(&mut self, frame: Frame) {
+    pub(crate) fn push_tail_call_frame(&mut self, frame: TailFrame) {
         self.tail_call_depth = self.tail_call_depth.saturating_add(1);
         self.tail_call_journal.push(frame);
     }
 
-    pub(crate) fn current_chunk_id(&self) -> ChunkId {
+    pub(crate) fn current_chunk_id(&self) -> Option<ChunkId> {
         self.current_chunk
+    }
+
+    pub(crate) fn expect_current_chunk(&self) -> ChunkId {
+        self.current_chunk
+            .expect("executing debug-mapped code must have a current chunk")
     }
 
     pub(crate) fn local_slot_name(&self, slot: usize) -> Option<&str> {
         self.debug_info
-            .chunk_opt(self.current_chunk)?
+            .get_chunk(self.current_chunk?)?
             .local_names
             .as_ref()?
             .get(slot)
@@ -693,20 +708,21 @@ mod tests {
         vm.wqdb.set_enabled(false);
         vm.runtime_debug_info = false;
 
-        vm.capture_bt_if_empty();
+        let error = vm.record_execution_failure(WqError::new(WqErrorType::Raise));
 
-        assert!(vm.last_backtrace.is_none());
-        assert!(vm.last_locals_snapshot.is_none());
+        assert!(error.crash.is_none());
+        assert!(vm.last_crash.is_none());
     }
 
     #[test]
     fn tail_call_journal_keeps_recent_frames_in_ring_order() {
         let mut journal = TailCallJournal::default();
         for pc in 0..TAIL_CALL_JOURNAL_CAP + 3 {
-            journal.push(Frame {
+            journal.push(TailFrame {
                 chunk: ChunkId(0),
                 pc,
                 func_name: Arc::from("f"),
+                instructions: Arc::from([]),
             });
         }
 
@@ -717,5 +733,36 @@ mod tests {
             Some(TAIL_CALL_JOURNAL_CAP + 2)
         );
         assert!(journal.overflowed());
+    }
+
+    #[test]
+    fn crash_snapshot_marks_omitted_tail_calls_without_a_fake_location() {
+        let mut vm = Vm::new(Vec::new());
+        vm.set_backtrace_enabled(true);
+        let file = vm.debug_info.new_file("tail.wq", "1/0");
+        let chunk = vm
+            .debug_info
+            .new_chunk("current", file, TAIL_CALL_JOURNAL_CAP + 2);
+        vm.current_chunk = Some(chunk);
+        for pc in 0..=TAIL_CALL_JOURNAL_CAP {
+            vm.push_tail_call_frame(TailFrame {
+                chunk,
+                pc: pc + 1,
+                func_name: Arc::from(format!("tail-{pc}")),
+                instructions: Arc::from([]),
+            });
+        }
+
+        let error = vm.record_execution_failure(WqError::new(WqErrorType::Raise));
+        let omitted = error
+            .crash
+            .as_ref()
+            .expect("crash snapshot")
+            .frames()
+            .iter()
+            .find(|frame| matches!(frame, crate::wqdb::data::CrashFrame::TailCallsOmitted))
+            .expect("tail overflow marker");
+
+        assert!(omitted.location().is_none());
     }
 }

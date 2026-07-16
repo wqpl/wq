@@ -1,11 +1,10 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::Arc;
 
 use crate::session::stdio::WqIoError;
 use crate::style::ColorMode;
 use crate::value::Value;
 use crate::vm::Vm;
-use crate::wqdb::data::{ChunkId, CodeLoc, DebugInfo, DebugLocalsFrame};
+use crate::wqdb::data::{ChunkId, CodeLoc, CrashFrame, DebugInfo, DebugLocalsFrame};
 use crate::wqdb::model::{SourceBreakpoint, StepGranularity, StopHook};
 
 /// Constrained access to the state needed by debugger frontends.
@@ -59,7 +58,7 @@ impl<'vm> Debugger<'vm> {
         Self { vm }
     }
 
-    pub fn location(&self) -> CodeLoc {
+    pub fn location(&self) -> Option<CodeLoc> {
         self.vm.loc()
     }
 
@@ -137,8 +136,8 @@ impl<'vm> Debugger<'vm> {
         self.vm.dbg_breakpoints()
     }
 
-    pub fn backtrace(&self) -> Vec<(CodeLoc, Arc<str>)> {
-        self.vm.bt_frames()
+    pub fn backtrace(&self) -> Vec<CrashFrame> {
+        self.vm.crash_frames()
     }
 
     pub fn globals(&self) -> Vec<(String, Value)> {
@@ -149,8 +148,8 @@ impl<'vm> Debugger<'vm> {
         self.vm.dbg_locals()
     }
 
-    pub fn local_frames(&self) -> Vec<DebugLocalsFrame> {
-        self.vm.dbg_local_frames()
+    pub fn frame_locals(&self, frame: usize) -> Option<DebugLocalsFrame> {
+        self.vm.dbg_frame_locals(frame)
     }
 
     pub fn instruction_at(&self, pc: usize) -> Option<String> {
@@ -235,6 +234,7 @@ impl Vm {
     }
 
     pub(crate) fn dispatch_pause(&mut self, event: PauseEvent) {
+        self.wqdb.note_pause(event.location);
         let Some(mut handler) = self.pause_handler.take() else {
             self.apply_debug_resume(DebugResume::Continue);
             return;
@@ -287,7 +287,7 @@ mod tests {
         let mut vm = Vm::new(Vec::new());
         vm.set_pause_handler(move |event, debugger| {
             assert_eq!(event, test_event());
-            assert_eq!(debugger.location(), event.location);
+            assert_eq!(debugger.location(), Some(event.location));
             captured_calls.fetch_add(1, Ordering::SeqCst);
             DebugResume::Continue
         });

@@ -771,13 +771,15 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         sync_global_hints(&session, &editor);
                     }
                     Err(error) => {
-                        system_msg_err(format!("{error}"), MsgType::Error);
-                        // Only show backtrace for runtime errors; skip for parse/EOF errors
-                        if session.backtrace_enabled() && error.err_type.is_runtime() {
-                            let _ = session.dbg_print_bt();
-                        }
-                        if wqdb_active_for_eval && error.err_type.is_runtime() {
-                            enter_wqdb_after_err(&mut session, &editor);
+                        system_msg_err(
+                            error.render_with_color_mode(
+                                session.stderr_color_mode(),
+                                session.backtrace_enabled(),
+                            ),
+                            MsgType::Error,
+                        );
+                        if wqdb_active_for_eval && error.crash().is_some() {
+                            enter_wqdb_after_err(&mut session, &error, &editor);
                         }
                         if time_mode || oneshot_time {
                             system_msg_out(format!("time elapsed: {elapsed_t:?}"), MsgType::Info);

@@ -27,7 +27,7 @@ use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
     register_function_chunks,
 };
-use crate::wqdb::data::{ChunkId, DebugInfo};
+use crate::wqdb::data::{CrashSnapshot, DebugInfo};
 use crate::wqdb::{self};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -124,11 +124,158 @@ impl<'source> SourceUnit<'source> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvaluationPhase {
+    Lex,
+    Parse,
+    Compile,
+    Execute,
+    Host,
+}
+
+/// An evaluation error together with the phase and immutable crash state from
+/// the same evaluation.
+#[derive(Debug, Clone)]
+pub struct EvaluationFailure {
+    pub error: Box<WqError>,
+    pub phase: EvaluationPhase,
+    crash: Option<Arc<CrashSnapshot>>,
+}
+
+impl EvaluationFailure {
+    fn new(mut error: WqError, phase: EvaluationPhase) -> Self {
+        let crash = error.take_crash();
+        let phase = if error.host_failure {
+            EvaluationPhase::Host
+        } else {
+            phase
+        };
+        Self {
+            error: Box::new(error),
+            phase,
+            crash,
+        }
+    }
+
+    pub fn crash(&self) -> Option<&Arc<CrashSnapshot>> {
+        self.crash.as_ref()
+    }
+
+    /// Return an opaque association that a host can attach when it wraps this
+    /// exact evaluation failure in a directive-specific error.
+    pub fn postmortem_token(&self) -> Option<PostmortemToken> {
+        self.crash.as_ref().map(|crash| PostmortemToken {
+            crash: Arc::clone(crash),
+        })
+    }
+
+    pub fn into_error(self) -> WqError {
+        *self.error
+    }
+
+    pub fn render_with_color_mode(&self, color_mode: ColorMode, include_crash: bool) -> String {
+        let Some(crash) = self.crash.as_ref().filter(|_| include_crash) else {
+            return self.error.render_with_color_mode(color_mode);
+        };
+        let mut error = self.error.clone();
+        if crash
+            .frames()
+            .first()
+            .is_some_and(|frame| error_primary_matches_frame(&error, frame))
+        {
+            error.span = None;
+            error.source_ctx = None;
+        }
+
+        let mut rendered = error.render_with_color_mode(color_mode);
+        for (index, frame) in crash.frames().iter().enumerate() {
+            rendered.push('\n');
+            rendered.push_str(&wqdb::format_crash_frame(frame, index == 0, color_mode));
+        }
+        rendered
+    }
+}
+
+fn error_primary_matches_frame(error: &WqError, frame: &crate::wqdb::data::CrashFrame) -> bool {
+    let (Some((start, end)), Some(context)) = (error.span, error.source_ctx.as_deref()) else {
+        return false;
+    };
+    let crate::wqdb::data::CrashFrame::Located {
+        source: Some(source),
+        ..
+    } = frame
+    else {
+        return false;
+    };
+    context.path == source.path.as_ref()
+        && context.text == source.source.as_ref()
+        && start == source.span.start
+        && end == source.span.end
+}
+
+impl std::ops::Deref for EvaluationFailure {
+    type Target = WqError;
+
+    fn deref(&self) -> &Self::Target {
+        &self.error
+    }
+}
+
+impl std::fmt::Display for EvaluationFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::error::Error for EvaluationFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}
+
+pub type EvaluationResult<T> = Result<T, EvaluationFailure>;
+
+/// Opaque proof that a host error wraps one exact evaluation crash.
+#[derive(Debug, Clone)]
+pub struct PostmortemToken {
+    crash: Arc<CrashSnapshot>,
+}
+
+/// A host directive error with an optional explicit postmortem association.
+#[derive(Debug)]
+pub struct DirectiveFailure<DirectiveError> {
+    error: DirectiveError,
+    postmortem: Option<PostmortemToken>,
+}
+
+impl<DirectiveError> DirectiveFailure<DirectiveError> {
+    pub fn new(error: DirectiveError) -> Self {
+        Self {
+            error,
+            postmortem: None,
+        }
+    }
+
+    /// Classify an error while it can still be borrowed, then retain only an
+    /// opaque token owned by the matching evaluation failure.
+    pub fn classify(
+        error: DirectiveError,
+        classify: impl FnOnce(&DirectiveError) -> Option<PostmortemToken>,
+    ) -> Self {
+        let postmortem = classify(&error);
+        Self { error, postmortem }
+    }
+
+    pub fn into_inner(self) -> DirectiveError {
+        self.error
+    }
+}
+
 /// Error returned by [`Session::eval_script_with`] while running code or a
 /// host-provided directive.
 #[derive(Debug)]
 pub enum ScriptRunError<DirectiveError> {
-    Evaluation(WqError),
+    Evaluation(EvaluationFailure),
     Directive(DirectiveError),
 }
 
@@ -332,11 +479,10 @@ impl Session {
         self.vm.halt_status = None;
         self.vm.interrupt_requested.store(false, Ordering::Release);
         self.vm.wqdb.reset_execution_state();
-        self.vm.current_chunk = ChunkId(0);
+        self.vm.current_chunk = None;
         self.vm.runtime_debug_info = false;
         self.vm.debug_src_offset = 0;
-        self.vm.last_backtrace = None;
-        self.vm.last_locals_snapshot = None;
+        self.vm.last_crash = None;
         self.wqdb_arm_next = self.vm.wqdb.is_enabled();
         self.profiler = ProfilerInterpreter::default();
     }
@@ -355,7 +501,7 @@ impl Session {
         self.reset_execution_state();
         self.clear_bindings();
         self.vm.debug_info = DebugInfo::default();
-        self.vm.current_chunk = ChunkId(0);
+        self.vm.current_chunk = None;
     }
 
     pub fn set_interpreter(&mut self, kind: InterpreterKind) {
@@ -445,18 +591,33 @@ impl Session {
     }
 
     /// Evaluate a string of source code and return the resulting value.
-    pub fn eval_string(&mut self, input: &str) -> WqResult<Value> {
+    pub fn eval_string(&mut self, input: &str) -> EvaluationResult<Value> {
         self.eval_source(SourceUnit::snippet(input))
     }
 
     /// Evaluate one explicitly scoped source unit.
-    pub fn eval_source(&mut self, source: SourceUnit<'_>) -> WqResult<Value> {
+    pub fn eval_source(&mut self, source: SourceUnit<'_>) -> EvaluationResult<Value> {
+        self.vm.begin_evaluation();
         self.vm.debug_log.clear_error();
-        let result = self.eval_source_inner(source);
-        if let Some(error) = self.vm.debug_log.take_error() {
-            return Err(host_io_error("debug output", error));
-        }
-        result.map_err(|error| contextualize_source_error(error, source))
+        let mut phase = EvaluationPhase::Lex;
+        let result = self.eval_source_inner(source, &mut phase);
+        let result = if let Some(error) = self.vm.debug_log.take_error() {
+            Err(EvaluationFailure::new(
+                host_io_error("debug output", error),
+                EvaluationPhase::Host,
+            ))
+        } else {
+            result.map_err(|error| {
+                EvaluationFailure::new(contextualize_source_error(error, source), phase)
+            })
+        };
+        let crash = result
+            .as_ref()
+            .err()
+            .and_then(|failure| failure.crash().cloned());
+        self.vm.publish_crash(crash);
+        self.vm.end_evaluation();
+        result
     }
 
     /// Evaluate a complete script using the core script-item pipeline.
@@ -465,20 +626,28 @@ impl Session {
     /// directives require host-specific path and resource resolution, so this
     /// method reports them explicitly instead of silently treating them as wq
     /// code.
-    pub fn eval_script(&mut self, source: SourceUnit<'_>) -> WqResult<Value> {
+    pub fn eval_script(&mut self, source: SourceUnit<'_>) -> EvaluationResult<Value> {
         let items = parse_script_items(source.code);
         if let Some(directive) = items.iter().find_map(|item| match item {
             ScriptItem::Directive(directive) => Some(directive),
             ScriptItem::Shebang { .. } | ScriptItem::Code { .. } => None,
         }) {
-            return Err(script_directive_requires_host(source, directive));
+            self.vm.begin_evaluation();
+            let failure = EvaluationFailure::new(
+                script_directive_requires_host(source, directive),
+                EvaluationPhase::Parse,
+            );
+            self.vm.publish_crash(None);
+            self.vm.end_evaluation();
+            return Err(failure);
         }
 
-        match self.eval_script_items_with(source, items, |_, _| -> WqResult<Option<Value>> {
+        match self.eval_script_with(source, |_, _| -> Result<_, std::convert::Infallible> {
             unreachable!("directives were rejected before evaluation")
         }) {
             Ok(value) => Ok(value.unwrap_or_else(Value::unit)),
-            Err(ScriptRunError::Evaluation(error) | ScriptRunError::Directive(error)) => Err(error),
+            Err(ScriptRunError::Evaluation(error)) => Err(error),
+            Err(ScriptRunError::Directive(never)) => match never {},
         }
     }
 
@@ -497,8 +666,45 @@ impl Session {
             ScriptDirective,
         ) -> Result<Option<Value>, DirectiveError>,
     ) -> Result<Option<Value>, ScriptRunError<DirectiveError>> {
+        self.eval_script_with_postmortem(source, |session, directive| {
+            handle_directive(session, directive).map_err(DirectiveFailure::new)
+        })
+    }
+
+    /// Evaluate a host-driven script while allowing directive errors to carry
+    /// an explicit association with an evaluation failure they wrap.
+    pub fn eval_script_with_postmortem<DirectiveError>(
+        &mut self,
+        source: SourceUnit<'_>,
+        mut handle_directive: impl FnMut(
+            &mut Session,
+            ScriptDirective,
+        )
+            -> Result<Option<Value>, DirectiveFailure<DirectiveError>>,
+    ) -> Result<Option<Value>, ScriptRunError<DirectiveError>> {
+        self.vm.begin_evaluation();
         let items = parse_script_items(source.code);
-        self.eval_script_items_with(source, items, &mut handle_directive)
+        let result = self.eval_script_items_with(source, items, &mut handle_directive);
+        let crash = match &result {
+            Err(ScriptRunError::Evaluation(failure)) => failure.crash().cloned(),
+            Err(ScriptRunError::Directive(failure)) => failure
+                .postmortem
+                .as_ref()
+                .filter(|token| {
+                    self.vm
+                        .last_crash
+                        .as_ref()
+                        .is_some_and(|current| Arc::ptr_eq(current, &token.crash))
+                })
+                .map(|token| Arc::clone(&token.crash)),
+            Ok(_) => None,
+        };
+        self.vm.publish_crash(crash);
+        self.vm.end_evaluation();
+        result.map_err(|error| match error {
+            ScriptRunError::Evaluation(failure) => ScriptRunError::Evaluation(failure),
+            ScriptRunError::Directive(failure) => ScriptRunError::Directive(failure.into_inner()),
+        })
     }
 
     fn eval_script_items_with<DirectiveError>(
@@ -508,8 +714,9 @@ impl Session {
         mut handle_directive: impl FnMut(
             &mut Session,
             ScriptDirective,
-        ) -> Result<Option<Value>, DirectiveError>,
-    ) -> Result<Option<Value>, ScriptRunError<DirectiveError>> {
+        )
+            -> Result<Option<Value>, DirectiveFailure<DirectiveError>>,
+    ) -> Result<Option<Value>, ScriptRunError<DirectiveFailure<DirectiveError>>> {
         let mut last_value = None;
         for item in items {
             if self.halt_status().is_some() {
@@ -542,8 +749,13 @@ impl Session {
         Ok(last_value)
     }
 
-    fn eval_source_inner(&mut self, source: SourceUnit<'_>) -> WqResult<Value> {
+    fn eval_source_inner(
+        &mut self,
+        source: SourceUnit<'_>,
+        phase: &mut EvaluationPhase,
+    ) -> WqResult<Value> {
         let input = source.code;
+        *phase = EvaluationPhase::Lex;
         // If a wqdb entry was armed, record it for the upcoming run.
         let mut lexer = Lexer::new(input).with_ctx(source.full_text, source.base_offset);
         lexer.set_source_path(source.path.to_string());
@@ -563,6 +775,7 @@ impl Session {
             self.write_diagnostic("")?;
         }
 
+        *phase = EvaluationPhase::Parse;
         let builtins = self.vm.builtins.clone();
         let mut parser = Parser::new_with_builtins(tokens, input.to_string(), builtins.clone());
         parser.set_source_path(source.path.to_string());
@@ -612,6 +825,7 @@ impl Session {
         let ast = fold::fold(ast);
         dump_ast("AST @ fold - final", &ast, DebugLogFlags::AST)?;
 
+        *phase = EvaluationPhase::Compile;
         let mut compiler = Compiler::new_with_builtins(builtins);
         compiler.set_fn_spans(parser.fn_body_spans_all().clone());
         compiler.set_source(source.full_text.to_string());
@@ -675,7 +889,7 @@ impl Session {
             return Ok(Value::unit());
         }
 
-        self.vm.clear_last_bt();
+        *phase = EvaluationPhase::Execute;
         self.vm.set_runtime_debug_info(compiler.has_runtime_debug);
         self.vm
             .reset_with_prepared_instructions(prepared_instructions);
@@ -694,13 +908,13 @@ impl Session {
             self.vm.set_debug_src_offset(source.base_offset);
             // Mark statements using a combination of parser spans and heuristics
             {
-                let chunk = self.vm.current_chunk_id();
+                let chunk = self.vm.expect_current_chunk();
                 // Compute file_id first to avoid borrow conflicts
-                let file_id = self.vm.debug_info.chunk(chunk).file_id;
+                let file_id = self.vm.debug_info.expect_chunk(chunk).file_id;
                 // First mark all likely statement PCs
                 {
                     let code = &self.vm.instructions;
-                    let line_table = &mut self.vm.debug_info.chunk_mut(chunk).line_table;
+                    let line_table = &mut self.vm.debug_info.expect_chunk_mut(chunk).line_table;
                     if !compiler.dbg_pc_spans.is_empty() && !compiler.dbg_stmt_marks.is_empty() {
                         let mut pc_spans = compiler.dbg_pc_spans.clone();
                         pc_spans.resize(code.len(), None);
@@ -714,7 +928,7 @@ impl Session {
                         );
                         self.vm
                             .debug_info
-                            .chunk_mut(chunk)
+                            .expect_chunk_mut(chunk)
                             .note_debug_spans(spans.0, spans.1);
                     } else {
                         mark_stmt_heuristic(line_table, code, Some(&self.vm.debug_log));
@@ -729,7 +943,7 @@ impl Session {
                         );
                         self.vm
                             .debug_info
-                            .chunk_mut(chunk)
+                            .expect_chunk_mut(chunk)
                             .note_debug_spans(false, has_real);
                     }
                 }
@@ -791,20 +1005,20 @@ impl Session {
         }
     }
 
-    pub fn dbg_print_bt(&mut self) -> Result<(), WqIoError> {
-        // try captured (innermost) first; else fall back to asking live VM
-        let frames = self
-            .vm
-            .take_last_bt()
-            .unwrap_or_else(|| self.vm.bt_frames());
-        let di = &self.vm.debug_info;
-        let color_mode = self.vm.stderr_color_mode();
-        for (idx, (loc, name)) in frames.iter().enumerate() {
-            let is_current = idx == 0;
-            self.vm
-                .write_stderr_line(&wqdb::format_frame(di, *loc, name, is_current, color_mode))?;
+    pub fn postmortem_available(&self, failure: &EvaluationFailure) -> bool {
+        let (Some(failure_crash), Some(session_crash)) =
+            (failure.crash(), self.vm.last_crash.as_ref())
+        else {
+            return false;
+        };
+        Arc::ptr_eq(failure_crash, session_crash)
+    }
+
+    pub fn postmortem_debugger(&mut self, failure: &EvaluationFailure) -> Option<Debugger<'_>> {
+        if !self.postmortem_available(failure) {
+            return None;
         }
-        Ok(())
+        Some(Debugger::new(&mut self.vm))
     }
 
     /// Assign a value to a global variable by name via the slot-based global
@@ -817,6 +1031,7 @@ impl Session {
 fn host_io_error(source: &str, error: WqIoError) -> WqError {
     WqError::new(WqErrorType::Io)
         .src(source)
+        .host_failure()
         .attach_note(format!("host I/O error: {error}"))
 }
 
@@ -1291,7 +1506,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .chunk_opt(crate::wqdb::data::ChunkId(0))
+                .get_chunk(crate::wqdb::data::ChunkId(0))
                 .is_none()
         );
     }
@@ -1375,7 +1590,7 @@ mod tests {
                     .debug_info()
                     .function_chunk("f")
                     .expect("f function chunk");
-                let meta = debugger.debug_info().chunk(chunk);
+                let meta = debugger.debug_info().expect_chunk(chunk);
                 let pc = (0..meta.len)
                     .find(|pc| meta.line_table.is_stmt(*pc))
                     .unwrap_or(0);
@@ -1421,9 +1636,9 @@ mod tests {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let captured_lines = Arc::clone(&lines);
         let mut session = Session::new();
-        session.set_pause_handler(move |_, debugger| {
-            let loc = debugger.location();
-            let meta = debugger.debug_info().chunk(loc.chunk);
+        session.set_pause_handler(move |event, debugger| {
+            let loc = event.location;
+            let meta = debugger.debug_info().expect_chunk(loc.chunk);
             let span = meta.line_table.context_span_at(loc.pc);
             if let Some(source) = debugger.debug_info().file(span.file_id) {
                 captured_lines
@@ -1454,9 +1669,9 @@ mod tests {
         let captured_phase = Arc::clone(&phase);
         let captured_targets = Arc::clone(&targets);
         let mut session = Session::new();
-        session.set_pause_handler(move |_, debugger| {
+        session.set_pause_handler(move |event, debugger| {
             debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
-            let loc = debugger.location();
+            let loc = event.location;
             let name = debugger.function_name(loc.chunk);
             let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
             match captured_phase.load(Ordering::SeqCst) {
@@ -1516,9 +1731,9 @@ mod tests {
         let captured_phase = Arc::clone(&phase);
         let captured_target = Arc::clone(&target);
         let mut session = Session::new();
-        session.set_pause_handler(move |_, debugger| {
+        session.set_pause_handler(move |event, debugger| {
             debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
-            let loc = debugger.location();
+            let loc = event.location;
             let name = debugger.function_name(loc.chunk);
             let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
             if captured_phase.load(Ordering::SeqCst) == 0 {
@@ -1560,9 +1775,9 @@ mod tests {
         let captured_phase = Arc::clone(&phase);
         let captured_target = Arc::clone(&target);
         let mut session = Session::new();
-        session.set_pause_handler(move |_, debugger| {
+        session.set_pause_handler(move |event, debugger| {
             debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
-            let loc = debugger.location();
+            let loc = event.location;
             let name = debugger.function_name(loc.chunk);
             let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
             if captured_phase.load(Ordering::SeqCst) == 0 {
@@ -1614,7 +1829,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .chunk_opt(crate::wqdb::data::ChunkId(0))
+                .get_chunk(crate::wqdb::data::ChunkId(0))
                 .is_none(),
             "idle pause callback should not create debug chunks when bt and wqdb are off"
         );
@@ -1642,7 +1857,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .chunk_opt(crate::wqdb::data::ChunkId(0))
+                .get_chunk(crate::wqdb::data::ChunkId(0))
                 .is_some(),
             "@p should still request debug artifacts for the pause callback"
         );

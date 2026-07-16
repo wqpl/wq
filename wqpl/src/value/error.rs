@@ -104,7 +104,10 @@ mod tests {
         let error = expected_string1(&value);
 
         assert_eq!(error.msg.as_deref(), Some("expected char or string"));
-        assert_eq!(error.notes, vec!["unexpected element '2' (int) at [1]"]);
+        assert_eq!(
+            error.notes.as_slice(),
+            ["unexpected element '2' (int) at [1]"]
+        );
     }
 
     #[test]
@@ -114,6 +117,9 @@ mod tests {
         let error = expected_bytes1(&value);
 
         assert_eq!(error.msg.as_deref(), Some("expected list<int in 0..=255>"));
-        assert_eq!(error.notes, vec!["unexpected element '256' (int) at [1]"]);
+        assert_eq!(
+            error.notes.as_slice(),
+            ["unexpected element '256' (int) at [1]"]
+        );
     }
 }

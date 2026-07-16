@@ -51,8 +51,10 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: Runt
         }
         Err(err) => {
             print_load_error(&err, &mut evaluator);
-            if evaluator.is_wqdb_enabled() && err.is_runtime() {
-                enter_wqdb_after_err(&mut evaluator, &editor);
+            if evaluator.is_wqdb_enabled()
+                && let Some(failure) = err.evaluation_failure()
+            {
+                enter_wqdb_after_err(&mut evaluator, failure, &editor);
             }
             1
         }
@@ -99,8 +101,10 @@ pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 
         }
         Err(err) => {
             print_load_error(&err, &mut session);
-            if session.is_wqdb_enabled() && err.is_runtime() {
-                enter_wqdb_after_err(&mut session, &editor);
+            if session.is_wqdb_enabled()
+                && let Some(failure) = err.evaluation_failure()
+            {
+                enter_wqdb_after_err(&mut session, failure, &editor);
             }
             1
         }

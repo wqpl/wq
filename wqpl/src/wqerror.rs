@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::{Excerpt as _, Value};
-use crate::wqdb::data::{CodeLoc, DebugInfo};
+use crate::wqdb::data::{CrashFrame, CrashSnapshot, DebugInfo};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceCtx {
@@ -12,17 +12,31 @@ pub struct SourceCtx {
     pub path: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct WqError {
     pub err_type: WqErrorType,
     pub src: Option<String>,
     pub msg: Option<String>,
-    pub notes: Vec<String>,
+    pub notes: Box<Vec<String>>,
     pub data: Arc<IndexMap<Arc<str>, Value>>,
     /// Byte span of the offending token(s) in the source, if known.
     pub span: Option<(usize, usize)>,
     /// Source context (text + path) for rendering the span snippet.
     pub source_ctx: Option<Box<SourceCtx>>,
+    pub(crate) crash: Option<Arc<CrashSnapshot>>,
+    pub(crate) host_failure: bool,
+}
+
+impl PartialEq for WqError {
+    fn eq(&self, other: &Self) -> bool {
+        self.err_type == other.err_type
+            && self.src == other.src
+            && self.msg == other.msg
+            && self.notes == other.notes
+            && self.data == other.data
+            && self.span == other.span
+            && self.source_ctx == other.source_ctx
+    }
 }
 
 impl WqError {
@@ -31,10 +45,12 @@ impl WqError {
             err_type,
             src: None,
             msg: None,
-            notes: Vec::new(),
+            notes: Box::default(),
             data: Arc::new(IndexMap::new()),
             span: None,
             source_ctx: None,
+            crash: None,
+            host_failure: false,
         }
     }
 
@@ -71,6 +87,20 @@ impl WqError {
         self
     }
 
+    pub(crate) fn with_crash(mut self, crash: Arc<CrashSnapshot>) -> Self {
+        self.crash = Some(crash);
+        self
+    }
+
+    pub(crate) fn take_crash(&mut self) -> Option<Arc<CrashSnapshot>> {
+        self.crash.take()
+    }
+
+    pub(crate) fn host_failure(mut self) -> Self {
+        self.host_failure = true;
+        self
+    }
+
     pub(crate) fn got1(mut self, v: &Value) -> Self {
         self = self.attach_note(format!("got '{}' ({})", v.excerpt(), v.type_name()));
         self
@@ -97,11 +127,7 @@ impl WqError {
     }
 
     /// Convert this error into the stable wq-side error payload used by `@t`.
-    pub(crate) fn to_wq_value(
-        &self,
-        debug_info: &DebugInfo,
-        backtrace: &[(CodeLoc, Arc<str>)],
-    ) -> Value {
+    pub(crate) fn to_wq_value(&self, debug_info: &DebugInfo, frames: &[CrashFrame]) -> Value {
         value_dict([
             ("version", Value::Int(1)),
             ("kind", Value::Tag(Arc::from(self.err_type.name()))),
@@ -116,7 +142,7 @@ impl WqError {
                     .map(string_value)
                     .unwrap_or_else(Value::unit),
             ),
-            ("span", self.wq_span_value(debug_info, backtrace)),
+            ("span", self.wq_span_value(debug_info, frames)),
             (
                 "notes",
                 Value::List(Arc::new(
@@ -124,47 +150,72 @@ impl WqError {
                 )),
             ),
             ("data", Value::Dict(Arc::clone(&self.data))),
-            ("stack", wq_stack_value(debug_info, backtrace)),
+            ("stack", wq_stack_value(debug_info, frames)),
             ("cause", Value::unit()),
         ])
     }
 
-    fn wq_span_value(&self, debug_info: &DebugInfo, backtrace: &[(CodeLoc, Arc<str>)]) -> Value {
+    fn wq_span_value(&self, debug_info: &DebugInfo, frames: &[CrashFrame]) -> Value {
         if let (Some((start, end)), Some(source)) = (self.span, self.source_ctx.as_deref()) {
             return span_value(&source.path, &source.text, start, end);
         }
 
-        let Some((loc, _)) = backtrace.first() else {
+        let Some(frame) = frames.first() else {
             return Value::unit();
         };
-        let Some(chunk) = debug_info.chunk_opt(loc.chunk) else {
+        let CrashFrame::Located {
+            location, source, ..
+        } = frame
+        else {
             return Value::unit();
         };
-        let span = chunk.line_table.context_span_at(loc.pc);
-        let Some(file) = debug_info.file(span.file_id) else {
+        if let Some(source) = source {
+            return span_value(
+                &source.path,
+                &source.source,
+                source.span.start,
+                source.span.end,
+            );
+        }
+        let Some(resolved) = debug_info.resolve_location(*location) else {
             return Value::unit();
         };
-        span_value(&file.path, &file.text, span.start, span.end)
+        let Some(source) = resolved.source else {
+            return Value::unit();
+        };
+        span_value(
+            &source.path,
+            &source.source,
+            source.span.start,
+            source.span.end,
+        )
     }
 }
 
-fn wq_stack_value(debug_info: &DebugInfo, backtrace: &[(CodeLoc, Arc<str>)]) -> Value {
-    let frames = backtrace
+fn wq_stack_value(debug_info: &DebugInfo, frames: &[CrashFrame]) -> Value {
+    let frames = frames
         .iter()
-        .map(|(loc, name)| {
-            let location = debug_info.chunk_opt(loc.chunk).and_then(|chunk| {
-                let span = chunk.line_table.context_span_at(loc.pc);
-                debug_info.file(span.file_id).map(|file| {
-                    let byte = clamp_byte_boundary(&file.text, span.start);
-                    (Arc::clone(&file.path), byte, file.display_line_col(byte))
-                })
-            });
-            let (path, byte, line, column) = if let Some((path, byte, (line, column))) = location {
+        .map(|frame| {
+            let (name, source) = match frame {
+                CrashFrame::Located {
+                    function,
+                    location,
+                    source,
+                    ..
+                } => (
+                    function.as_ref(),
+                    source
+                        .clone()
+                        .or_else(|| debug_info.resolve_location(*location)?.source),
+                ),
+                CrashFrame::TailCallsOmitted => (frame.function(), None),
+            };
+            let (path, byte, line, column) = if let Some(source) = source {
                 (
-                    string_value(&path),
-                    usize_value(byte),
-                    usize_value(line),
-                    usize_value(column),
+                    string_value(&source.path),
+                    usize_value(source.span.start),
+                    usize_value(source.line),
+                    usize_value(source.column),
                 )
             } else {
                 (Value::unit(), Value::unit(), Value::unit(), Value::unit())
@@ -261,15 +312,6 @@ pub enum WqErrorType {
 }
 
 impl WqErrorType {
-    pub const fn is_runtime(&self) -> bool {
-        !self.is_compile_time()
-    }
-
-    pub const fn is_compile_time(&self) -> bool {
-        use WqErrorType as W;
-        matches!(self, W::Eof | W::Syntax)
-    }
-
     pub const fn name(&self) -> &'static str {
         use WqErrorType as W;
         match self {

@@ -4,8 +4,9 @@ use wqpl::interpret::InterpreterKind;
 use wqpl::script::ScriptSpan;
 use wqpl::session::dbglog::DebugLogFlags;
 use wqpl::session::stdio::{WqInput, WqIoError, WqOutput};
-use wqpl::session::{Session, SourceUnit};
-use wqpl::wqdb::data::{ChunkId, CodeLoc};
+use wqpl::session::{DirectiveFailure, EvaluationPhase, ScriptRunError, Session, SourceUnit};
+use wqpl::value::Value;
+use wqpl::wqdb::data::{ChunkId, CodeLoc, CrashFrame};
 
 #[derive(Clone)]
 struct CapturedOutput {
@@ -19,6 +20,14 @@ impl WqOutput for CapturedOutput {
             .expect("captured output lock should not be poisoned")
             .push_str(text);
         Ok(())
+    }
+}
+
+struct FailingOutput;
+
+impl WqOutput for FailingOutput {
+    fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
+        Err(WqIoError::Other("diagnostic sink failed".to_string()))
     }
 }
 
@@ -232,6 +241,7 @@ fn source_context_is_scoped_to_one_evaluation() {
         .eval_source(source)
         .expect_err("incomplete fragment should fail");
     let fragment_context = fragment_error
+        .error
         .source_ctx
         .expect("fragment error should retain source context");
     assert_eq!(fragment_context.path, "nested/example.wq");
@@ -241,6 +251,7 @@ fn source_context_is_scoped_to_one_evaluation() {
         .eval_string("2+")
         .expect_err("incomplete snippet should fail");
     let snippet_context = snippet_error
+        .error
         .source_ctx
         .expect("snippet error should retain source context");
     assert_eq!(snippet_context.path, "<eval>");
@@ -268,6 +279,7 @@ fn source_fragment_compiler_errors_use_full_source_coordinates() {
 
     assert_eq!(error.span, Some((start, start + 2)));
     let context = error
+        .error
         .source_ctx
         .expect("compiler error should retain source context");
     assert_eq!(context.path, "nested/compiler.wq");
@@ -286,11 +298,405 @@ fn calling_a_bound_function_preserves_its_defining_source_context() {
         .eval_source(SourceUnit::named("caller.wq", "fail[]"))
         .expect_err("bound function should fail");
     let context = error
+        .error
         .source_ctx
         .expect("runtime error should retain defining source context");
 
     assert_eq!(context.path, "definition.wq");
     assert_eq!(context.text, "fail:{1/0}");
+}
+
+#[test]
+fn nested_runtime_errors_do_not_require_debug_artifacts() {
+    let mut session = Session::new();
+    session.set_backtrace_enabled(false);
+
+    let error = session
+        .eval_source(SourceUnit::named("no-backtrace.wq", "fail:{1/0};fail[]"))
+        .expect_err("nested call should report division by zero");
+
+    assert_eq!(error.err_type, wqpl::wqerror::WqErrorType::ZeroDiv);
+    assert!(error.crash().is_none());
+}
+
+#[test]
+fn disabling_backtraces_prevents_stale_source_attachment() {
+    let mut session = Session::new();
+    session
+        .eval_source(SourceUnit::named("old.wq", "f:{2/1};f[]"))
+        .expect("old evaluation should succeed");
+    session.set_backtrace_enabled(false);
+
+    let error = session
+        .eval_source(SourceUnit::named("new.wq", "f:{1/0};f[]"))
+        .expect_err("new function should fail");
+
+    assert_eq!(error.err_type, wqpl::wqerror::WqErrorType::ZeroDiv);
+    assert!(error.crash().is_none());
+    if let Some(context) = error.source_ctx.as_deref() {
+        assert_eq!(context.path, "new.wq");
+    }
+}
+
+#[test]
+fn top_level_runtime_errors_retain_their_source_context() {
+    let mut session = Session::new();
+
+    let error = session
+        .eval_source(SourceUnit::named("direct.wq", "1/0"))
+        .expect_err("division by zero should fail");
+    assert_eq!(error.phase, EvaluationPhase::Execute);
+    let context = error
+        .error
+        .source_ctx
+        .as_deref()
+        .expect("runtime error should retain its source context");
+
+    assert_eq!(context.path, "direct.wq");
+    assert_eq!(context.text, "1/0");
+    assert_eq!(error.span, Some((0, 3)));
+    assert_eq!(
+        error
+            .crash()
+            .expect("execution failure should carry a crash")
+            .frames()
+            .first()
+            .map(CrashFrame::function),
+        Some("<script>")
+    );
+}
+
+#[test]
+fn callback_runtime_errors_retain_their_source_context() {
+    let mut session = Session::new();
+    let source = "f:{[den]1/den};map[(2;0);f]";
+
+    let error = session
+        .eval_source(SourceUnit::named("callback.wq", source))
+        .expect_err("callback should fail");
+    let context = error
+        .error
+        .source_ctx
+        .as_deref()
+        .expect("callback error should retain its source context");
+
+    assert_eq!(context.path, "callback.wq");
+    assert_eq!(context.text, source);
+    assert_eq!(error.span, Some((8, 13)));
+    let frames = error
+        .crash()
+        .expect("callback error should carry a crash")
+        .frames();
+    assert_eq!(
+        frames.iter().map(CrashFrame::function).collect::<Vec<_>>(),
+        ["f", "<script>"]
+    );
+    assert!(
+        frames
+            .first()
+            .and_then(CrashFrame::locals)
+            .is_some_and(|locals| locals.contains(&(0, Value::Int(0)))),
+        "f should retain the failing den argument"
+    );
+}
+
+#[test]
+fn runtime_failures_match_across_interpreters_without_leaking_postmortem_state() {
+    let source_text = "inner:{1/0};outer:{inner[];0};outer[]";
+    let mut vanilla_failure = None;
+
+    for kind in [
+        InterpreterKind::Vanilla,
+        InterpreterKind::Sample,
+        InterpreterKind::Profiler,
+    ] {
+        let (output, _) = capture();
+        let mut session = Session::new();
+        session.set_stderr(Box::new(output));
+        session.set_color_mode(wqpl::style::ColorMode::Never);
+        session.set_interpreter(kind);
+
+        let failure = session
+            .eval_source(SourceUnit::named("interpreter-parity.wq", source_text))
+            .expect_err("nested division should fail");
+        let context = failure
+            .error
+            .source_ctx
+            .as_deref()
+            .expect("runtime failure should retain source context");
+        let observed = (
+            failure.phase,
+            failure.err_type,
+            failure.span,
+            context.path.clone(),
+            context.text.clone(),
+            failure
+                .crash()
+                .expect("runtime failure should retain a crash")
+                .frames()
+                .iter()
+                .map(|frame| frame.function().to_string())
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(observed.0, EvaluationPhase::Execute);
+        assert_eq!(observed.2, Some((7, 10)));
+        assert_eq!(observed.3, "interpreter-parity.wq");
+        assert_eq!(observed.4, source_text);
+        assert_eq!(observed.5, ["inner", "outer", "<script>"]);
+        assert!(session.postmortem_available(&failure));
+
+        if let Some(expected) = &vanilla_failure {
+            assert_eq!(&observed, expected, "{} diverged from vanilla", kind.name());
+        } else {
+            vanilla_failure = Some(observed);
+        }
+
+        session
+            .eval_source(SourceUnit::named("clean.wq", "42"))
+            .expect("later evaluation should succeed");
+        assert!(!session.postmortem_available(&failure));
+        assert!(session.debugger().backtrace().is_empty());
+    }
+}
+
+#[test]
+fn nested_calls_preserve_tail_call_history_in_logical_order() {
+    let mut session = Session::new();
+    let failure = session
+        .eval_source(SourceUnit::named(
+            "tail-history.wq",
+            "h:{1/0};g:{h[];0};f:{g[]};f[]",
+        ))
+        .expect_err("h should divide by zero");
+    let frames = failure
+        .crash()
+        .expect("runtime failure should retain a crash")
+        .frames()
+        .iter()
+        .map(|frame| frame.function())
+        .collect::<Vec<_>>();
+
+    assert_eq!(frames, ["h", "g", "f", "<script>"]);
+}
+
+#[test]
+fn repeated_non_tail_recursion_preserves_every_frame_and_its_locals() {
+    let mut session = Session::new();
+    let failure = session
+        .eval_source(SourceUnit::named(
+            "recursive.wq",
+            "f:{[n]$[n=0;1/0;1+f[n-1]]};f[3]",
+        ))
+        .expect_err("base case should divide by zero");
+    let ns = failure
+        .crash()
+        .expect("runtime failure should retain a crash")
+        .frames()
+        .iter()
+        .filter(|frame| frame.function() == "f")
+        .map(|frame| {
+            frame
+                .locals()
+                .and_then(|locals| locals.first())
+                .map(|(_, value)| value.clone())
+                .expect("recursive frame should retain n")
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        ns,
+        [Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3)]
+    );
+}
+
+#[test]
+fn repeated_tail_recursion_preserves_ring_entries_and_marks_overflow() {
+    let mut session = Session::new();
+    let failure = session
+        .eval_source(SourceUnit::named(
+            "tail-recursive.wq",
+            "f:{[n]$[n=0;1/0;f[n-1]]};f[140]",
+        ))
+        .expect_err("base case should divide by zero");
+    let frames = failure
+        .crash()
+        .expect("runtime failure should retain a crash")
+        .frames();
+
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| frame.function() == "f")
+            .count(),
+        129
+    );
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| matches!(frame, CrashFrame::TailCallsOmitted))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn rejected_tail_call_does_not_add_a_phantom_caller_frame() {
+    let mut session = Session::new();
+    let failure = session
+        .eval_source(SourceUnit::named("bad-tail-call.wq", "f:{[x]x};f[]"))
+        .expect_err("tail call should reject the missing argument");
+    let frames = failure
+        .crash()
+        .expect("runtime failure should retain a crash")
+        .frames()
+        .iter()
+        .map(CrashFrame::function)
+        .collect::<Vec<_>>();
+
+    assert_eq!(frames, ["<script>"]);
+}
+
+#[test]
+fn frontend_failure_clears_postmortem_without_mutating_the_old_failure() {
+    let mut session = Session::new();
+    let runtime = session
+        .eval_source(SourceUnit::named("runtime.wq", "f:{1/0};f[]"))
+        .expect_err("runtime evaluation should fail");
+    let first_render = runtime.render_with_color_mode(wqpl::style::ColorMode::Never, true);
+
+    assert!(runtime.crash().is_some());
+    assert!(session.postmortem_available(&runtime));
+    assert_eq!(
+        first_render,
+        runtime.render_with_color_mode(wqpl::style::ColorMode::Never, true)
+    );
+
+    let syntax = session
+        .eval_source(SourceUnit::named("syntax.wq", "1+"))
+        .expect_err("incomplete expression should fail");
+
+    assert!(matches!(
+        syntax.phase,
+        EvaluationPhase::Parse | EvaluationPhase::Compile
+    ));
+    assert!(syntax.crash().is_none());
+    assert!(!session.postmortem_available(&runtime));
+    assert!(!session.postmortem_available(&syntax));
+    assert_eq!(
+        first_render,
+        runtime.render_with_color_mode(wqpl::style::ColorMode::Never, true)
+    );
+}
+
+#[test]
+fn postmortem_frames_keep_aligned_locals_and_owned_source() {
+    let mut session = Session::new();
+    let failure = session
+        .eval_source(SourceUnit::named(
+            "locals.wq",
+            "inner:{[den]marker:41;marker/den};outer:{[arg]inner[arg];0};outer 0",
+        ))
+        .expect_err("inner should divide by zero");
+    let rendered = failure.render_with_color_mode(wqpl::style::ColorMode::Never, true);
+
+    {
+        let debugger = session
+            .postmortem_debugger(&failure)
+            .expect("matching failure should provide postmortem state");
+        let frames = debugger.backtrace();
+        let inner_index = frames
+            .iter()
+            .position(|frame| frame.function() == "inner")
+            .expect("inner frame");
+        let outer_index = frames
+            .iter()
+            .position(|frame| frame.function() == "outer")
+            .expect("outer frame");
+        let inner = debugger
+            .frame_locals(inner_index)
+            .expect("inner locals should align with inner frame");
+        let outer = debugger
+            .frame_locals(outer_index)
+            .expect("outer locals should align with outer frame");
+
+        assert!(inner.locals.contains(&(0, Value::Int(0))));
+        assert!(inner.locals.contains(&(1, Value::Int(41))));
+        assert!(outer.locals.contains(&(0, Value::Int(0))));
+    }
+
+    session.reset_workspace();
+    assert_eq!(
+        rendered,
+        failure.render_with_color_mode(wqpl::style::ColorMode::Never, true)
+    );
+}
+
+#[test]
+fn host_diagnostic_failure_never_reuses_a_runtime_crash() {
+    let mut session = Session::new();
+    let runtime = session
+        .eval_string("f:{1/0};f[]")
+        .expect_err("runtime evaluation should fail");
+    assert!(session.postmortem_available(&runtime));
+
+    session.set_stderr(Box::new(FailingOutput));
+    session.set_debug_flags(DebugLogFlags::parse("token").expect("debug flags"));
+    let host = session
+        .eval_string("1")
+        .expect_err("diagnostic output should fail");
+
+    assert_eq!(host.phase, EvaluationPhase::Host);
+    assert_eq!(host.err_type, wqpl::wqerror::WqErrorType::Io);
+    assert!(host.crash().is_none());
+    assert!(!session.postmortem_available(&runtime));
+}
+
+#[test]
+fn caught_errors_expose_their_stack_without_leaving_postmortem_state() {
+    let mut session = Session::new();
+    let value = session
+        .eval_string("f:{1/0};@t f[]")
+        .expect("try should catch the function error");
+    let Value::List(result) = value else {
+        panic!("expected tagged try result");
+    };
+    let Value::Dict(error) = &result[1] else {
+        panic!("expected structured error payload");
+    };
+    let Value::List(stack) = error.get("stack").expect("error stack") else {
+        panic!("expected stack list");
+    };
+
+    assert!(!stack.is_empty());
+    assert!(session.debugger().backtrace().is_empty());
+}
+
+#[test]
+fn wqdb_captures_postmortem_state_when_automatic_backtraces_are_off() {
+    let mut session = Session::new();
+    session.set_backtrace_enabled(false);
+    session.set_wqdb(true);
+
+    let failure = session
+        .eval_string("f:{[x]y:41;1/0};f 3")
+        .expect_err("function should fail");
+
+    assert!(failure.crash().is_some());
+    assert!(session.postmortem_available(&failure));
+}
+
+#[test]
+fn a_caught_error_cannot_poison_a_later_unhandled_error() {
+    let mut session = Session::new();
+
+    let failure = session
+        .eval_string("f:{1/0};caught:@t f[];missing[]")
+        .expect_err("missing function should remain unhandled");
+    let frames = failure.crash().expect("unhandled error crash").frames();
+
+    assert_eq!(failure.err_type, wqpl::wqerror::WqErrorType::NotBound);
+    assert!(frames.iter().all(|frame| frame.function() != "f"));
 }
 
 #[test]
@@ -362,6 +768,175 @@ fn host_script_evaluation_owns_fragments_directives_and_last_value() {
 }
 
 #[test]
+fn outer_script_success_clears_old_postmortem_for_empty_and_directive_only() {
+    let mut session = Session::new();
+    let before_empty = session
+        .eval_string("f:{1/0};f[]")
+        .expect_err("first runtime evaluation should fail");
+    assert!(session.postmortem_available(&before_empty));
+
+    let empty = session
+        .eval_script_with(SourceUnit::named("empty.wq", ""), |_, _| {
+            Ok::<_, &'static str>(None)
+        })
+        .expect("empty script should succeed");
+
+    assert_eq!(empty, None);
+    assert!(!session.postmortem_available(&before_empty));
+    assert!(session.debugger().backtrace().is_empty());
+
+    let before_directive = session
+        .eval_string("g:{1/0};g[]")
+        .expect_err("second runtime evaluation should fail");
+    assert!(session.postmortem_available(&before_directive));
+
+    let directive = session
+        .eval_script_with(
+            SourceUnit::named("directive-only.wq", "\\load value\n"),
+            |_, _| Ok::<_, &'static str>(Some(Value::Int(7))),
+        )
+        .expect("directive-only script should succeed");
+
+    assert_eq!(directive, Some(Value::Int(7)));
+    assert!(!session.postmortem_available(&before_directive));
+    assert!(session.debugger().backtrace().is_empty());
+}
+
+#[test]
+fn outer_script_plain_directive_discards_a_swallowed_nested_failure() {
+    let mut session = Session::new();
+    let result = session.eval_script_with_postmortem(
+        SourceUnit::named("outer.wq", "\\load nested\n"),
+        |session, _| {
+            let nested = session
+                .eval_source(SourceUnit::named("nested.wq", "nested:{1/0};nested[]"))
+                .expect_err("nested evaluation should fail");
+            assert!(session.postmortem_available(&nested));
+            Err(DirectiveFailure::new("plain directive failure"))
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(ScriptRunError::Directive("plain directive failure"))
+    ));
+    assert!(session.debugger().backtrace().is_empty());
+}
+
+#[test]
+fn outer_script_associated_directive_preserves_its_exact_nested_failure() {
+    let mut session = Session::new();
+    let result = session.eval_script_with_postmortem(
+        SourceUnit::named("outer.wq", "\\load nested\n"),
+        |session, _| {
+            let nested = session
+                .eval_source(SourceUnit::named("nested.wq", "nested:{1/0};nested[]"))
+                .expect_err("nested evaluation should fail");
+            Err(DirectiveFailure::classify(nested, |failure| {
+                failure.postmortem_token()
+            }))
+        },
+    );
+    let nested = match result {
+        Err(ScriptRunError::Directive(failure)) => failure,
+        Ok(_) => panic!("associated directive should fail"),
+        Err(ScriptRunError::Evaluation(_)) => panic!("directive should wrap the nested failure"),
+    };
+
+    assert!(session.postmortem_available(&nested));
+    assert_eq!(
+        nested
+            .crash()
+            .expect("nested failure should retain its crash")
+            .frames()
+            .first()
+            .map(CrashFrame::function),
+        Some("nested")
+    );
+    assert_eq!(
+        nested
+            .error
+            .source_ctx
+            .as_deref()
+            .expect("nested source context")
+            .path,
+        "nested.wq"
+    );
+}
+
+#[test]
+fn outer_script_rejects_a_stale_same_session_postmortem_token() {
+    let mut session = Session::new();
+    let prior = session
+        .eval_string("prior:{1/0};prior[]")
+        .expect_err("prior runtime evaluation should fail");
+    let token = prior.postmortem_token().expect("prior crash token");
+
+    let result = session.eval_script_with_postmortem(
+        SourceUnit::named("outer.wq", "\\load stale\n"),
+        |_, _| {
+            Err(DirectiveFailure::classify("stale token", |_| {
+                Some(token.clone())
+            }))
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(ScriptRunError::Directive("stale token"))
+    ));
+    assert!(!session.postmortem_available(&prior));
+    assert!(session.debugger().backtrace().is_empty());
+}
+
+#[test]
+fn outer_script_rejects_a_cross_session_postmortem_token() {
+    let mut source_session = Session::new();
+    let foreign = source_session
+        .eval_string("foreign:{1/0};foreign[]")
+        .expect_err("foreign runtime evaluation should fail");
+    let token = foreign.postmortem_token().expect("foreign crash token");
+    let mut target_session = Session::new();
+
+    let result = target_session.eval_script_with_postmortem(
+        SourceUnit::named("outer.wq", "\\load foreign\n"),
+        |_, _| {
+            Err(DirectiveFailure::classify("foreign token", |_| {
+                Some(token.clone())
+            }))
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(ScriptRunError::Directive("foreign token"))
+    ));
+    assert!(source_session.postmortem_available(&foreign));
+    assert!(target_session.debugger().backtrace().is_empty());
+}
+
+#[test]
+fn outer_script_plain_directive_cannot_inherit_a_prior_runtime_crash() {
+    let mut session = Session::new();
+    let prior = session
+        .eval_string("prior:{1/0};prior[]")
+        .expect_err("prior runtime evaluation should fail");
+    assert!(session.postmortem_available(&prior));
+
+    let result = session.eval_script_with(
+        SourceUnit::named("plain-directive.wq", "\\load missing\n"),
+        |_, _| Err::<Option<Value>, _>("plain directive failure"),
+    );
+
+    assert!(matches!(
+        result,
+        Err(ScriptRunError::Directive("plain directive failure"))
+    ));
+    assert!(!session.postmortem_available(&prior));
+    assert!(session.debugger().backtrace().is_empty());
+}
+
+#[test]
 fn core_script_evaluation_reports_host_resolved_directives() {
     let mut session = Session::new();
     let source = SourceUnit::named("script.wq", "a:1\n\\l ./library.wq\na\n");
@@ -378,7 +953,11 @@ fn core_script_evaluation_reports_host_resolved_directives() {
             .is_some_and(|message| message.contains("host loader"))
     );
     assert_eq!(
-        error.source_ctx.expect("directive source context").path,
+        error
+            .error
+            .source_ctx
+            .expect("directive source context")
+            .path,
         "script.wq"
     );
     assert!(!session.bindings().contains_key("a"));

@@ -1,17 +1,14 @@
 ▍ Error at <TEST_PATH>
   zero-div: cannot divide by 0
   - from binary operator /
-  - at <TEST_PATH>
-       4 ->     1/0]
-                ~~~
-* at a, <TEST_PATH>
-|    3      N[3;
-|    4 ->     1/0]
-|             ~~~
-|    5    }
-+ at <script>, <TEST_PATH>
-|    6    
-|    7 -> a[]
-|         ~~~
-|    8    
+  * at a, <TEST_PATH>
+  |    3      N[3;
+  |    4 ->     1/0]
+  |             ~~~
+  |    5    }
+  + at <script>, <TEST_PATH>
+  |    6
+  |    7 -> a[]
+  |         ~~~
+  |    8
 ▍ Import stack: <TEST_PATH>

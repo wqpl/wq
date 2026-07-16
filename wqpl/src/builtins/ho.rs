@@ -25,10 +25,13 @@ fn call_pure_or_vm1(
     arg: &Value,
 ) -> WqResult<Value> {
     if let Some(pure) = pure
-        && let Some(value) = pure.eval(&[arg])?
+        && let Ok(Some(value)) = pure.eval(&[arg])
     {
         return Ok(value);
     }
+    // A pure-plan miss or failure deoptimizes to the framed VM call. This keeps
+    // the successful hot path cheap while making VM execution authoritative for
+    // errors, including their exact source location and callback frame.
     vm.call(func, BuiltinFnArgs::from(arg.clone()))
 }
 
@@ -41,7 +44,7 @@ fn call_pure_or_vm2(
     right: &Value,
 ) -> WqResult<Value> {
     if let Some(pure) = pure
-        && let Some(value) = pure.eval(&[left, right])?
+        && let Ok(Some(value)) = pure.eval(&[left, right])
     {
         return Ok(value);
     }
@@ -1060,6 +1063,33 @@ mod tests {
             ],
         );
         let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
+    }
+
+    #[test]
+    fn map_pure_fast_path_stays_enabled_when_only_backtraces_are_requested() {
+        let mut vm = Vm::new(vec![]);
+        vm.set_backtrace_enabled(true);
+        vm.max_call_depth = 0;
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let f = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Add,
+                    Operand::Stack,
+                    Operand::Stack,
+                ),
+                Instruction::Return,
+            ],
+        );
+
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f]))
+            .expect("backtrace mapping should retain the pure callback fast path");
+
         assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
     }
 

@@ -53,7 +53,7 @@ impl VanillaInterpreter {
                     return Ok(value);
                 }
                 Err(err) => {
-                    vm.capture_bt_if_empty();
+                    let err = vm.record_execution_failure(err);
                     if !Self::catch_current_try_error(vm, &err) {
                         return Err(err);
                     }
@@ -97,16 +97,13 @@ impl VanillaInterpreter {
                     record_trace_probe(vm, prev);
                 }
                 if vm.wqdb.is_enabled() {
-                    let here = CodeLoc {
-                        chunk: vm.current_chunk,
-                        pc: vm.pc,
-                    };
+                    let chunk = vm.expect_current_chunk();
+                    let here = CodeLoc { chunk, pc: vm.pc };
                     let depth = vm.call_depth();
                     if let Some(reason) =
                         vm.wqdb
                             .pause_reason_at(&vm.debug_info, here, depth, Some(&vm.debug_log))
                     {
-                        vm.wqdb.note_pause(here);
                         vm.dispatch_pause(PauseEvent {
                             location: here,
                             reason,
@@ -262,15 +259,16 @@ impl VanillaInterpreter {
                                             let base_offs = vm.resolved_debug_base_offset();
                                             let abs_start = start + base_offs;
                                             let abs_end = end + base_offs;
-                                            if let Some(sf) = vm
-                                                .debug_info
-                                                .file(vm.debug_info.chunk(vm.current_chunk).file_id)
-                                            {
+                                            if let Some(sf) = vm.debug_info.file(
+                                                vm.debug_info
+                                                    .expect_chunk(vm.expect_current_chunk())
+                                                    .file_id,
+                                            ) {
                                                 err = err
                                                     .span(Some((abs_start, abs_end)))
                                                     .source_ctx(
-                                                        sf.text.to_string(),
-                                                        sf.path.to_string(),
+                                                        sf.text().to_string(),
+                                                        sf.path().to_string(),
                                                     );
                                             }
                                         }
@@ -1301,8 +1299,6 @@ impl VanillaInterpreter {
                             end_pc,
                             stack_start: vm.stack.len(),
                             saved_pending_named_meta: vm.pending_named_meta.take(),
-                            saved_last_backtrace: vm.last_backtrace.take(),
-                            saved_last_locals_snapshot: vm.last_locals_snapshot.take(),
                             saved_trace_depth: vm.trace_depth,
                             saved_trace_bases_len: vm.trace_bases.len(),
                             saved_trace_buf_len: vm.trace_buf.len(),
@@ -1324,7 +1320,7 @@ impl VanillaInterpreter {
                     }
                     Instruction::Pause => {
                         let loc = CodeLoc {
-                            chunk: vm.current_chunk_id(),
+                            chunk: vm.expect_current_chunk(),
                             pc: idx,
                         };
                         let Some(id) = vm.wqdb.explicit_pause_id(loc) else {
@@ -1333,7 +1329,6 @@ impl VanillaInterpreter {
                         if paused_before_instruction {
                             continue;
                         }
-                        vm.wqdb.note_pause(loc);
                         vm.dispatch_pause(PauseEvent {
                             location: loc,
                             reason: PauseReason::ExplicitPause { id },
@@ -1412,8 +1407,8 @@ impl VanillaInterpreter {
         let end_pc = frame.end_pc;
         let instructions = Arc::clone(&frame.instructions);
         let stack_start = frame.stack_start;
-        let backtrace = vm.last_backtrace.as_deref().unwrap_or_default();
-        let error_value = err.to_wq_value(&vm.debug_info, backtrace);
+        let frames = err.crash.as_deref().map_or(&[][..], |crash| crash.frames());
+        let error_value = err.to_wq_value(&vm.debug_info, frames);
         Self::restore_try_state(vm, frame, true);
         vm.instructions = instructions;
         vm.pc = end_pc;
@@ -1435,8 +1430,6 @@ impl VanillaInterpreter {
 
     fn restore_try_state(vm: &mut Vm, frame: TryFrame, rollback_trace: bool) {
         vm.pending_named_meta = frame.saved_pending_named_meta;
-        vm.last_backtrace = frame.saved_last_backtrace;
-        vm.last_locals_snapshot = frame.saved_last_locals_snapshot;
         if rollback_trace {
             vm.trace_depth = frame.saved_trace_depth;
             vm.trace_bases.truncate(frame.saved_trace_bases_len);
@@ -1457,11 +1450,14 @@ fn load_closure_debug_chunk(
     if !vm.debug_artifacts_enabled() {
         return None;
     }
-    let file_id = vm.debug_info.chunk(vm.current_chunk).file_id;
+    let file_id = vm
+        .debug_info
+        .expect_chunk(vm.expect_current_chunk())
+        .file_id;
     if let Some(id) = payload.dbg_chunk
         && vm
             .debug_info
-            .chunk_opt(id)
+            .get_chunk(id)
             .is_some_and(|meta| meta.file_id == file_id && meta.len == payload.instructions.len())
     {
         if vm.debug_log.enabled(DebugLogFlags::WQDB) {
@@ -1484,7 +1480,7 @@ fn load_closure_debug_chunk(
     }
     if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
         let (has_exact, has_real) = {
-            let table = &mut vm.debug_info.chunk_mut(id).line_table;
+            let table = &mut vm.debug_info.expect_chunk_mut(id).line_table;
             apply_stmt_debug_exact_offs(
                 table,
                 file_id,
@@ -1495,11 +1491,11 @@ fn load_closure_debug_chunk(
             )
         };
         vm.debug_info
-            .chunk_mut(id)
+            .expect_chunk_mut(id)
             .note_debug_spans(has_exact, has_real);
     } else if !payload.dbg_stmt_spans.is_empty() {
         let has_real = {
-            let table = &mut vm.debug_info.chunk_mut(id).line_table;
+            let table = &mut vm.debug_info.expect_chunk_mut(id).line_table;
             apply_stmt_spans_exact_offs(
                 table,
                 instructions.as_ref(),
@@ -1510,17 +1506,17 @@ fn load_closure_debug_chunk(
             )
         };
         vm.debug_info
-            .chunk_mut(id)
+            .expect_chunk_mut(id)
             .note_debug_spans(false, has_real);
     } else {
-        let table = &mut vm.debug_info.chunk_mut(id).line_table;
+        let table = &mut vm.debug_info.expect_chunk_mut(id).line_table;
         mark_stmt_heuristic(table, instructions.as_ref(), Some(&vm.debug_log));
     }
     if !payload.dbg_local_names.is_empty() {
-        vm.debug_info.chunk_mut(id).local_names =
+        vm.debug_info.expect_chunk_mut(id).local_names =
             Some(payload.dbg_local_names.iter().cloned().collect());
     } else if let Some(ps) = payload.params.as_ref() {
-        vm.debug_info.chunk_mut(id).local_names = Some(ps.iter().cloned().collect());
+        vm.debug_info.expect_chunk_mut(id).local_names = Some(ps.iter().cloned().collect());
     }
     Some(id)
 }
@@ -1820,8 +1816,8 @@ mod tests {
         let mut vm = Vm::new(vec![Instruction::LoadLocal(1)]);
         let file_id = vm.debug_info.new_file("<test>", "");
         let chunk = vm.debug_info.new_chunk("<test>", file_id, 1);
-        vm.debug_info.chunk_mut(chunk).local_names = Some(vec!["x".into(), "y".into()]);
-        vm.current_chunk = chunk;
+        vm.debug_info.expect_chunk_mut(chunk).local_names = Some(vec!["x".into(), "y".into()]);
+        vm.current_chunk = Some(chunk);
 
         let mut interpreter = VanillaInterpreter;
         let err = interpreter.interpret(&mut vm, 1).unwrap_err();
@@ -1930,7 +1926,7 @@ mod tests {
         let file_id = vm.debug_info.new_file("<test>", "");
         let script_chunk = vm.debug_info.new_chunk("<script>", file_id, 1);
         let closure_chunk = vm.debug_info.new_chunk("<fn>", file_id, 1);
-        vm.current_chunk = script_chunk;
+        vm.current_chunk = Some(script_chunk);
 
         let mut interpreter = VanillaInterpreter;
         let result = interpreter.interpret(&mut vm, 1).expect("execute");
@@ -1941,7 +1937,7 @@ mod tests {
         };
         assert_eq!(closure.dbg_chunk, Some(closure_chunk));
         assert!(
-            vm.debug_info.chunk_opt(ChunkId(2)).is_none(),
+            vm.debug_info.get_chunk(ChunkId(2)).is_none(),
             "loading a pre-registered closure must not allocate another debug chunk"
         );
     }
@@ -2379,7 +2375,7 @@ mod tests {
         let file_id = vm.debug_info.new_file("<trace-test>", "test source text");
         let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, len);
         // Give every PC a dummy span so trace probes aren't silently dropped.
-        let meta = vm.debug_info.chunk_mut(chunk);
+        let meta = vm.debug_info.expect_chunk_mut(chunk);
         for pc in 0..len {
             meta.line_table.set_exact_span(
                 pc,
@@ -2390,7 +2386,7 @@ mod tests {
                 },
             );
         }
-        vm.current_chunk = chunk;
+        vm.current_chunk = Some(chunk);
         vm
     }
 
@@ -2602,7 +2598,7 @@ mod call_safety {
         vm.runtime_debug_info = true;
         let file_id = vm.debug_info.new_file("<test>", "");
         let chunk = vm.debug_info.new_chunk("<test>", file_id, 1);
-        vm.current_chunk = chunk;
+        vm.current_chunk = Some(chunk);
         let saved_chunk = vm.current_chunk;
 
         let result = vm.call(&self_ref, BuiltinFnArgs::from(vec![]));
@@ -2765,7 +2761,7 @@ mod call_safety {
         vm.locals.push(vec![Slot::Value(func)]);
         vm.set_backtrace_enabled(true);
         let file = vm.debug_info.new_file("<test>", "f[]");
-        vm.current_chunk = vm.debug_info.new_chunk("<test>", file, 3);
+        vm.current_chunk = Some(vm.debug_info.new_chunk("<test>", file, 3));
 
         assert_eq!(run_vm_again(&mut vm, 3), Value::Int(1));
 
@@ -2875,7 +2871,7 @@ mod call_safety {
         let mut vm = Vm::new(instructions);
         vm.set_backtrace_enabled(true);
         let file_id = vm.debug_info.new_file("<test>", "@t bad[]");
-        vm.current_chunk = vm.debug_info.new_chunk("<test>", file_id, limit);
+        vm.current_chunk = Some(vm.debug_info.new_chunk("<test>", file_id, limit));
         vm.assign_global_and_slot("bad", bad);
 
         let result = VanillaInterpreter
@@ -2886,8 +2882,7 @@ mod call_safety {
             panic!("expected tagged try result");
         };
         assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
-        assert!(vm.last_backtrace.is_none());
-        assert!(vm.last_locals_snapshot.is_none());
+        assert!(vm.last_crash.is_none());
     }
 
     #[test]

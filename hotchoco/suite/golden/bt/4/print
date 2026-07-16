@@ -1,27 +1,32 @@
 ▍ Error at <TEST_PATH>
   zero-div: cannot divide by 0
   - from binary operator /
-  - at <TEST_PATH>
-       3 ->   1/0}
-              ~~~
-* at t, <TEST_PATH>
-|    2    t:{'k:4
-|    3 ->   1/0}
-|           ~~~
-|    4    
-+ at <fn>, <TEST_PATH>
-|    7        N[1
-|    8 ->       {t}
-|                ~
-|    9        ]
-+ at a, <TEST_PATH>
-|    7        N[1
-|    8 ->       {t}
-|               ~~~
-|    9        ]
-+ at <script>, <TEST_PATH>
-|   12    
-|   13 -> a[][][]
-|         ~~~~~~~
-|   14    
+  * at t, <TEST_PATH>
+  |    2    t:{'k:4
+  |    3 ->   1/0}
+  |           ~~~
+  |    4
+  + at <fn>, <TEST_PATH>
+  |    7        N[1
+  |    8 ->       {t}
+  |                ~
+  |    9        ]
+  + at a, <TEST_PATH>
+  |    5    a:{
+  |    6 ->   N[3
+  |           ~~~
+  |    7        N[1
+  |         ~~~~~~~
+  |    8          {t}
+  |         ~~~~~~~~~
+  |    9        ]
+  |         ~~~~~
+  |   10      ]
+  |         ~~~
+  |   11    }
+  + at <script>, <TEST_PATH>
+  |   12
+  |   13 -> a[][][]
+  |         ~~~~~~~
+  |   14
 ▍ Import stack: <TEST_PATH>

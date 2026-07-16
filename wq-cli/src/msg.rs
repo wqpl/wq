@@ -90,13 +90,13 @@ pub fn print_load_error(err: &LoadError, session: &mut Session) {
         }
         LoadErrorKind::Eval(label, e) => {
             system_msg_err_with_color_mode(
-                format!("Error at {label}\n{}", e.render_with_color_mode(color_mode)),
+                format!(
+                    "Error at {label}\n{}",
+                    e.render_with_color_mode(color_mode, session.backtrace_enabled())
+                ),
                 MsgType::Error,
                 color_mode,
             );
-            if session.backtrace_enabled() && e.err_type.is_runtime() {
-                let _ = session.dbg_print_bt();
-            }
         }
         LoadErrorKind::Directive(cmd) => {
             system_msg_err_with_color_mode(

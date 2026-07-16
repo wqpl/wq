@@ -6,7 +6,7 @@ use super::{Sv4, index_load_err, named_arg_index_err, not_bound_err};
 use crate::interpret::InterpreterHook;
 use crate::value::{Excerpt, Value, WqResult};
 use crate::vm::call::{CallSpec, ResolvedCallable};
-use crate::vm::{Frame, Vm, call_err};
+use crate::vm::{TailFrame, Vm, call_err};
 
 // --- concrete dispatch functions passed by the interpret loop ---
 
@@ -17,14 +17,21 @@ fn invoke_user_push(vm: &mut Vm, _idx: usize, target: &Value, argc: usize) -> Wq
 }
 
 fn tail_invoke_user(vm: &mut Vm, idx: usize, target: &Value, argc: usize) -> WqResult<bool> {
-    if vm.debug_artifacts_enabled() {
-        vm.push_tail_call_frame(Frame {
-            chunk: vm.current_chunk,
+    let tail_frame = if vm.debug_artifacts_enabled() {
+        let chunk = vm.expect_current_chunk();
+        Some(TailFrame {
+            chunk,
             pc: idx + 1,
-            func_name: vm.func_name_arc_for_chunk(vm.current_chunk),
-        });
-    }
+            func_name: vm.func_name_arc_for_chunk(chunk),
+            instructions: Arc::clone(&vm.instructions),
+        })
+    } else {
+        None
+    };
     vm.tail_invoke_user(target, argc)?;
+    if let Some(frame) = tail_frame {
+        vm.push_tail_call_frame(frame);
+    }
     Ok(true)
 }
 
@@ -35,14 +42,21 @@ fn invoke_spec_push(vm: &mut Vm, _idx: usize, spec: CallSpec) -> WqResult<bool> 
 }
 
 fn prepare_tail(vm: &mut Vm, idx: usize, spec: CallSpec) -> WqResult<bool> {
-    if vm.debug_artifacts_enabled() {
-        vm.push_tail_call_frame(Frame {
-            chunk: vm.current_chunk,
+    let tail_frame = if vm.debug_artifacts_enabled() {
+        let chunk = vm.expect_current_chunk();
+        Some(TailFrame {
+            chunk,
             pc: idx + 1,
-            func_name: vm.func_name_arc_for_chunk(vm.current_chunk),
-        });
-    }
+            func_name: vm.func_name_arc_for_chunk(chunk),
+            instructions: Arc::clone(&vm.instructions),
+        })
+    } else {
+        None
+    };
     vm.prepare_tail(spec)?;
+    if let Some(frame) = tail_frame {
+        vm.push_tail_call_frame(frame);
+    }
     Ok(true)
 }
 

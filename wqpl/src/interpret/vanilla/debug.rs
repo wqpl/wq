@@ -48,8 +48,8 @@ pub(super) fn format_debug_expr(source: &str, start: usize, end: usize) -> Strin
 }
 
 fn render_debug_line(vm: &Vm, pc: usize, value: &Value, highlighter: &Highlighter) -> String {
-    let chunk = vm.current_chunk;
-    let meta = vm.debug_info.chunk(chunk);
+    let chunk = vm.expect_current_chunk();
+    let meta = vm.debug_info.expect_chunk(chunk);
     let span = meta.line_table.span_at(pc);
     let file = vm.debug_info.file(span.file_id);
 
@@ -57,12 +57,12 @@ fn render_debug_line(vm: &Vm, pc: usize, value: &Value, highlighter: &Highlighte
         let start = span.start;
         let end = span.end;
         let (line, col) = file.line_col(start);
-        let expr = format_debug_expr(file.text.as_ref(), start, end);
+        let expr = format_debug_expr(file.text(), start, end);
         let expr = highlighter.highlight_ansi(&expr);
         let metadata = format_value_metadata(value.type_name_verbose(), value.strong_count());
         format!(
             "[{path}:{line}:{col}]\n{expr} = {value} ({metadata})",
-            path = file.path,
+            path = file.path(),
         )
     } else {
         let metadata = format_value_metadata(value.type_name_verbose(), value.strong_count());
@@ -94,8 +94,10 @@ pub(super) fn record_trace_probe(vm: &mut Vm, pc: usize) {
     let Some(value) = vm.stack.last() else {
         return;
     };
-    let chunk_id = vm.current_chunk_id();
-    let span = vm.debug_info.chunk(chunk_id).line_table.span_at(pc);
+    let Some(chunk_id) = vm.current_chunk_id() else {
+        return;
+    };
+    let span = vm.debug_info.expect_chunk(chunk_id).line_table.span_at(pc);
     if span.file_id == u32::MAX {
         return;
     }
@@ -234,8 +236,8 @@ pub(super) fn render_trace_line(
 }
 
 fn root_matches_debug_operand(vm: &Vm, debug_pc: usize, rec: &TraceRecord) -> bool {
-    let chunk = vm.current_chunk;
-    let meta = vm.debug_info.chunk(chunk);
+    let chunk = vm.expect_current_chunk();
+    let meta = vm.debug_info.expect_chunk(chunk);
     let span = meta.line_table.span_at(debug_pc);
     let Some(file) = vm.debug_info.file(span.file_id) else {
         return false;
@@ -244,11 +246,11 @@ fn root_matches_debug_operand(vm: &Vm, debug_pc: usize, rec: &TraceRecord) -> bo
         return false;
     }
 
-    let debug_expr = format_debug_expr(file.text.as_ref(), span.start, span.end);
+    let debug_expr = format_debug_expr(file.text(), span.start, span.end);
     let Some(operand) = debug_operand_text(&debug_expr) else {
         return false;
     };
-    let root = format_debug_expr(file.text.as_ref(), rec.span.start, rec.span.end);
+    let root = format_debug_expr(file.text(), rec.span.start, rec.span.end);
     root == operand
 }
 
@@ -306,7 +308,7 @@ fn format_trace_node(vm: &Vm, rec: &TraceRecord, highlighter: &Highlighter) -> S
     let file = vm.debug_info().file(rec.span.file_id);
     let expr = match file {
         Some(f) => {
-            let expr = format_debug_expr(f.text.as_ref(), rec.span.start, rec.span.end);
+            let expr = format_debug_expr(f.text(), rec.span.start, rec.span.end);
             highlighter.highlight_ansi(&expr)
         }
         None => "<expr>".to_string(),
@@ -318,20 +320,21 @@ fn format_trace_node(vm: &Vm, rec: &TraceRecord, highlighter: &Highlighter) -> S
 /// Attach source context from the current PC to a `WqError`, if debug info is
 /// available.
 pub(crate) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError {
-    if err.source_ctx.is_some() {
+    if err.source_ctx.is_some() || !vm.debug_artifacts_enabled() {
         return err;
     }
-    let chunk = vm.current_chunk;
-    let meta = vm.debug_info.chunk(chunk);
-    let span = meta.line_table.span_at(pc);
-    if span.file_id != u32::MAX
-        && let Some(sf) = vm.debug_info.file(span.file_id)
-    {
-        return err
-            .span(Some((span.start, span.end)))
-            .source_ctx(sf.text.to_string(), sf.path.to_string());
-    }
-    err
+    let Some(chunk) = vm.current_chunk else {
+        return err;
+    };
+    let Some(source) = vm
+        .debug_info
+        .resolve_location(crate::wqdb::data::CodeLoc { chunk, pc })
+        .and_then(|resolved| resolved.source)
+    else {
+        return err;
+    };
+    err.span(Some((source.span.start, source.span.end)))
+        .source_ctx(source.source.to_string(), source.path.to_string())
 }
 
 #[cfg(test)]
@@ -380,9 +383,9 @@ mod tests {
         let mut vm = Vm::new(vec![inst]);
         let file_id = vm.debug_info.new_file("<trace-test>", "");
         let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, 1);
-        vm.debug_info.chunk_mut(chunk).local_names =
+        vm.debug_info.expect_chunk_mut(chunk).local_names =
             Some(names.iter().map(|name| (*name).to_string()).collect());
-        vm.current_chunk = chunk;
+        vm.current_chunk = Some(chunk);
         vm
     }
 
@@ -432,15 +435,18 @@ mod tests {
         let mut vm = Vm::new(vec![Instruction::Return]);
         let file_id = vm.debug_info.new_file("<trace-test>", source);
         let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, 1);
-        vm.current_chunk = chunk;
-        vm.debug_info.chunk_mut(chunk).line_table.set_exact_span(
-            0,
-            Span {
-                file_id,
-                start: 3,
-                end: 6,
-            },
-        );
+        vm.current_chunk = Some(chunk);
+        vm.debug_info
+            .expect_chunk_mut(chunk)
+            .line_table
+            .set_exact_span(
+                0,
+                Span {
+                    file_id,
+                    start: 3,
+                    end: 6,
+                },
+            );
 
         let records = [
             TraceRecord {
@@ -509,15 +515,18 @@ mod tests {
         let mut vm = Vm::new(vec![Instruction::Return]);
         let file_id = vm.debug_info.new_file("<trace-test>", source);
         let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, 1);
-        vm.current_chunk = chunk;
-        vm.debug_info.chunk_mut(chunk).line_table.set_exact_span(
-            0,
-            Span {
-                file_id,
-                start: 0,
-                end: source.len(),
-            },
-        );
+        vm.current_chunk = Some(chunk);
+        vm.debug_info
+            .expect_chunk_mut(chunk)
+            .line_table
+            .set_exact_span(
+                0,
+                Span {
+                    file_id,
+                    start: 0,
+                    end: source.len(),
+                },
+            );
         let value = Value::IntList(std::sync::Arc::new(vec![1, 2, 3]));
 
         let rendered = strip_ansi(&render_trace_line(&vm, 0, &value, &[]));

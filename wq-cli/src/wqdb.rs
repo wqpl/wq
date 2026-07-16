@@ -4,13 +4,13 @@ use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 
 use wqpl::debugger::{DebugResume, Debugger};
-use wqpl::session::Session;
 use wqpl::session::stdio::WqIoError;
+use wqpl::session::{EvaluationFailure, Session};
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
 use wqpl::wqdb::data::{CodeLoc, DebugInfo, DebugLocalsFrame, Span};
 use wqpl::wqdb::model::StepGranularity;
-use wqpl::wqdb::{format_frame, format_span_snippet};
+use wqpl::wqdb::{format_crash_frame, format_span_snippet};
 
 use crate::repl::InteractiveOutputSpacing;
 use crate::repl::input::{RustylineInput, WqInputMode};
@@ -19,9 +19,15 @@ pub(crate) mod editor;
 
 /// Enter wqdb shell after a crash for inspection.
 /// Print a short notice, then reuse the interactive shell.
-pub fn enter_wqdb_after_err(session: &mut Session, editor: &RustylineInput) {
-    let action = {
-        let mut debugger = session.debugger();
+pub fn enter_wqdb_after_err(
+    session: &mut Session,
+    failure: &EvaluationFailure,
+    editor: &RustylineInput,
+) {
+    let Some(mut debugger) = session.postmortem_debugger(failure) else {
+        return;
+    };
+    {
         let mut host = WqdbHost::new(&mut debugger, editor);
         host.write_line(format!(
             "{}: {}",
@@ -29,9 +35,10 @@ pub fn enter_wqdb_after_err(session: &mut Session, editor: &RustylineInput) {
             wqdb_color("error occurred", AnsiColor::Red, host.color_mode()),
         ));
         print_crash_locals(&mut host);
-        wqdb_shell_inner(&mut host)
-    };
-    session.debugger().apply_resume(action);
+        let action = wqdb_shell_inner(&mut host);
+        drop(host);
+        debugger.apply_resume(action);
+    }
 }
 
 struct WqdbHost<'debugger, 'vm> {
@@ -617,7 +624,10 @@ fn exec_single_wqdb_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Option<DebugR
                 );
             }
             for (id, en, b) in bps {
-                let meta = host.debug_info().chunk(b.chunk);
+                let function = host
+                    .debug_info()
+                    .get_chunk(b.chunk)
+                    .map_or("<?>", |meta| meta.name.as_ref());
                 let en_str = if en { "y" } else { "n" };
                 wqdb_println!(
                     host,
@@ -626,7 +636,7 @@ fn exec_single_wqdb_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Option<DebugR
                         id,
                         en_str,
                         format_breakpoint_loc(host.debug_info(), b),
-                        meta.name
+                        function
                     )
                 );
             }
@@ -634,13 +644,11 @@ fn exec_single_wqdb_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Option<DebugR
         }
         WqdbCommand::Backtrace => {
             let frames = host.backtrace();
-            let di = host.debug_info();
-            for (idx, (loc, name)) in frames.iter().enumerate() {
-                let is_current = idx == 0;
-                wqdb_println!(
-                    host,
-                    format_frame(di, *loc, name, is_current, host.color_mode())
-                );
+            if frames.is_empty() {
+                wqdb_println!(host, "no backtrace");
+            }
+            for (idx, frame) in frames.iter().enumerate() {
+                wqdb_println!(host, format_crash_frame(frame, idx == 0, host.color_mode()));
             }
             None
         }
@@ -656,8 +664,28 @@ fn exec_single_wqdb_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Option<DebugR
                             )
                         );
                     } else {
-                        let here = host.location();
-                        let file_id = host.debug_info().chunk(here.chunk).file_id;
+                        let Some(here) = host.location() else {
+                            wqdb_println!(
+                                host,
+                                format!(
+                                    "breakpoint {id} not found; current location unavailable for line lookup"
+                                )
+                            );
+                            return None;
+                        };
+                        let Some(file_id) = host
+                            .debug_info()
+                            .get_chunk(here.chunk)
+                            .map(|meta| meta.file_id)
+                        else {
+                            wqdb_println!(
+                                host,
+                                format!(
+                                    "breakpoint {id} not found; current location unavailable for line lookup"
+                                )
+                            );
+                            return None;
+                        };
                         let locs = host.debug_info().resolve_line(file_id, id);
                         if locs.is_empty() {
                             wqdb_println!(
@@ -904,9 +932,13 @@ fn set_breakpoint_at_pc(
     let Ok(pc) = pc_arg.parse::<usize>() else {
         return Err("usage: b <pc>");
     };
-    let loc = host.location();
+    let Some(loc) = host.location() else {
+        return Err("current location unavailable");
+    };
     let (len, name) = {
-        let meta = host.debug_info().chunk(loc.chunk);
+        let Some(meta) = host.debug_info().get_chunk(loc.chunk) else {
+            return Err("current location unavailable");
+        };
         (meta.len, meta.name.to_string())
     };
     if pc >= len {
@@ -1103,7 +1135,11 @@ fn set_breakpoint_at_function(
     let Some(chunk) = host.debug_info().function_chunk(fname) else {
         return Err(format!("function '{fname}' not found"));
     };
-    let meta = host.debug_info().chunk(chunk);
+    let Some(meta) = host.debug_info().get_chunk(chunk) else {
+        return Err(format!(
+            "debug information for function '{fname}' is unavailable"
+        ));
+    };
     let pc = if let Some(pc) = pc_opt {
         if pc >= meta.len {
             return Err(format!("pc out of range for function '{fname}'"));
@@ -1120,19 +1156,22 @@ fn set_breakpoint_at_function(
 }
 
 fn format_breakpoint_loc(di: &DebugInfo, loc: CodeLoc) -> String {
-    let meta = di.chunk(loc.chunk);
-    let span = meta.line_table.context_span_at(loc.pc);
-    if span.file_id != u32::MAX
-        && let Some(sf) = di.file(span.file_id)
-    {
-        let (line, col) = sf.line_col(span.start);
-        return format!("pc {} ({}:{}:{})", loc.pc, sf.path, line, col);
+    let Some(resolved) = di.resolve_location(loc) else {
+        return format!("pc {} (location unavailable)", loc.pc);
+    };
+    if let Some(source) = resolved.source {
+        return format!(
+            "pc {} ({}:{}:{})",
+            loc.pc, source.path, source.line, source.column
+        );
     }
     format!("pc {}", loc.pc)
 }
 
 fn print_crash_locals(host: &mut WqdbHost<'_, '_>) {
-    let frames = host.local_frames();
+    let frames = (0..host.backtrace().len())
+        .filter_map(|index| host.frame_locals(index))
+        .collect::<Vec<_>>();
     if frames.is_empty() {
         return;
     }
@@ -1146,15 +1185,9 @@ fn print_crash_locals(host: &mut WqdbHost<'_, '_>) {
 }
 
 fn print_locals(host: &mut WqdbHost<'_, '_>) {
-    let locals = host.locals();
-    if locals.is_empty() {
+    let Some(frame) = host.frame_locals(0) else {
         wqdb_println!(host, "no locals");
         return;
-    }
-    let frame = DebugLocalsFrame {
-        loc: host.location(),
-        name: std::sync::Arc::from(host.debug_info().chunk(host.location().chunk).name.as_ref()),
-        locals,
     };
     print_frame_locals(host, &frame, false);
 }
@@ -1171,9 +1204,11 @@ fn print_frame_locals(host: &WqdbHost<'_, '_>, frame: &DebugLocalsFrame, include
         wqdb_println!(host, "no locals");
         return;
     }
-    let meta = di.chunk(frame.loc.chunk);
+    let local_names = di
+        .get_chunk(frame.loc.chunk)
+        .and_then(|meta| meta.local_names.as_ref());
     let mut rows: Vec<(String, String, &str)> = Vec::new();
-    match &meta.local_names {
+    match local_names {
         Some(names) => {
             for (i, v) in &frame.locals {
                 let name = names
@@ -1270,7 +1305,9 @@ fn mode_header_with_color_mode(label: &str, detail: &str, color_mode: ColorMode)
 }
 
 fn resolved_stop_span(di: &DebugInfo, loc: CodeLoc) -> (Span, bool) {
-    let meta = di.chunk(loc.chunk);
+    let Some(meta) = di.get_chunk(loc.chunk).filter(|meta| loc.pc < meta.len) else {
+        return (Span::NONE, false);
+    };
     if let Some(span) = meta.line_table.exact_pc_span.get(loc.pc)
         && span.file_id != u32::MAX
     {
@@ -1315,13 +1352,12 @@ fn format_line_stop_card_with_color_mode(
     let (line, _) = source.line_col(span.start);
     let mut out = mode_header_with_color_mode(
         "LINE",
-        &format!("{}:{line} in {name}", source.path),
+        &format!("{}:{line} in {name}", source.path()),
         color_mode,
     );
     let total = source
-        .line_starts
-        .len()
-        .saturating_sub(usize::from(source.text.ends_with('\n')))
+        .line_count()
+        .saturating_sub(usize::from(source.text().ends_with('\n')))
         .max(1);
     let first = line.saturating_sub(radius).max(1);
     let last = line.saturating_add(radius).min(total);
@@ -1367,7 +1403,7 @@ fn format_expr_stop_card_with_color_mode(
     let (line, col) = source.display_line_col(span.start);
     let mut out = mode_header_with_color_mode(
         "EXPR",
-        &format!("{}:{line}:{col} in {name}", source.path),
+        &format!("{}:{line}:{col} in {name}", source.path()),
         color_mode,
     );
     out.push('\n');
@@ -1470,7 +1506,7 @@ fn format_inst_stop_card_with_color_mode(
         out.push_str("\n\n");
         out.push_str(&mode_header_with_color_mode(
             if is_precise { "SOURCE" } else { "CONTEXT" },
-            &format!("{}:{line}:{col}", source.path),
+            &format!("{}:{line}:{col}", source.path()),
             color_mode,
         ));
         out.push('\n');
@@ -1489,11 +1525,16 @@ fn format_inst_stop_card_with_color_mode(
 }
 
 fn render_stop_card_with_color_mode(host: &WqdbHost<'_, '_>, color_mode: ColorMode) -> String {
-    let loc = host.location();
+    let granularity = host.step_granularity();
+    let Some(loc) = host.location() else {
+        return unavailable_stop_card_with_color_mode(granularity, color_mode);
+    };
     let di = host.debug_info();
-    let meta = di.chunk(loc.chunk);
+    let Some(meta) = di.get_chunk(loc.chunk).filter(|meta| loc.pc < meta.len) else {
+        return unavailable_stop_card_with_color_mode(granularity, color_mode);
+    };
     let name = meta.name.as_ref();
-    match host.step_granularity() {
+    match granularity {
         StepGranularity::Line => {
             format_line_stop_card_with_color_mode(di, loc, name, 2, color_mode)
         }
@@ -1526,6 +1567,18 @@ fn render_stop_card_with_color_mode(host: &WqdbHost<'_, '_>, color_mode: ColorMo
     }
 }
 
+fn unavailable_stop_card_with_color_mode(
+    granularity: StepGranularity,
+    color_mode: ColorMode,
+) -> String {
+    let label = match granularity {
+        StepGranularity::Line => "LINE",
+        StepGranularity::Expr => "EXPR",
+        StepGranularity::Inst => "INST",
+    };
+    mode_header_with_color_mode(label, "current location unavailable", color_mode)
+}
+
 fn print_stop_card(host: &WqdbHost<'_, '_>) {
     wqdb_println!(
         host,
@@ -1548,26 +1601,33 @@ fn print_stop_controls(host: &WqdbHost<'_, '_>, granularity: StepGranularity) {
 }
 
 fn format_loc_hint(di: &DebugInfo, loc: CodeLoc, name_hint: Option<&str>) -> String {
-    let meta = di.chunk(loc.chunk);
-    let span = meta.line_table.context_span_at(loc.pc);
-    if span.file_id != u32::MAX
-        && let Some(sf) = di.file(span.file_id)
-    {
-        let (line, col) = sf.line_col(span.start);
-        let name = name_hint.unwrap_or(meta.name.as_ref());
-        return format!("{}:{}:{} in {}", sf.path, line, col, name);
+    let Some(resolved) = di.resolve_location(loc) else {
+        return format!(
+            "pc {} in {} (location unavailable)",
+            loc.pc,
+            name_hint.unwrap_or("<?>")
+        );
+    };
+    let name = name_hint.unwrap_or(resolved.function.as_ref());
+    if let Some(source) = resolved.source {
+        return format!(
+            "{}:{}:{} in {}",
+            source.path, source.line, source.column, name
+        );
     }
-    format!(
-        "pc {} in {}",
-        loc.pc,
-        name_hint.unwrap_or(meta.name.as_ref())
-    )
+    format!("pc {} in {}", loc.pc, name)
 }
 
 fn peek_context(host: &mut WqdbHost<'_, '_>, n: usize) {
     let di = host.debug_info();
-    let loc = host.location();
-    let meta = di.chunk(loc.chunk);
+    let Some(loc) = host.location() else {
+        wqdb_println!(host, "current location unavailable");
+        return;
+    };
+    let Some(meta) = di.get_chunk(loc.chunk).filter(|meta| loc.pc < meta.len) else {
+        wqdb_println!(host, "current location unavailable");
+        return;
+    };
     // Prefer a span for the next statement if current pc has no span yet
     let mut span = meta.line_table.context_span_at(loc.pc);
     if span.file_id == u32::MAX {
@@ -1581,7 +1641,7 @@ fn peek_context(host: &mut WqdbHost<'_, '_>, n: usize) {
     if let Some(sf) = di.file(span.file_id) {
         let (l, _) = sf.line_col(span.start);
         // Clamp 1-based line numbers within [1, total]
-        let total = sf.line_starts.len();
+        let total = sf.line_count();
         let lo_ln = if l > n { l - n } else { 1 };
         let hi_ln = if l + n <= total { l + n } else { total };
         for ln in lo_ln..=hi_ln {
@@ -1605,8 +1665,14 @@ fn peek_context(host: &mut WqdbHost<'_, '_>, n: usize) {
 
 fn peek_instructions(host: &mut WqdbHost<'_, '_>, n: usize) {
     let di = host.debug_info();
-    let loc = host.location();
-    let meta = di.chunk(loc.chunk);
+    let Some(loc) = host.location() else {
+        wqdb_println!(host, "current location unavailable");
+        return;
+    };
+    let Some(meta) = di.get_chunk(loc.chunk).filter(|meta| loc.pc < meta.len) else {
+        wqdb_println!(host, "current location unavailable");
+        return;
+    };
     let len = meta.len;
     if len == 0 {
         wqdb_println!(host, "no instructions");
@@ -1642,23 +1708,22 @@ mod tests {
         let mut di = DebugInfo::default();
         let file_id = di.new_file("demo.wq", "first\n  total:price*qty\nlast\n");
         let chunk = di.new_chunk("calc", file_id, 5);
-        let table = &mut di.chunk_mut(chunk).line_table;
-        table.set_stmt_mark(
-            2,
+        assert!(di.set_statement_span(
+            CodeLoc { chunk, pc: 2 },
             Span {
                 file_id,
                 start: 6,
                 end: 23,
             },
-        );
-        table.set_exact_span(
-            2,
+        ));
+        assert!(di.set_exact_span(
+            CodeLoc { chunk, pc: 2 },
             Span {
                 file_id,
                 start: 14,
                 end: 23,
             },
-        );
+        ));
         (di, CodeLoc { chunk, pc: 2 })
     }
 
@@ -1743,6 +1808,41 @@ mod tests {
             wqdb_prompt_with_color_mode(StepGranularity::Expr, 3, ColorMode::Never),
             "wqdb[expr:3] "
         );
+    }
+
+    #[test]
+    fn unavailable_stop_cards_name_the_active_mode() {
+        assert_eq!(
+            unavailable_stop_card_with_color_mode(StepGranularity::Line, ColorMode::Never),
+            "LINE  current location unavailable"
+        );
+        assert_eq!(
+            unavailable_stop_card_with_color_mode(StepGranularity::Expr, ColorMode::Never),
+            "EXPR  current location unavailable"
+        );
+        assert_eq!(
+            unavailable_stop_card_with_color_mode(StepGranularity::Inst, ColorMode::Never),
+            "INST  current location unavailable"
+        );
+    }
+
+    #[test]
+    fn stale_locations_render_without_panicking() {
+        let di = DebugInfo::default();
+        let loc = CodeLoc {
+            chunk: wqpl::wqdb::data::ChunkId(u32::MAX),
+            pc: 7,
+        };
+
+        assert_eq!(
+            format_breakpoint_loc(&di, loc),
+            "pc 7 (location unavailable)"
+        );
+        assert_eq!(
+            format_loc_hint(&di, loc, Some("calc")),
+            "pc 7 in calc (location unavailable)"
+        );
+        assert_eq!(resolved_stop_span(&di, loc), (Span::NONE, false));
     }
 
     #[test]
@@ -1855,14 +1955,14 @@ mod tests {
         let mut di = DebugInfo::default();
         let file_id = di.new_file("demo.wq", "x:(1;\n  2)\n");
         let chunk = di.new_chunk("calc", file_id, 1);
-        di.chunk_mut(chunk).line_table.set_exact_span(
-            0,
+        assert!(di.set_exact_span(
+            CodeLoc { chunk, pc: 0 },
             Span {
                 file_id,
                 start: 2,
                 end: 10,
             },
-        );
+        ));
 
         let rendered = format_expr_stop_card_with_color_mode(
             &di,
@@ -1916,14 +2016,14 @@ mod tests {
         let mut di = DebugInfo::default();
         let file_id = di.new_file("demo.wq", "α:1\n");
         let chunk = di.new_chunk("calc", file_id, 1);
-        di.chunk_mut(chunk).line_table.set_exact_span(
-            0,
+        assert!(di.set_exact_span(
+            CodeLoc { chunk, pc: 0 },
             Span {
                 file_id,
                 start: 3,
                 end: 4,
             },
-        );
+        ));
 
         let rendered = format_expr_stop_card_with_color_mode(
             &di,
@@ -1944,14 +2044,14 @@ mod tests {
         let mut di = DebugInfo::default();
         let file_id = di.new_file("demo.wq", "a:1\nb:2\n");
         let chunk = di.new_chunk("calc", file_id, 1);
-        di.chunk_mut(chunk).line_table.set_stmt_mark(
-            0,
+        assert!(di.set_statement_span(
+            CodeLoc { chunk, pc: 0 },
             Span {
                 file_id,
                 start: 4,
                 end: 7,
             },
-        );
+        ));
 
         let rendered = format_line_stop_card_with_color_mode(
             &di,

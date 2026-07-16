@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -10,7 +11,7 @@ use wq_dap::r#type::{
 };
 use wqpl::debugger::{DebugResume, Debugger, PauseEvent, PauseReason};
 use wqpl::session::stdio::{WqIoError, WqOutput};
-use wqpl::session::{Session, SessionInterruptHandle};
+use wqpl::session::{EvaluationFailure, Session, SessionInterruptHandle};
 use wqpl::style::ColorMode;
 
 use crate::dap::adapter;
@@ -209,21 +210,38 @@ pub(crate) fn run_vm(
     }));
     session.set_color_mode(ColorMode::Never);
     session.set_wqdb(true);
+    let cmd_rx = Rc::new(cmd_rx);
     let pause_event_tx = event_tx.clone();
     let pause_status = Arc::clone(&status);
+    let pause_cmd_rx = Rc::clone(&cmd_rx);
     session.set_pause_handler(move |event, debugger| {
-        dap_on_pause(event, debugger, &pause_event_tx, &cmd_rx, &pause_status)
+        dap_on_pause(
+            event,
+            debugger,
+            &pause_event_tx,
+            &pause_cmd_rx,
+            &pause_status,
+        )
     });
 
     let loading = RefCell::new(HashSet::new());
     let exit_code = match load_script(&mut session, script_path, &loading, true) {
         Ok(_) => 0,
         Err(err) => {
+            let diagnostic = err.evaluation_failure().map_or_else(
+                || format!("{err:?}"),
+                |failure| failure.render_with_color_mode(ColorMode::Never, false),
+            );
             let _ = event_tx.send(Event::Output(OutputEventBody {
                 category: Some(OutputEventCategory::Stderr),
-                output: format!("[wq-dap] load error: {err:?}\n"),
+                output: format!("[wq-dap] load error:\n{diagnostic}\n"),
                 ..Default::default()
             }));
+            if let Some(failure) = err.evaluation_failure()
+                && let Some(mut debugger) = session.postmortem_debugger(failure)
+            {
+                dap_on_exception(failure, &mut debugger, &event_tx, &cmd_rx, &status);
+            }
             1
         }
     };
@@ -284,6 +302,37 @@ fn dap_on_pause(
         hit_breakpoint_ids,
     }));
 
+    dap_command_loop(debugger, cmd_rx, status)
+}
+
+fn dap_on_exception(
+    failure: &EvaluationFailure,
+    debugger: &mut Debugger<'_>,
+    event_tx: &Sender<Event>,
+    cmd_rx: &Receiver<VmCommand>,
+    status: &VmStatus,
+) {
+    if !status.mark_paused() {
+        return;
+    }
+    let _ = event_tx.send(Event::Stopped(wq_dap::event::StoppedEventBody {
+        reason: StoppedEventReason::Exception,
+        description: Some("Paused on unhandled wq error".to_string()),
+        thread_id: Some(1),
+        all_threads_stopped: Some(true),
+        preserve_focus_hint: None,
+        text: Some(failure.err_type.name().to_string()),
+        hit_breakpoint_ids: None,
+    }));
+
+    let _ = dap_command_loop(debugger, cmd_rx, status);
+}
+
+fn dap_command_loop(
+    debugger: &mut Debugger<'_>,
+    cmd_rx: &Receiver<VmCommand>,
+    status: &VmStatus,
+) -> DebugResume {
     loop {
         let cmd = cmd_rx.recv().ok();
         match cmd {
@@ -330,7 +379,25 @@ fn resume(status: &VmStatus, action: DebugResume) -> DebugResume {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::sync::mpsc::TryRecvError;
+
     use super::*;
+
+    fn recv_stopped(event_rx: &Receiver<Event>) -> wq_dap::event::StoppedEventBody {
+        loop {
+            match event_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("debug VM should send an event")
+            {
+                Event::Stopped(body) => return body,
+                Event::Exited(body) => {
+                    panic!("debug VM exited before stopping: {}", body.exit_code)
+                }
+                _ => {}
+            }
+        }
+    }
 
     #[test]
     fn vm_status_waits_for_initial_pause_but_rejects_running_state() {
@@ -372,5 +439,108 @@ mod tests {
         };
         assert!(matches!(event.category, Some(OutputEventCategory::Stderr)));
         assert_eq!(event.output, "problem\n");
+    }
+
+    #[test]
+    fn runtime_failure_stays_stopped_with_stack_and_scopes_until_resume() {
+        let script_path =
+            std::env::temp_dir().join(format!("wq-dap-exception-{}.wq", std::process::id()));
+        fs::write(
+            &script_path,
+            "inner:{[den]marker:41;marker/den};outer:{[arg]inner[arg];0};outer 0",
+        )
+        .expect("write temporary DAP script");
+
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+        let status = Arc::new(VmStatus::new());
+        let vm_status = Arc::clone(&status);
+        let vm_path = script_path.to_string_lossy().into_owned();
+        let vm_thread = std::thread::spawn(move || {
+            run_vm(&vm_path, event_tx, cmd_rx, vm_status);
+        });
+
+        let entry = recv_stopped(&event_rx);
+        assert!(matches!(entry.reason, StoppedEventReason::Entry));
+        cmd_tx
+            .send(VmCommand::Continue)
+            .expect("continue from entry pause");
+
+        let exception = recv_stopped(&event_rx);
+        assert!(matches!(exception.reason, StoppedEventReason::Exception));
+        assert_eq!(exception.thread_id, Some(1));
+        assert_eq!(exception.all_threads_stopped, Some(true));
+        assert_eq!(status.state(), VmState::Paused);
+
+        let (stack_tx, stack_rx) = std::sync::mpsc::channel();
+        cmd_tx
+            .send(VmCommand::StackTrace {
+                start_frame: None,
+                levels: None,
+                tx: stack_tx,
+            })
+            .expect("request exception stack");
+        let stack = stack_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("exception stack response");
+        assert!(stack.total_frames >= 2);
+        let inner = stack
+            .frames
+            .iter()
+            .find(|frame| frame.name == "inner")
+            .expect("inner exception frame");
+        assert!(inner.source.is_some());
+        assert!(inner.line > 0);
+
+        let (scopes_tx, scopes_rx) = std::sync::mpsc::channel();
+        cmd_tx
+            .send(VmCommand::Scopes {
+                frame_id: inner.id as usize,
+                tx: scopes_tx,
+            })
+            .expect("request exception scopes");
+        let scopes = scopes_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("exception scopes response");
+        let locals = scopes
+            .iter()
+            .find(|scope| scope.name == "Locals")
+            .expect("inner locals scope");
+
+        let (variables_tx, variables_rx) = std::sync::mpsc::channel();
+        cmd_tx
+            .send(VmCommand::Variables {
+                variables_reference: locals.variables_reference as usize,
+                tx: variables_tx,
+            })
+            .expect("request exception locals");
+        let variables = variables_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("exception locals response");
+        assert!(variables.iter().any(|variable| variable.name == "den"));
+        assert!(variables.iter().any(|variable| variable.name == "marker"));
+
+        assert!(matches!(event_rx.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(status.state(), VmState::Paused);
+
+        cmd_tx
+            .send(VmCommand::Continue)
+            .expect("resume from exception stop");
+
+        let mut exit_code = None;
+        let mut terminated = false;
+        while !terminated {
+            match event_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("debug VM should exit after resume")
+            {
+                Event::Exited(body) => exit_code = Some(body.exit_code),
+                Event::Terminated(_) => terminated = true,
+                _ => {}
+            }
+        }
+        assert_eq!(exit_code, Some(1));
+        vm_thread.join().expect("debug VM thread should finish");
+        fs::remove_file(script_path).expect("remove temporary DAP script");
     }
 }

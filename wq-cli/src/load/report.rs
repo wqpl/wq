@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
+use wqpl::session::EvaluationFailure;
 use wqpl::value::Value;
-use wqpl::wqerror::WqError;
 
 #[derive(Debug, Clone)]
 pub struct LoadReport {
@@ -16,7 +16,7 @@ pub struct LoadReport {
 pub enum LoadErrorKind {
     Cycle(PathBuf),
     Io(PathBuf, std::io::Error),
-    Eval(String, Box<WqError>),
+    Eval(String, Box<EvaluationFailure>),
     Directive(String),
 }
 
@@ -34,10 +34,10 @@ impl LoadError {
         }
     }
 
-    pub fn is_runtime(&self) -> bool {
+    pub fn evaluation_failure(&self) -> Option<&EvaluationFailure> {
         match &self.kind {
-            LoadErrorKind::Eval(_, e) => e.err_type.is_runtime(),
-            _ => false,
+            LoadErrorKind::Eval(_, failure) => Some(failure),
+            _ => None,
         }
     }
 }

@@ -324,7 +324,7 @@ fn register_closure_payload_chunk(
     if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB)) {
         debug_log.emit_line(format!(
             "[wqdb]: register_function_chunks new chunk={chunk:?} name={} file_id={} instructions={} base_offset={}",
-            di.chunk(chunk).name,
+            di.expect_chunk(chunk).name,
             file_id,
             payload.instructions.len(),
             base_offset,
@@ -332,7 +332,7 @@ fn register_closure_payload_chunk(
     }
     if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
         let (has_exact, has_real) = {
-            let table = &mut di.chunk_mut(chunk).line_table;
+            let table = &mut di.expect_chunk_mut(chunk).line_table;
             apply_stmt_debug_exact_offs(
                 table,
                 file_id,
@@ -342,10 +342,11 @@ fn register_closure_payload_chunk(
                 debug_log,
             )
         };
-        di.chunk_mut(chunk).note_debug_spans(has_exact, has_real);
+        di.expect_chunk_mut(chunk)
+            .note_debug_spans(has_exact, has_real);
     } else if !payload.dbg_stmt_spans.is_empty() {
         let has_real = {
-            let table = &mut di.chunk_mut(chunk).line_table;
+            let table = &mut di.expect_chunk_mut(chunk).line_table;
             apply_stmt_spans_exact_offs(
                 table,
                 payload.instructions.as_ref(),
@@ -355,15 +356,16 @@ fn register_closure_payload_chunk(
                 debug_log,
             )
         };
-        di.chunk_mut(chunk).note_debug_spans(false, has_real);
+        di.expect_chunk_mut(chunk).note_debug_spans(false, has_real);
     } else {
-        let table = &mut di.chunk_mut(chunk).line_table;
+        let table = &mut di.expect_chunk_mut(chunk).line_table;
         mark_stmt_heuristic(table, payload.instructions.as_ref(), debug_log);
     }
     if !payload.dbg_local_names.is_empty() {
-        di.chunk_mut(chunk).local_names = Some(payload.dbg_local_names.iter().cloned().collect());
+        di.expect_chunk_mut(chunk).local_names =
+            Some(payload.dbg_local_names.iter().cloned().collect());
     } else if let Some(params) = payload.params.as_ref() {
-        di.chunk_mut(chunk).local_names = Some(params.iter().cloned().collect());
+        di.expect_chunk_mut(chunk).local_names = Some(params.iter().cloned().collect());
     }
     payload.dbg_chunk = Some(chunk);
     chunk
@@ -410,7 +412,7 @@ pub(crate) fn register_function_chunks(
                         {
                             debug_log.emit_line(format!(
                                 "[wqdb]: register_function_chunks new chunk={chunk:?} name={} file_id={} instructions={} base_offset={}",
-                                di.chunk(chunk).name,
+                                di.expect_chunk(chunk).name,
                                 file_id,
                                 f_mut.instructions.len(),
                                 base_offset,
@@ -420,7 +422,7 @@ pub(crate) fn register_function_chunks(
                             (&f_mut.dbg_pc_spans, &f_mut.dbg_stmt_marks)
                         {
                             let (has_exact, has_real) = {
-                                let table = &mut di.chunk_mut(chunk).line_table;
+                                let table = &mut di.expect_chunk_mut(chunk).line_table;
                                 apply_stmt_debug_exact_offs(
                                     table,
                                     file_id,
@@ -430,10 +432,11 @@ pub(crate) fn register_function_chunks(
                                     debug_log,
                                 )
                             };
-                            di.chunk_mut(chunk).note_debug_spans(has_exact, has_real);
+                            di.expect_chunk_mut(chunk)
+                                .note_debug_spans(has_exact, has_real);
                         } else if let Some(spans) = &f_mut.dbg_stmt_spans {
                             let has_real = {
-                                let table = &mut di.chunk_mut(chunk).line_table;
+                                let table = &mut di.expect_chunk_mut(chunk).line_table;
                                 apply_stmt_spans_exact_offs(
                                     table,
                                     &f_mut.instructions,
@@ -443,13 +446,14 @@ pub(crate) fn register_function_chunks(
                                     debug_log,
                                 )
                             };
-                            di.chunk_mut(chunk).note_debug_spans(false, has_real);
+                            di.expect_chunk_mut(chunk).note_debug_spans(false, has_real);
                         } else {
-                            let table = &mut di.chunk_mut(chunk).line_table;
+                            let table = &mut di.expect_chunk_mut(chunk).line_table;
                             mark_stmt_heuristic(table, &f_mut.instructions, debug_log);
                         }
                         if let Some(names) = &f_mut.dbg_local_names {
-                            di.chunk_mut(chunk).local_names = Some(names.iter().cloned().collect());
+                            di.expect_chunk_mut(chunk).local_names =
+                                Some(names.iter().cloned().collect());
                         }
                         f_mut.dbg_chunk = Some(chunk);
                         // Recurse into nested functions
@@ -511,7 +515,7 @@ mod tests {
             panic!("expected closure payload");
         };
         assert_eq!(payload.dbg_chunk, Some(ChunkId(0)));
-        assert_eq!(di.chunk(ChunkId(0)).len, 1);
+        assert_eq!(di.expect_chunk(ChunkId(0)).len, 1);
 
         register_function_chunks(&mut di, file_id, &mut code, 0, None);
 
@@ -520,7 +524,7 @@ mod tests {
         };
         assert_eq!(payload.dbg_chunk, Some(ChunkId(0)));
         assert!(
-            di.chunk_opt(ChunkId(1)).is_none(),
+            di.get_chunk(ChunkId(1)).is_none(),
             "registering the same closure payload twice must not allocate a second chunk"
         );
     }

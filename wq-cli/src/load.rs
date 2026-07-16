@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use wqpl::script::ScriptDirective;
-use wqpl::session::{Bindings, ScriptRunError, Session, SourceUnit};
+use wqpl::session::{Bindings, DirectiveFailure, ScriptRunError, Session, SourceUnit};
 use wqpl::value::Value;
 
 use crate::load::embed::lookup_embedded_by_alias;
@@ -85,8 +85,15 @@ impl Loader {
         loading: &RefCell<HashSet<PathBuf>>,
     ) -> Result<Option<Value>, LoadError> {
         let source = SourceUnit::named(display_label, content);
-        let result = session.eval_script_with(source, |session, directive| {
+        let result = session.eval_script_with_postmortem(source, |session, directive| {
             self.eval_directive(session, directive, base_dir, loading)
+                .map_err(|error| {
+                    DirectiveFailure::classify(error, |error| {
+                        error
+                            .evaluation_failure()
+                            .and_then(|failure| failure.postmortem_token())
+                    })
+                })
         });
         let result = match result {
             Ok(result) => result,

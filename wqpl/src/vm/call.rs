@@ -12,7 +12,9 @@ use crate::value::func::{CallableExpr, LiftedCallableData};
 use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::inst::{Instruction, NamedArgMeta};
 use crate::vm::slot::Slot;
-use crate::vm::{Frame, InlineCache, Vm, arity_err_vm, ensure_stack_len, not_bound_err, vm_err};
+use crate::vm::{
+    CallFrame, InlineCache, Vm, arity_err_vm, ensure_stack_len, not_bound_err, vm_err,
+};
 use crate::wqdb::build::mark_stmt_heuristic;
 use crate::wqdb::data::ChunkId;
 
@@ -284,6 +286,7 @@ impl Vm {
         } = spec;
         // Determine or create a debug chunk for the callee (only if debugging)
         let callee_chunk = if self.debug_artifacts_enabled() {
+            let current_chunk = self.expect_current_chunk();
             let preferred_name = |chunk: Option<ChunkId>| {
                 callee_name
                     .as_deref()
@@ -305,13 +308,13 @@ impl Vm {
                 let title = preferred_name(requested_dbg_chunk);
                 let chunk =
                     self.stamp_user_function_debug_chunk(&mut callee, &title, requested_dbg_chunk);
-                chunk.unwrap_or(self.current_chunk)
+                Some(chunk.unwrap_or(current_chunk))
             } else {
                 let title = preferred_name(dbg_chunk);
                 if let Some(id) = dbg_chunk {
-                    id
+                    Some(id)
                 } else {
-                    let file_id = self.debug_info.chunk(self.current_chunk).file_id;
+                    let file_id = self.debug_info.expect_chunk(current_chunk).file_id;
                     if self.debug_log.enabled(DebugLogFlags::WQDB) {
                         self.debug_log.emit_line(format!(
                             "[wqdb]: call_function_with fallback new name={title} file_id={file_id} instructions={}",
@@ -323,14 +326,14 @@ impl Vm {
                         file_id,
                         instructions.len(),
                     );
-                    let table = &mut self.debug_info.chunk_mut(id).line_table;
+                    let table = &mut self.debug_info.expect_chunk_mut(id).line_table;
                     // Heuristic stepping if no spans are attached to the callee.
                     mark_stmt_heuristic(table, instructions.as_ref(), Some(&self.debug_log));
-                    id
+                    Some(id)
                 }
             }
         } else {
-            self.current_chunk
+            None
         };
 
         // --- Pre-validate arity and named args before swapping execution state ---
@@ -363,11 +366,25 @@ impl Vm {
         // Push debug frame
         let mut pushed_dbg = false;
         if self.debug_artifacts_enabled() {
-            let caller_chunk = self.current_chunk;
-            self.call_stack.push(Frame {
+            let caller_chunk = self.expect_current_chunk();
+            let caller_locals = self.locals.last().map(|locals| {
+                Arc::from(
+                    locals
+                        .iter()
+                        .enumerate()
+                        .map(|(index, slot)| (index, slot.read()))
+                        .collect::<Vec<_>>(),
+                )
+            });
+            self.call_stack.push(CallFrame {
                 chunk: caller_chunk,
                 pc: saved_pc,
                 func_name: self.func_name_arc_for_chunk(caller_chunk),
+                instructions: Arc::clone(&saved_instructions),
+                locals: caller_locals,
+                tail_frames: saved_tail_journal.snapshot(),
+                tail_frames_overflowed: saved_tail_journal.overflowed(),
+                tail_depth: saved_tail_depth,
             });
             self.current_chunk = callee_chunk;
             pushed_dbg = true;
@@ -387,6 +404,10 @@ impl Vm {
         // Recursion limit check (tail calls are exempt because they reuse the frame)
         let max_call_depth = self.max_call_depth;
         if self.locals.len() > max_call_depth {
+            let error = self.record_execution_failure(
+                crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Recursion)
+                    .msg(format!("exceeded maximum call depth {max_call_depth}")),
+            );
             self.current_closure_stack.pop();
             if let Some(frame) = self.locals.pop() {
                 return_locals_to_pool(&mut self.locals_pool, frame);
@@ -401,12 +422,9 @@ impl Vm {
             std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
             self.tail_call_depth = saved_tail_depth;
             if pushed_dbg && let Some(fr) = self.call_stack.pop() {
-                self.current_chunk = fr.chunk;
+                self.current_chunk = Some(fr.chunk);
             }
-            return Err(
-                crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Recursion)
-                    .msg(format!("exceeded maximum call depth {}", max_call_depth)),
-            );
+            return Err(error);
         }
         let limit = self.instructions.len();
         let interpreter_kind = self.interpreter_kind;
@@ -423,18 +441,7 @@ impl Vm {
         }
         let execute_res = interpret_nested_with_kind(interpreter_kind, self, limit);
         self.returned = false;
-        let res = match execute_res {
-            Ok(value) => Ok(self.attach_provenance_to_returned_callable(value)),
-            Err(e) => {
-                let e = crate::interpret::vanilla::debug::attach_pc_source_ctx(
-                    self,
-                    self.pc.saturating_sub(1),
-                    e,
-                );
-                self.capture_bt_if_empty();
-                Err(e)
-            }
-        };
+        let res = execute_res.map(|value| self.attach_provenance_to_returned_callable(value));
         if self.debug_log.enabled(DebugLogFlags::WQDB) {
             self.debug_log.emit_line(format!(
                 "CALL after execute stack_len={} locals_depth={}",
@@ -465,7 +472,7 @@ impl Vm {
         std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
         self.tail_call_depth = saved_tail_depth;
         if pushed_dbg && let Some(fr) = self.call_stack.pop() {
-            self.current_chunk = fr.chunk;
+            self.current_chunk = Some(fr.chunk);
         }
         res
     }
@@ -520,6 +527,7 @@ impl Vm {
         } = spec;
 
         let callee_chunk = if self.debug_artifacts_enabled() {
+            let current_chunk = self.expect_current_chunk();
             let requested_dbg_chunk =
                 dbg_chunk.or_else(|| callee.as_user_function().and_then(|shape| shape.dbg_chunk));
             let title = callee_name
@@ -532,9 +540,10 @@ impl Vm {
                         .unwrap_or_else(|| "<fn>".to_string())
                 });
             self.stamp_user_function_debug_chunk(&mut callee, &title, requested_dbg_chunk)
-                .unwrap_or(self.current_chunk)
+                .map(Some)
+                .unwrap_or(Some(current_chunk))
         } else {
-            self.current_chunk
+            None
         };
 
         let named_meta = self.pending_named_meta.take();

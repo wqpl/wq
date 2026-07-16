@@ -586,12 +586,7 @@ impl Compiler {
 
     /// Allocate parameter slots, including the hidden `--named-mask` slot, and
     /// emit default values for omitted named parameters.
-    ///
-    /// Return the parameter list span for arity error reporting.
-    fn emit_params_and_prologue(
-        &mut self,
-        params: &Option<Vec<Parameter>>,
-    ) -> WqResult<Option<(usize, usize)>> {
+    fn emit_params_and_prologue(&mut self, params: &Option<Vec<Parameter>>) -> WqResult<()> {
         let mut named_prologue: Vec<(u16, u8, Box<AstNode>)> = Vec::new();
         let mut param_list_span: Option<(usize, usize)> = None;
         if let Some(ps) = params {
@@ -660,16 +655,19 @@ impl Compiler {
                 }
             }
         }
-        // Ensure PC 0 maps to the param list so arity errors point to
-        // the definition site rather than the first body expression.
+        // Associate only generated parameter-prologue instructions with the
+        // parameter list. Reserving PC 0 when no prologue exists would claim
+        // the first body instruction and hide its exact expression span.
         if let Some(span) = param_list_span {
-            if self.dbg_pc_spans.is_empty() {
-                self.dbg_pc_spans.resize(1, None);
+            self.dbg_pc_spans.resize(self.instructions.len(), None);
+            for pc_span in &mut self.dbg_pc_spans {
+                if pc_span.is_none() {
+                    *pc_span = Some(span);
+                }
             }
-            self.dbg_pc_spans[0] = Some(span);
         }
 
-        Ok(param_list_span)
+        Ok(())
     }
 
     fn compile_in_context(&mut self, node: &AstNode, value_needed: bool) -> WqResult<()> {

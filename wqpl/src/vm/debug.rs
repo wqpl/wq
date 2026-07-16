@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::session::dbglog::DebugLogFlags;
 use crate::style::ColorMode;
 use crate::value::func::{
@@ -5,14 +7,18 @@ use crate::value::func::{
 };
 use crate::value::{Excerpt, Value};
 use crate::vm::Vm;
-use crate::vm::inst::InstPrettyDumper;
+use crate::vm::inst::{InstPrettyDumper, Instruction};
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
 use crate::wqdb::data::{
-    Backtrace, ChunkId, CodeLoc, DebugChunkSpec, DebugInfo, DebugLocalsFrame, DebugProvenance,
+    ChunkId, CodeLoc, CrashFrame, CrashId, CrashSnapshot, DebugChunkSpec, DebugInfo,
+    DebugLocalsFrame, DebugProvenance,
 };
 use crate::wqdb::model::{BreakpointKind, StepGranularity, SymbolTrackTarget};
+use crate::wqerror::WqError;
+
+type CapturedCrash = (Vec<CrashFrame>, Vec<Option<Arc<[Instruction]>>>);
 
 impl Vm {
     pub(crate) fn set_backtrace_enabled(&mut self, flag: bool) {
@@ -107,7 +113,7 @@ impl Vm {
                 .dbg_stmt_marks
                 .as_ref()
                 .is_some_and(|marks| !marks.is_empty());
-        self.debug_info.chunk_opt(chunk).is_some_and(|meta| {
+        self.debug_info.get_chunk(chunk).is_some_and(|meta| {
             meta.name.as_ref() == name
                 && (!needs_exact_spans || meta.has_exact_spans)
                 && (!needs_real_spans || meta.has_real_spans)
@@ -160,7 +166,7 @@ impl Vm {
                 "[wqdb]: script_prepare_debug path={virtual_path} file_id={file_id} chunk={chunk:?} instructions={len}",
             ));
         }
-        self.current_chunk = chunk;
+        self.current_chunk = Some(chunk);
     }
 
     pub(crate) fn set_debug_src_offset(&mut self, offs: usize) {
@@ -168,27 +174,48 @@ impl Vm {
     }
 
     #[inline]
-    pub(crate) fn clear_last_bt(&mut self) {
-        self.last_backtrace = None;
-        self.last_locals_snapshot = None;
+    pub(crate) fn begin_evaluation(&mut self) {
+        self.current_chunk = None;
+        self.last_crash = None;
+        self.runtime_debug_info = false;
+        self.debug_src_offset = 0;
     }
 
-    #[inline]
-    pub(crate) fn take_last_bt(&mut self) -> Option<Backtrace> {
-        self.last_backtrace.take()
+    pub(crate) fn end_evaluation(&mut self) {
+        self.current_chunk = None;
     }
 
-    #[inline]
-    pub(crate) fn capture_bt_if_empty(&mut self) {
-        if !self.debug_artifacts_enabled() {
-            return;
+    pub(crate) fn publish_crash(&mut self, crash: Option<Arc<CrashSnapshot>>) {
+        self.last_crash = crash;
+    }
+
+    pub(crate) fn record_execution_failure(&mut self, error: WqError) -> WqError {
+        if error.crash.is_some() {
+            return error;
         }
-        if self.last_backtrace.is_none() {
-            self.last_backtrace = Some(self.bt_frames());
+        let mut error = crate::interpret::vanilla::debug::attach_pc_source_ctx(
+            self,
+            self.pc.saturating_sub(1),
+            error,
+        );
+        if let Some(crash) = self.capture_crash() {
+            error = error.with_crash(crash);
         }
-        if self.last_locals_snapshot.is_none() {
-            self.last_locals_snapshot = Some(self.live_local_frames());
+        error
+    }
+
+    fn capture_crash(&mut self) -> Option<Arc<CrashSnapshot>> {
+        if !self.debug_artifacts_enabled() || self.current_chunk.is_none() {
+            return None;
         }
+        let id = CrashId::new(self.next_crash_id);
+        self.next_crash_id = self.next_crash_id.saturating_add(1);
+        let (frames, instructions) = self.live_crash_frames();
+        Some(std::sync::Arc::new(CrashSnapshot::new(
+            id,
+            frames,
+            instructions,
+        )))
     }
 
     fn read_frame_locals(frame: &[crate::vm::slot::Slot]) -> Vec<(usize, Value)> {
@@ -199,50 +226,9 @@ impl Vm {
             .collect()
     }
 
-    fn live_local_frames(&self) -> Vec<DebugLocalsFrame> {
-        let mut frames = Vec::new();
-        if let Some(current) = self.locals.last() {
-            // Tail-call journal frames share the current physical locals
-            for fr in self.tail_call_journal.iter().rev() {
-                frames.push(DebugLocalsFrame {
-                    loc: CodeLoc {
-                        chunk: fr.chunk,
-                        pc: fr.pc.saturating_sub(1),
-                    },
-                    name: fr.func_name.clone(),
-                    locals: Self::read_frame_locals(current),
-                });
-            }
-            frames.push(DebugLocalsFrame {
-                loc: CodeLoc {
-                    chunk: self.current_chunk,
-                    pc: self.pc.saturating_sub(1),
-                },
-                name: self.func_name_arc_for_chunk(self.current_chunk),
-                locals: Self::read_frame_locals(current),
-            });
-        }
-        for (fr, locals) in self
-            .call_stack
-            .iter()
-            .rev()
-            .zip(self.locals.iter().rev().skip(1))
-        {
-            frames.push(DebugLocalsFrame {
-                loc: CodeLoc {
-                    chunk: fr.chunk,
-                    pc: fr.pc.saturating_sub(1),
-                },
-                name: fr.func_name.clone(),
-                locals: Self::read_frame_locals(locals),
-            });
-        }
-        frames
-    }
-
     pub(crate) fn func_name_arc_for_chunk(&self, id: ChunkId) -> std::sync::Arc<str> {
         self.debug_info
-            .chunk_opt(id)
+            .get_chunk(id)
             .map(|m| std::sync::Arc::clone(&m.name))
             .unwrap_or_else(|| std::sync::Arc::from("<?>"))
     }
@@ -322,6 +308,47 @@ impl Vm {
         }
     }
 
+    fn located_crash_frame(
+        &self,
+        function: Arc<str>,
+        location: CodeLoc,
+        locals: Option<Arc<[(usize, Value)]>>,
+    ) -> CrashFrame {
+        let source = self
+            .debug_info
+            .resolve_location(location)
+            .and_then(|resolved| resolved.source);
+        CrashFrame::Located {
+            function,
+            location,
+            source,
+            locals,
+        }
+    }
+
+    fn append_captured_frame(
+        frames: &mut Vec<CrashFrame>,
+        instructions: &mut Vec<Option<Arc<[crate::vm::inst::Instruction]>>>,
+        frame: CrashFrame,
+        frame_instructions: Option<Arc<[crate::vm::inst::Instruction]>>,
+    ) {
+        frames.push(frame);
+        instructions.push(frame_instructions);
+    }
+
+    fn last_frame_matches(frames: &[CrashFrame], function: &Arc<str>, location: CodeLoc) -> bool {
+        frames.last().is_some_and(|frame| {
+            matches!(
+                frame,
+                CrashFrame::Located {
+                    function: existing_function,
+                    location: existing_location,
+                    ..
+                } if existing_function == function && *existing_location == location
+            )
+        })
+    }
+
     pub(crate) fn attach_provenance_to_returned_callable(&self, value: Value) -> Value {
         if !self.callable_provenance_enabled() {
             return value;
@@ -332,16 +359,19 @@ impl Vm {
         ) {
             return value;
         }
+        let Some(current_chunk) = self.current_chunk else {
+            return value;
+        };
 
         let mut frames = Vec::new();
         Self::append_unique_frame(
             &mut frames,
             (
                 CodeLoc {
-                    chunk: self.current_chunk,
+                    chunk: current_chunk,
                     pc: self.pc.saturating_sub(1),
                 },
-                self.func_name_arc_for_chunk(self.current_chunk),
+                self.func_name_arc_for_chunk(current_chunk),
             ),
         );
         if let Some(active) = self.current_closure_stack.last()
@@ -388,7 +418,7 @@ impl Vm {
                 ));
             }
             let (file_id, needs_rename, has_exact_spans, has_real_spans, has_local_names) = {
-                let meta = self.debug_info.chunk(id);
+                let meta = self.debug_info.expect_chunk(id);
                 (
                     meta.file_id,
                     meta.name.as_ref() != name,
@@ -408,7 +438,7 @@ impl Vm {
             {
                 let base_offs = source_base_offset;
                 let (has_exact, has_real) = {
-                    let table = &mut self.debug_info.chunk_mut(id).line_table;
+                    let table = &mut self.debug_info.expect_chunk_mut(id).line_table;
                     apply_stmt_debug_exact_offs(
                         table,
                         file_id,
@@ -419,14 +449,14 @@ impl Vm {
                     )
                 };
                 self.debug_info
-                    .chunk_mut(id)
+                    .expect_chunk_mut(id)
                     .note_debug_spans(has_exact, has_real);
             } else if let Some(spans) = dbg_stmt_spans.as_ref()
                 && !has_real_spans
             {
                 let base_offs = source_base_offset;
                 let has_real = {
-                    let table = &mut self.debug_info.chunk_mut(id).line_table;
+                    let table = &mut self.debug_info.expect_chunk_mut(id).line_table;
                     apply_stmt_spans_exact_offs(
                         table,
                         instructions,
@@ -437,22 +467,23 @@ impl Vm {
                     )
                 };
                 self.debug_info
-                    .chunk_mut(id)
+                    .expect_chunk_mut(id)
                     .note_debug_spans(false, has_real);
             }
 
             if !has_local_names {
                 if let Some(names) = dbg_local_names.as_ref() {
-                    self.debug_info.chunk_mut(id).local_names =
+                    self.debug_info.expect_chunk_mut(id).local_names =
                         Some(names.iter().cloned().collect());
                 } else if let Some(ps) = params.as_ref() {
-                    self.debug_info.chunk_mut(id).local_names = Some(ps.iter().cloned().collect());
+                    self.debug_info.expect_chunk_mut(id).local_names =
+                        Some(ps.iter().cloned().collect());
                 }
             }
 
             return Some(id);
         }
-        let file_id = self.debug_info.chunk(self.current_chunk).file_id;
+        let file_id = self.debug_info.expect_chunk(self.current_chunk?).file_id;
         let id = self.debug_info.new_function_chunk(
             Some(std::sync::Arc::from(name)),
             file_id,
@@ -470,7 +501,7 @@ impl Vm {
         if let (Some(pc_spans), Some(stmt_marks)) = (dbg_pc_spans.as_ref(), dbg_stmt_marks.as_ref())
         {
             let (has_exact, has_real) = {
-                let table = &mut self.debug_info.chunk_mut(id).line_table;
+                let table = &mut self.debug_info.expect_chunk_mut(id).line_table;
                 apply_stmt_debug_exact_offs(
                     table,
                     file_id,
@@ -481,11 +512,11 @@ impl Vm {
                 )
             };
             self.debug_info
-                .chunk_mut(id)
+                .expect_chunk_mut(id)
                 .note_debug_spans(has_exact, has_real);
         } else if let Some(spans) = dbg_stmt_spans.as_ref() {
             let has_real = {
-                let table = &mut self.debug_info.chunk_mut(id).line_table;
+                let table = &mut self.debug_info.expect_chunk_mut(id).line_table;
                 apply_stmt_spans_exact_offs(
                     table,
                     instructions,
@@ -496,41 +527,47 @@ impl Vm {
                 )
             };
             self.debug_info
-                .chunk_mut(id)
+                .expect_chunk_mut(id)
                 .note_debug_spans(false, has_real);
         } else {
-            let table = &mut self.debug_info.chunk_mut(id).line_table;
+            let table = &mut self.debug_info.expect_chunk_mut(id).line_table;
             mark_stmt_heuristic(table, instructions, Some(&self.debug_log));
         }
 
         if let Some(names) = dbg_local_names.as_ref() {
-            self.debug_info.chunk_mut(id).local_names = Some(names.iter().cloned().collect());
+            self.debug_info.expect_chunk_mut(id).local_names =
+                Some(names.iter().cloned().collect());
         } else if let Some(ps) = params.as_ref() {
-            self.debug_info.chunk_mut(id).local_names = Some(ps.iter().cloned().collect());
+            self.debug_info.expect_chunk_mut(id).local_names = Some(ps.iter().cloned().collect());
         }
 
         Some(id)
     }
 
-    pub(crate) fn loc(&self) -> CodeLoc {
-        if let Some(bt) = self.last_backtrace.as_ref()
-            && let Some((loc, _)) = bt.first()
+    pub(crate) fn loc(&self) -> Option<CodeLoc> {
+        if let Some(crash) = self.last_crash.as_ref()
+            && let Some(location) = crash.frames().first().and_then(CrashFrame::location)
         {
-            return *loc;
+            return Some(location);
         }
         if let Some(loc) = self.wqdb.pause_loc() {
-            return loc;
+            return Some(loc);
         }
-        CodeLoc {
-            chunk: self.current_chunk,
+        Some(CodeLoc {
+            chunk: self.current_chunk?,
             pc: self.pc,
-        }
+        })
     }
 
     /// The VM's call depth is debugger-only and includes journaled tail-call
     /// frames so step-over and step-out follow logical calls.
     pub(crate) fn call_depth(&self) -> usize {
-        self.call_stack.len().saturating_add(self.tail_call_depth)
+        self.call_stack
+            .iter()
+            .fold(self.tail_call_depth, |depth, frame| {
+                depth.saturating_add(frame.tail_depth)
+            })
+            .saturating_add(self.call_stack.len())
     }
 
     pub(crate) fn debug_info(&self) -> &DebugInfo {
@@ -538,8 +575,10 @@ impl Vm {
     }
 
     pub(crate) fn dbg_track_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
-        let current_chunk = self.loc().chunk;
-        if let Some(meta) = self.debug_info.chunk_opt(current_chunk)
+        let Some(current_chunk) = self.loc().map(|location| location.chunk) else {
+            return Ok(self.dbg_track_global_symbol(name));
+        };
+        if let Some(meta) = self.debug_info.get_chunk(current_chunk)
             && let Some(names) = &meta.local_names
             && let Some(slot) = names.iter().position(|candidate| candidate == name)
         {
@@ -566,8 +605,11 @@ impl Vm {
     }
 
     pub(crate) fn dbg_track_local_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
-        let current_chunk = self.loc().chunk;
-        let meta = self.debug_info.chunk(current_chunk);
+        let current_chunk = self
+            .loc()
+            .map(|location| location.chunk)
+            .ok_or_else(|| "no current debug location".to_string())?;
+        let meta = self.debug_info.expect_chunk(current_chunk);
         let names = meta
             .local_names
             .as_ref()
@@ -587,13 +629,13 @@ impl Vm {
     }
 
     pub(crate) fn dbg_track_capture_slot(&mut self, slot: u16) -> Option<String> {
-        let current_chunk = self.loc().chunk;
+        let current_chunk = self.loc()?.chunk;
         let target = SymbolTrackTarget::Capture {
             chunk: current_chunk,
             slot,
             name: self
                 .debug_info
-                .chunk_opt(current_chunk)
+                .get_chunk(current_chunk)
                 .and_then(|meta| meta.local_names.as_ref())
                 .and_then(|names| names.get(usize::from(slot)))
                 .cloned(),
@@ -657,8 +699,11 @@ impl Vm {
         old: Option<Value>,
         new: Value,
     ) {
+        let Some(chunk) = self.current_chunk else {
+            return;
+        };
         let target = SymbolTrackTarget::Local {
-            chunk: self.current_chunk,
+            chunk,
             slot,
             name: self
                 .local_slot_name(usize::from(slot))
@@ -676,12 +721,15 @@ impl Vm {
         old: Option<Value>,
         new: Value,
     ) {
+        let Some(chunk) = self.current_chunk else {
+            return;
+        };
         let target = SymbolTrackTarget::Capture {
-            chunk: self.current_chunk,
+            chunk,
             slot,
             name: self
                 .debug_info
-                .chunk_opt(self.current_chunk)
+                .get_chunk(chunk)
                 .and_then(|meta| meta.local_names.as_ref())
                 .and_then(|names| names.get(usize::from(slot)))
                 .cloned(),
@@ -712,10 +760,10 @@ impl Vm {
             return;
         }
 
-        let loc = CodeLoc {
-            chunk: self.current_chunk,
-            pc,
+        let Some(chunk) = self.current_chunk else {
+            return;
         };
+        let loc = CodeLoc { chunk, pc };
         let location = self.format_symbol_track_loc(loc);
         let old_text = Self::format_symbol_track_value(old.as_ref());
         let new_text = Self::format_symbol_track_value(Some(&new));
@@ -736,13 +784,13 @@ impl Vm {
     }
 
     fn format_symbol_track_loc(&self, loc: CodeLoc) -> String {
-        let meta = self.debug_info.chunk(loc.chunk);
+        let meta = self.debug_info.expect_chunk(loc.chunk);
         let span = meta.line_table.context_span_at(loc.pc);
         if span.file_id != u32::MAX
             && let Some(sf) = self.debug_info.file(span.file_id)
         {
             let (line, col) = sf.line_col(span.start);
-            return format!("{}:{line}:{col} in {}", sf.path, meta.name);
+            return format!("{}:{line}:{col} in {}", sf.path(), meta.name);
         }
         format!("pc {} in {}", loc.pc, meta.name)
     }
@@ -753,7 +801,7 @@ impl Vm {
             SymbolTrackTarget::Local { chunk, slot, name } => {
                 let chunk_name = self
                     .debug_info
-                    .chunk_opt(*chunk)
+                    .get_chunk(*chunk)
                     .map(|meta| meta.name.as_ref())
                     .unwrap_or("?");
                 format!("local {name} ({chunk_name} slot {slot})")
@@ -761,7 +809,7 @@ impl Vm {
             SymbolTrackTarget::Capture { chunk, slot, name } => {
                 let chunk_name = self
                     .debug_info
-                    .chunk_opt(*chunk)
+                    .get_chunk(*chunk)
                     .map(|meta| meta.name.as_ref())
                     .unwrap_or("?");
                 match name {
@@ -830,61 +878,112 @@ impl Vm {
         self.wqdb.breakpoints()
     }
 
-    pub(crate) fn bt_frames(&self) -> Vec<(CodeLoc, std::sync::Arc<str>)> {
-        // Prefer a captured backtrace snapshot if present (e.g., after a crash)
-        if let Some(bt) = self.last_backtrace.as_ref() {
-            return bt.clone();
+    pub(crate) fn crash_frames(&self) -> Vec<CrashFrame> {
+        if let Some(crash) = self.last_crash.as_ref() {
+            return crash.frames().to_vec();
         }
-        let mut v = Vec::new();
-        v.push((
-            CodeLoc {
-                chunk: self.current_chunk,
-                pc: self.pc.saturating_sub(1),
-            },
-            self.func_name_arc_for_chunk(self.current_chunk),
-        ));
-        // Tail-call journal frames (most recent first)
-        for fr in self.tail_call_journal.iter().rev() {
-            v.push((
+
+        self.live_crash_frames().0
+    }
+
+    fn live_crash_frames(&self) -> CapturedCrash {
+        let Some(current_chunk) = self.current_chunk else {
+            return (Vec::new(), Vec::new());
+        };
+        let mut frames = Vec::new();
+        let mut frame_instructions = Vec::new();
+        Self::append_captured_frame(
+            &mut frames,
+            &mut frame_instructions,
+            self.located_crash_frame(
+                self.func_name_arc_for_chunk(current_chunk),
                 CodeLoc {
-                    chunk: fr.chunk,
-                    pc: fr.pc.saturating_sub(1),
+                    chunk: current_chunk,
+                    pc: self.pc.saturating_sub(1),
                 },
-                fr.func_name.clone(),
-            ));
+                self.locals
+                    .last()
+                    .map(|locals| std::sync::Arc::from(Self::read_frame_locals(locals))),
+            ),
+            Some(Arc::clone(&self.instructions)),
+        );
+        for fr in self.tail_call_journal.iter().rev() {
+            Self::append_captured_frame(
+                &mut frames,
+                &mut frame_instructions,
+                self.located_crash_frame(
+                    fr.func_name.clone(),
+                    CodeLoc {
+                        chunk: fr.chunk,
+                        pc: fr.pc.saturating_sub(1),
+                    },
+                    None,
+                ),
+                Some(Arc::clone(&fr.instructions)),
+            );
         }
         if self.tail_call_journal.overflowed() {
-            Self::append_unique_frame(
-                &mut v,
-                (
-                    CodeLoc {
-                        chunk: ChunkId(0),
-                        pc: 0,
-                    },
-                    std::sync::Arc::from("(... tail calls omitted ...)"),
-                ),
+            Self::append_captured_frame(
+                &mut frames,
+                &mut frame_instructions,
+                CrashFrame::TailCallsOmitted,
+                None,
             );
         }
         if let Some(active) = self.current_closure_stack.last()
             && let Some(provenance) = Self::callable_provenance(active)
         {
-            for frame in provenance.iter().cloned() {
-                Self::append_unique_frame(&mut v, frame);
+            for (index, (location, function)) in provenance.iter().enumerate() {
+                if index == 0 && Self::last_frame_matches(&frames, function, *location) {
+                    continue;
+                }
+                Self::append_captured_frame(
+                    &mut frames,
+                    &mut frame_instructions,
+                    self.located_crash_frame(Arc::clone(function), *location, None),
+                    None,
+                );
             }
         }
         for fr in self.call_stack.iter().rev() {
-            Self::append_unique_frame(
-                &mut v,
-                (
+            Self::append_captured_frame(
+                &mut frames,
+                &mut frame_instructions,
+                self.located_crash_frame(
+                    fr.func_name.clone(),
                     CodeLoc {
                         chunk: fr.chunk,
                         pc: fr.pc.saturating_sub(1),
                     },
-                    fr.func_name.clone(),
+                    fr.locals.clone(),
                 ),
+                Some(Arc::clone(&fr.instructions)),
             );
+            for tail in fr.tail_frames.iter().rev() {
+                Self::append_captured_frame(
+                    &mut frames,
+                    &mut frame_instructions,
+                    self.located_crash_frame(
+                        Arc::clone(&tail.func_name),
+                        CodeLoc {
+                            chunk: tail.chunk,
+                            pc: tail.pc.saturating_sub(1),
+                        },
+                        None,
+                    ),
+                    Some(Arc::clone(&tail.instructions)),
+                );
+            }
+            if fr.tail_frames_overflowed {
+                Self::append_captured_frame(
+                    &mut frames,
+                    &mut frame_instructions,
+                    CrashFrame::TailCallsOmitted,
+                    None,
+                );
+            }
         }
-        v
+        (frames, frame_instructions)
     }
 
     pub(crate) fn dbg_globals(&self) -> Vec<(String, Value)> {
@@ -899,10 +998,12 @@ impl Vm {
     }
 
     pub(crate) fn dbg_locals(&self) -> Vec<(usize, Value)> {
-        if let Some(snapshot) = self.last_locals_snapshot.as_ref() {
+        if let Some(snapshot) = self.last_crash.as_ref() {
             return snapshot
+                .frames()
                 .first()
-                .map(|frame| frame.locals.clone())
+                .and_then(CrashFrame::locals)
+                .map(<[(usize, Value)]>::to_vec)
                 .unwrap_or_default();
         }
         if let Some(frame) = self.locals.last() {
@@ -916,10 +1017,22 @@ impl Vm {
         }
     }
 
-    pub(crate) fn dbg_local_frames(&self) -> Vec<DebugLocalsFrame> {
-        self.last_locals_snapshot
-            .clone()
-            .unwrap_or_else(|| self.live_local_frames())
+    pub(crate) fn dbg_frame_locals(&self, frame_index: usize) -> Option<DebugLocalsFrame> {
+        let frames = self.crash_frames();
+        let CrashFrame::Located {
+            function,
+            location,
+            locals: Some(locals),
+            ..
+        } = frames.get(frame_index)?
+        else {
+            return None;
+        };
+        Some(DebugLocalsFrame {
+            loc: *location,
+            name: Arc::clone(function),
+            locals: locals.as_ref().to_vec(),
+        })
     }
 
     pub(crate) fn dbg_ins_at(&self, pc: usize) -> Option<String> {
@@ -931,12 +1044,17 @@ impl Vm {
         pc: usize,
         color_mode: ColorMode,
     ) -> Option<String> {
-        let local_names = self
-            .debug_info
-            .chunk_opt(self.current_chunk)
+        let location = self.loc();
+        let local_names = location
+            .and_then(|location| self.debug_info.get_chunk(location.chunk))
             .and_then(|meta| meta.local_names.as_deref());
+        let instructions = self
+            .last_crash
+            .as_ref()
+            .and_then(|crash| crash.instructions(0))
+            .unwrap_or(&self.instructions);
         InstPrettyDumper::new(true, color_mode.should_colorize()).render_at(
-            &self.instructions,
+            instructions,
             pc,
             local_names,
         )

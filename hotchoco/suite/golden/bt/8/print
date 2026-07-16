@@ -1,0 +1,8 @@
+▍ Error at <TEST_PATH>
+  zero-div: cannot divide by 0
+  - from binary operator /
+  * at <script>, <TEST_PATH>
+  |    1 -> 1/0
+  |         ~~~
+  |    2
+▍ Import stack: <TEST_PATH>

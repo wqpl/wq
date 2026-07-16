@@ -73,6 +73,7 @@ impl InterpreterHook for SampleInterpreter {
 fn sample_io_error(error: WqIoError) -> WqError {
     WqError::new(WqErrorType::Io)
         .src("sample interpreter")
+        .host_failure()
         .attach_note(format!("host I/O error: {error}"))
 }
 

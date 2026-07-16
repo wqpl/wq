@@ -11,14 +11,12 @@ pub(crate) type DebugStmtSpans = Arc<[DebugByteSpan]>;
 pub(crate) type DebugPcSpans = Arc<[Option<DebugByteSpan>]>;
 pub(crate) type DebugProvenance = Arc<[(CodeLoc, Arc<str>)]>;
 
-pub(crate) type Backtrace = Vec<(CodeLoc, std::sync::Arc<str>)>;
-
 #[derive(Clone)]
 pub struct SourceFile {
-    pub id: u32,
-    pub path: Arc<str>,
-    pub text: Arc<str>,
-    pub line_starts: Arc<Vec<usize>>,
+    id: u32,
+    path: Arc<str>,
+    text: Arc<str>,
+    line_starts: Arc<Vec<usize>>,
 }
 
 impl SourceFile {
@@ -38,7 +36,34 @@ impl SourceFile {
         }
     }
 
+    pub(crate) fn clamp_byte_offset(&self, byte_off: usize) -> usize {
+        let mut byte_off = byte_off.min(self.text.len());
+        while !self.text.is_char_boundary(byte_off) {
+            byte_off = byte_off.saturating_sub(1);
+        }
+        byte_off
+    }
+
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Number of source line starts, including the empty trailing line after
+    /// a final newline.
+    pub fn line_count(&self) -> usize {
+        self.line_starts.len()
+    }
+
     pub fn line_col(&self, byte_off: usize) -> (usize, usize) {
+        let byte_off = self.clamp_byte_offset(byte_off);
         let i = match self.line_starts.binary_search(&byte_off) {
             Ok(i) => i,
             Err(i) => i.saturating_sub(1),
@@ -49,6 +74,7 @@ impl SourceFile {
 
     pub fn display_line_col(&self, byte_off: usize) -> (usize, usize) {
         const TAB_STOP: usize = 8;
+        let byte_off = self.clamp_byte_offset(byte_off);
         let (line, _) = self.line_col(byte_off);
         let line_start = self.line_starts[line - 1];
         let mut column = 0usize;
@@ -229,14 +255,14 @@ impl ChunkMeta {
 pub struct DebugInfo {
     files: HashMap<u32, Arc<SourceFile>>,
     chunks: HashMap<ChunkId, ChunkMeta>,
-    pub by_name: HashMap<Arc<str>, ChunkId>,
+    by_name: HashMap<Arc<str>, ChunkId>,
     function_by_name: HashMap<Arc<str>, ChunkId>,
     next_chunk: u32,
     next_file: u32,
 }
 
 impl DebugInfo {
-    pub fn register_file(&mut self, file: SourceFile) {
+    fn register_file(&mut self, file: SourceFile) {
         self.files.insert(file.id, Arc::new(file));
     }
 
@@ -295,22 +321,127 @@ impl DebugInfo {
         id
     }
 
-    // SAFETY: chunk id must exist
-    pub fn chunk(&self, id: ChunkId) -> &ChunkMeta {
-        self.chunks.get(&id).expect("chunk exists")
-    }
-
-    pub fn chunk_opt(&self, id: ChunkId) -> Option<&ChunkMeta> {
+    /// Return a chunk when the identifier is still registered.
+    ///
+    /// Public consumers must treat code locations as staleable because a
+    /// debugger can retain one across a workspace reset.
+    pub fn get_chunk(&self, id: ChunkId) -> Option<&ChunkMeta> {
         self.chunks.get(&id)
     }
 
-    // SAFETY: chunk id must exist
-    pub fn chunk_mut(&mut self, id: ChunkId) -> &mut ChunkMeta {
-        self.chunks.get_mut(&id).expect("chunk exists")
+    pub(crate) fn get_chunk_mut(&mut self, id: ChunkId) -> Option<&mut ChunkMeta> {
+        self.chunks.get_mut(&id)
     }
 
-    // SAFETY: chunk id must exist
-    pub fn rename_chunk(&mut self, id: ChunkId, new_name: impl Into<Arc<str>>) {
+    /// Register an exact source span for one instruction.
+    ///
+    /// Returns `false` when the location or source span is not registered and
+    /// valid for this debug-info workspace.
+    pub fn set_exact_span(&mut self, location: CodeLoc, span: Span) -> bool {
+        if !self.is_valid_source_span(span) {
+            return false;
+        }
+        let Some(chunk) = self.chunks.get_mut(&location.chunk) else {
+            return false;
+        };
+        if location.pc >= chunk.len {
+            return false;
+        }
+        chunk.line_table.set_exact_span(location.pc, span);
+        true
+    }
+
+    /// Register a statement source span for one instruction.
+    ///
+    /// Returns `false` when the location or source span is not registered and
+    /// valid for this debug-info workspace.
+    pub fn set_statement_span(&mut self, location: CodeLoc, span: Span) -> bool {
+        if !self.is_valid_source_span(span) {
+            return false;
+        }
+        let Some(chunk) = self.chunks.get_mut(&location.chunk) else {
+            return false;
+        };
+        if location.pc >= chunk.len {
+            return false;
+        }
+        chunk.line_table.set_stmt_mark(location.pc, span);
+        true
+    }
+
+    fn is_valid_source_span(&self, span: Span) -> bool {
+        if span == Span::NONE {
+            return true;
+        }
+        self.files.get(&span.file_id).is_some_and(|file| {
+            span.start <= span.end
+                && span.end <= file.text.len()
+                && file.text.is_char_boundary(span.start)
+                && file.text.is_char_boundary(span.end)
+        })
+    }
+
+    pub(crate) fn expect_chunk(&self, id: ChunkId) -> &ChunkMeta {
+        self.get_chunk(id).expect("chunk must be registered")
+    }
+
+    pub(crate) fn expect_chunk_mut(&mut self, id: ChunkId) -> &mut ChunkMeta {
+        self.get_chunk_mut(id).expect("chunk must be registered")
+    }
+
+    /// Resolve a code location to its registered chunk and source coordinates.
+    ///
+    /// Locations are intentionally fallible because debugger clients may hold
+    /// locations across workspace resets or receive incomplete runtime state.
+    pub fn resolve_location(&self, location: CodeLoc) -> Option<ResolvedCodeLoc> {
+        let chunk = self.get_chunk(location.chunk)?;
+        if location.pc >= chunk.len {
+            return None;
+        }
+        let span = chunk.line_table.context_span_at(location.pc);
+        let source = if span.file_id == u32::MAX {
+            None
+        } else {
+            self.file(span.file_id).and_then(|file| {
+                if span.start > span.end {
+                    return None;
+                }
+                let mut byte = span.start.min(file.text.len());
+                while !file.text.is_char_boundary(byte) {
+                    byte = byte.saturating_sub(1);
+                }
+                let mut end = span.end.min(file.text.len());
+                while !file.text.is_char_boundary(end) {
+                    end = end.saturating_sub(1);
+                }
+                if end <= byte {
+                    end = file.text[byte..]
+                        .chars()
+                        .next()
+                        .map_or(byte, |ch| byte + ch.len_utf8());
+                }
+                let (line, column) = file.display_line_col(byte);
+                Some(SourceLocation {
+                    path: Arc::clone(&file.path),
+                    source: Arc::clone(&file.text),
+                    span: Span {
+                        start: byte,
+                        end,
+                        ..span
+                    },
+                    line,
+                    column,
+                })
+            })
+        };
+        Some(ResolvedCodeLoc {
+            location,
+            function: Arc::clone(&chunk.name),
+            source,
+        })
+    }
+
+    fn rename_chunk(&mut self, id: ChunkId, new_name: impl Into<Arc<str>>) {
         let new_name: Arc<str> = new_name.into();
         let meta = self.chunks.get_mut(&id).expect("chunk exists");
         if meta.name.as_ref() == new_name.as_ref() {
@@ -448,7 +579,109 @@ mod tests {
 
         assert_eq!(info.function_chunk("f"), Some(function));
         assert_eq!(info.function_chunk("g"), Some(function));
-        assert_eq!(info.chunk(function).name.as_ref(), "g");
+        assert_eq!(info.expect_chunk(function).name.as_ref(), "g");
+    }
+
+    #[test]
+    fn resolve_location_rejects_stale_chunk_and_program_counter() {
+        let mut info = DebugInfo::default();
+        let file = info.new_file("test", "1/0");
+        let chunk = info.new_chunk("<script>", file, 1);
+
+        assert!(
+            info.resolve_location(CodeLoc {
+                chunk: ChunkId(u32::MAX),
+                pc: 0,
+            })
+            .is_none()
+        );
+        assert!(info.resolve_location(CodeLoc { chunk, pc: 1 }).is_none());
+    }
+
+    #[test]
+    fn resolve_location_keeps_missing_source_optional() {
+        let mut info = DebugInfo::default();
+        let chunk = info.new_chunk("<script>", 42, 1);
+
+        let without_span = info
+            .resolve_location(CodeLoc { chunk, pc: 0 })
+            .expect("registered location");
+        assert!(without_span.source.is_none());
+
+        info.expect_chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id: 42,
+                start: 0,
+                end: 1,
+            },
+        );
+        let without_file = info
+            .resolve_location(CodeLoc { chunk, pc: 0 })
+            .expect("registered location");
+        assert!(without_file.source.is_none());
+    }
+
+    #[test]
+    fn resolve_location_clamps_spans_to_utf8_boundaries() {
+        let mut info = DebugInfo::default();
+        let file = info.new_file("test", "aéz");
+        let chunk = info.new_chunk("<script>", file, 1);
+        info.expect_chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id: file,
+                start: 2,
+                end: 2,
+            },
+        );
+
+        let source = info
+            .resolve_location(CodeLoc { chunk, pc: 0 })
+            .expect("registered location")
+            .source
+            .expect("registered source");
+        assert_eq!((source.span.start, source.span.end), (1, 3));
+        assert_eq!((source.line, source.column), (1, 2));
+        assert_eq!(&source.source[source.span.start..source.span.end], "é");
+    }
+
+    #[test]
+    fn public_span_registration_rejects_invalid_metadata() {
+        let mut info = DebugInfo::default();
+        let file = info.new_file("test", "é");
+        let chunk = info.new_chunk("<script>", file, 1);
+        let valid = Span {
+            file_id: file,
+            start: 0,
+            end: 2,
+        };
+
+        assert!(!info.set_exact_span(
+            CodeLoc {
+                chunk: ChunkId(u32::MAX),
+                pc: 0,
+            },
+            valid,
+        ));
+        assert!(!info.set_statement_span(CodeLoc { chunk, pc: 1 }, valid));
+        assert!(!info.set_exact_span(
+            CodeLoc { chunk, pc: 0 },
+            Span {
+                file_id: 99,
+                start: 0,
+                end: 1,
+            },
+        ));
+        assert!(!info.set_exact_span(
+            CodeLoc { chunk, pc: 0 },
+            Span {
+                file_id: file,
+                start: 1,
+                end: 2,
+            },
+        ));
+        assert!(info.set_exact_span(CodeLoc { chunk, pc: 0 }, valid));
     }
 }
 
@@ -458,11 +691,112 @@ pub struct CodeLoc {
     pub pc: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DebugLocalsFrame {
     pub loc: CodeLoc,
     pub name: Arc<str>,
     pub locals: Vec<(usize, Value)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedCodeLoc {
+    pub location: CodeLoc,
+    pub function: Arc<str>,
+    pub source: Option<SourceLocation>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SourceLocation {
+    pub path: Arc<str>,
+    pub source: Arc<str>,
+    pub span: Span,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct CrashId(u64);
+
+impl CrashId {
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+/// One logical frame captured at the point where execution failed.
+///
+/// Locals live on the same frame as its location so debugger frame indexes
+/// cannot drift away from their corresponding local values.
+#[derive(Clone, Debug)]
+pub enum CrashFrame {
+    Located {
+        function: Arc<str>,
+        location: CodeLoc,
+        source: Option<SourceLocation>,
+        locals: Option<Arc<[(usize, Value)]>>,
+    },
+    TailCallsOmitted,
+}
+
+impl CrashFrame {
+    pub fn function(&self) -> &str {
+        match self {
+            Self::Located { function, .. } => function,
+            Self::TailCallsOmitted => "(... tail calls omitted ...)",
+        }
+    }
+
+    pub fn location(&self) -> Option<CodeLoc> {
+        match self {
+            Self::Located { location, .. } => Some(*location),
+            Self::TailCallsOmitted => None,
+        }
+    }
+
+    pub fn locals(&self) -> Option<&[(usize, Value)]> {
+        match self {
+            Self::Located { locals, .. } => locals.as_deref(),
+            Self::TailCallsOmitted => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CrashSnapshot {
+    id: CrashId,
+    frames: Arc<[CrashFrame]>,
+    instructions: Arc<[Option<Arc<[Instruction]>>]>,
+}
+
+impl CrashSnapshot {
+    pub(crate) fn new(
+        id: CrashId,
+        frames: Vec<CrashFrame>,
+        instructions: Vec<Option<Arc<[Instruction]>>>,
+    ) -> Self {
+        debug_assert_eq!(frames.len(), instructions.len());
+        Self {
+            id,
+            frames: Arc::from(frames),
+            instructions: Arc::from(instructions),
+        }
+    }
+
+    pub fn id(&self) -> CrashId {
+        self.id
+    }
+
+    pub fn frames(&self) -> &[CrashFrame] {
+        &self.frames
+    }
+
+    pub(crate) fn instructions(&self, frame: usize) -> Option<&Arc<[Instruction]>> {
+        self.instructions.get(frame)?.as_ref()
+    }
 }
 
 pub struct DebugChunkSpec<'a> {

@@ -3,13 +3,14 @@ pub mod data;
 pub mod model;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use unicode_width::UnicodeWidthChar as _;
 
 use crate::debugger::PauseReason;
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
-use crate::wqdb::data::{CodeLoc, DebugInfo};
+use crate::wqdb::data::{CodeLoc, CrashFrame, DebugInfo, Span};
 use crate::wqdb::model::{
     Breakpoint, BreakpointKind, SourceBreakpoint, StepGranularity, StepMode, StopHook,
     SymbolTrackTarget, SymbolTracker,
@@ -296,7 +297,7 @@ impl Wqdb {
             }
             return Some(PauseReason::TemporaryBreakpoint);
         }
-        let meta = di.chunk(here.chunk);
+        let meta = di.get_chunk(here.chunk)?;
         let is_stmt = meta.line_table.is_stmt(here.pc);
         let is_step_point = match self.granularity {
             StepGranularity::Line => {
@@ -334,7 +335,7 @@ impl Wqdb {
     }
 
     fn source_line_at(di: &DebugInfo, loc: CodeLoc) -> Option<(u32, usize)> {
-        let meta = di.chunk_opt(loc.chunk)?;
+        let meta = di.get_chunk(loc.chunk)?;
         let mut span = meta.line_table.context_span_at(loc.pc);
         if span.file_id == u32::MAX {
             for &pc in &meta.line_table.stmt_pcs {
@@ -498,7 +499,14 @@ pub fn format_span_snippet(
     end_byte: usize,
     color_mode: ColorMode,
 ) -> String {
-    let end_byte = end_byte.max(start_byte.saturating_add(1));
+    let start_byte = sf.clamp_byte_offset(start_byte);
+    let mut end_byte = sf.clamp_byte_offset(end_byte.max(start_byte.saturating_add(1)));
+    if end_byte <= start_byte {
+        end_byte = sf.text()[start_byte..]
+            .chars()
+            .next()
+            .map_or(start_byte, |ch| start_byte + ch.len_utf8());
+    }
     let (l, _) = sf.line_col(start_byte);
     let line_text = sf.line_text(l);
     let (line_start, line_end_raw) = sf.line_bounds(l);
@@ -565,7 +573,7 @@ pub fn format_frame(
     is_last: bool,
     color_mode: ColorMode,
 ) -> String {
-    let meta = match di.chunk_opt(loc.chunk) {
+    let meta = match di.get_chunk(loc.chunk).filter(|meta| loc.pc < meta.len) {
         Some(m) => m,
         None => {
             let bullet = if is_last { '*' } else { '+' };
@@ -615,7 +623,7 @@ pub fn format_frame(
         if span.file_id == u32::MAX {
             if let Some(sf) = di.file(meta.file_id) {
                 let mut out = paint(
-                    &format!("{bullet} at {name}, {}:?:?", sf.path),
+                    &format!("{bullet} at {name}, {}:?:?", sf.path()),
                     TextStyle::new().fg(AnsiColor::BrightYellow),
                     color_mode,
                 );
@@ -636,21 +644,27 @@ pub fn format_frame(
         }
     }
     if let Some(sf) = di.file(span.file_id) {
-        let start_byte = span.start;
-        let end_byte = span.end.max(start_byte.saturating_add(1));
+        let start_byte = sf.clamp_byte_offset(span.start);
+        let mut end_byte = sf.clamp_byte_offset(span.end.max(start_byte.saturating_add(1)));
+        if end_byte <= start_byte {
+            end_byte = sf.text()[start_byte..]
+                .chars()
+                .next()
+                .map_or(start_byte, |ch| start_byte + ch.len_utf8());
+        }
         let (l, c) = sf.line_col(start_byte);
         let end_lookup = end_byte
             .saturating_sub(1)
-            .min(sf.text.len().saturating_sub(1));
+            .min(sf.text().len().saturating_sub(1));
         let (end_line, _) = sf.line_col(end_lookup);
         let mut out = paint(
-            &format!("{bullet} at {name}, {}:{}:{}", sf.path, l, c),
+            &format!("{bullet} at {name}, {}:{}:{}", sf.path(), l, c),
             TextStyle::new().fg(AnsiColor::BrightYellow),
             color_mode,
         );
         out.push('\n');
         // Clamp 1-based line numbers correctly within [1, total]
-        let total = sf.line_starts.len();
+        let total = sf.line_count();
         let lo_ln = if l > 1 { l - 1 } else { 1 };
         let hi_ln = if end_line < total {
             end_line + 1
@@ -666,11 +680,18 @@ pub fn format_frame(
             let has_overlap = span_start < line_end && span_end > line_start;
             out.push_str(&gutter);
             if ln == l {
+                let marker = if line_text.is_empty() {
+                    format!("{:>4} ->", ln)
+                } else {
+                    format!("{:>4} -> ", ln)
+                };
                 out.push_str(&paint(
-                    &format!("{:>4} -> ", ln),
+                    &marker,
                     TextStyle::new().fg(AnsiColor::Green).bold(),
                     color_mode,
                 ));
+            } else if line_text.is_empty() {
+                out.push_str(&format!("{:>4}", ln));
             } else {
                 out.push_str(&format!("{:>4}    ", ln));
             }
@@ -690,7 +711,7 @@ pub fn format_frame(
             out.push('\n');
             if has_overlap && !use_inline_underline {
                 let pointer_start = if ln == l { c.saturating_sub(1) } else { 0 };
-                let pointer_width = sf.text[span_start..span_end].chars().count().max(1);
+                let pointer_width = sf.text()[span_start..span_end].chars().count().max(1);
                 out.push_str(&gutter);
                 out.push_str("        ");
                 out.push_str(&paint(
@@ -719,6 +740,71 @@ pub fn format_frame(
     }
 }
 
+pub fn format_crash_frame(frame: &CrashFrame, is_current: bool, color_mode: ColorMode) -> String {
+    match frame {
+        CrashFrame::TailCallsOmitted => {
+            let bullet = if is_current { '*' } else { '+' };
+            paint(
+                &format!("{bullet} at {}", frame.function()),
+                TextStyle::new().fg(AnsiColor::BrightYellow),
+                color_mode,
+            )
+        }
+        CrashFrame::Located {
+            function,
+            location,
+            source: None,
+            ..
+        } => {
+            let bullet = if is_current { '*' } else { '+' };
+            paint(
+                &format!("{bullet} at {function}, ?:?:? (pc {})", location.pc),
+                TextStyle::new().fg(AnsiColor::BrightYellow),
+                color_mode,
+            )
+        }
+        CrashFrame::Located {
+            function,
+            location,
+            source: Some(source),
+            ..
+        } => {
+            let mut debug_info = DebugInfo::default();
+            let file_id = debug_info.new_file(Arc::clone(&source.path), Arc::clone(&source.source));
+            let chunk =
+                debug_info.new_chunk(Arc::clone(function), file_id, location.pc.saturating_add(1));
+            if !debug_info.set_exact_span(
+                CodeLoc {
+                    chunk,
+                    pc: location.pc,
+                },
+                Span {
+                    file_id,
+                    start: source.span.start,
+                    end: source.span.end,
+                },
+            ) {
+                let bullet = if is_current { '*' } else { '+' };
+                return paint(
+                    &format!("{bullet} at {function}, ?:?:? (pc {})", location.pc),
+                    TextStyle::new().fg(AnsiColor::BrightYellow),
+                    color_mode,
+                );
+            }
+            format_frame(
+                &debug_info,
+                CodeLoc {
+                    chunk,
+                    pc: location.pc,
+                },
+                function,
+                is_current,
+                color_mode,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,7 +816,7 @@ mod tests {
         let mut di = DebugInfo::default();
         let file_id = di.new_file("wq[test]", "a:1;b:2\nc:3\n");
         let chunk = di.new_chunk("<script>", file_id, 5);
-        let table = &mut di.chunk_mut(chunk).line_table;
+        let table = &mut di.expect_chunk_mut(chunk).line_table;
         table.set_stmt_mark(
             0,
             Span {
@@ -877,7 +963,7 @@ mod tests {
         let file_id = di.new_file("wq[test]", "a:{\n  1/0\n}\n");
         let chunk = di.new_chunk("a", file_id, 3);
         {
-            let table = &mut di.chunk_mut(chunk).line_table;
+            let table = &mut di.expect_chunk_mut(chunk).line_table;
             let spans = apply_stmt_debug_exact_offs(
                 table,
                 file_id,
@@ -890,7 +976,8 @@ mod tests {
                 0,
                 None,
             );
-            di.chunk_mut(chunk).note_debug_spans(spans.0, spans.1);
+            di.expect_chunk_mut(chunk)
+                .note_debug_spans(spans.0, spans.1);
         }
 
         let rendered = format_frame(&di, CodeLoc { chunk, pc: 1 }, "a", true, ColorMode::Always);
@@ -898,6 +985,34 @@ mod tests {
         assert!(rendered.contains("2 -> "), "frame was: {rendered}");
         assert!(rendered.contains("1/0"), "frame was: {rendered}");
         assert!(!rendered.ends_with('\n'), "frame was: {rendered:?}");
+    }
+
+    #[test]
+    fn format_frame_does_not_pad_blank_context_lines() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("wq[test]", "x\n\n1/0\n\n");
+        let chunk = di.new_chunk("<script>", file_id, 1);
+        di.expect_chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id,
+                start: 3,
+                end: 6,
+            },
+        );
+
+        let rendered = format_frame(
+            &di,
+            CodeLoc { chunk, pc: 0 },
+            "<script>",
+            true,
+            ColorMode::Never,
+        );
+
+        assert!(
+            rendered.lines().all(|line| !line.ends_with(' ')),
+            "frame was: {rendered:?}"
+        );
     }
 
     #[test]
@@ -916,6 +1031,15 @@ mod tests {
         let rendered = format_span_snippet(&source, 2, 4, ColorMode::Never);
 
         assert_eq!(rendered, "  1 -> αβγ\n        ~");
+    }
+
+    #[test]
+    fn span_snippet_clamps_malformed_unicode_offsets() {
+        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "aéz\n");
+
+        let rendered = format_span_snippet(&source, 2, 2, ColorMode::Never);
+
+        assert_eq!(rendered, "  1 -> aéz\n        ~");
     }
 
     #[test]
@@ -953,6 +1077,32 @@ mod tests {
     }
 
     #[test]
+    fn format_frame_rejects_an_out_of_range_program_counter() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("wq[test]", "1/0");
+        let chunk = di.new_chunk("<script>", file_id, 1);
+        di.expect_chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id,
+                start: 0,
+                end: 3,
+            },
+        );
+
+        let rendered = format_frame(
+            &di,
+            CodeLoc { chunk, pc: 99 },
+            "<script>",
+            true,
+            ColorMode::Never,
+        );
+
+        assert!(rendered.contains("?:?:?"), "frame was: {rendered}");
+        assert!(!rendered.contains("1/0"), "frame was: {rendered}");
+    }
+
+    #[test]
     fn context_span_prefers_previous_exact_span_before_older_stmt_span() {
         let mut table = LineTable::default();
         table.set_stmt_mark(
@@ -987,7 +1137,7 @@ mod tests {
         let mut di = DebugInfo::default();
         let file_id = di.new_file("wq[@p]", "@p\n");
         let chunk = di.new_chunk("<script>", file_id, 2);
-        di.chunk_mut(chunk).line_table.set_stmt_mark(
+        di.expect_chunk_mut(chunk).line_table.set_stmt_mark(
             1,
             Span {
                 file_id,

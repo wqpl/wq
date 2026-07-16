@@ -16,12 +16,11 @@ use wqpl::interpret::InterpreterKind;
 use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
 use wqpl::session::stdio::{WqInput, WqIoError, WqOutput};
-use wqpl::session::{Session, SourceUnit};
+use wqpl::session::{EvaluationFailure, Session, SourceUnit};
 use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::Value;
-#[cfg(test)]
-use wqpl::value::WqResult;
+use wqpl::wqdb::data::CrashFrame;
 use wqpl::wqerror::WqError;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -342,17 +341,7 @@ impl WasmWqSession {
         };
         match result {
             Ok(rendered) => Ok(rendered_value_to_js(&rendered).into()),
-            Err(e) => {
-                let stack = if e.err_type.is_runtime() {
-                    let mut session = self.try_session_mut()?;
-                    let stack = session_stack_data(&mut session);
-                    let _ = session.dbg_print_bt();
-                    stack
-                } else {
-                    Vec::new()
-                };
-                Err(wq_error_with_stack_js(&e, color_mode, stack))
-            }
+            Err(failure) => Err(evaluation_failure_js(&failure, color_mode)),
         }
     }
 
@@ -527,11 +516,15 @@ fn parse_builtin_preset(name: &str) -> Result<BuiltinPreset, JsValue> {
 }
 
 #[cfg(test)]
-fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> WqResult<Value> {
+type TestEvaluationResult<T> = Result<T, Box<EvaluationFailure>>;
+
+#[cfg(test)]
+fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> TestEvaluationResult<Value> {
     session
         .session
         .borrow_mut()
         .eval_script(SourceUnit::named("<wasm>", src))
+        .map_err(Box::new)
 }
 
 fn render_value(value: &Value, config: BoxPrintConfig) -> RenderedValueData {
@@ -544,7 +537,10 @@ fn render_value(value: &Value, config: BoxPrintConfig) -> RenderedValueData {
 }
 
 #[cfg(test)]
-fn eval_rendered_value(session: &WasmWqSession, src: &str) -> WqResult<RenderedValueData> {
+fn eval_rendered_value(
+    session: &WasmWqSession,
+    src: &str,
+) -> TestEvaluationResult<RenderedValueData> {
     let value = eval_wq_script_value(session, src)?;
     Ok(render_value(&value, session.box_config.get()))
 }
@@ -606,37 +602,42 @@ fn global_binding_data(session: &Session) -> Vec<GlobalBindingData> {
     bindings
 }
 
-fn session_stack_data(session: &mut Session) -> Vec<DiagnosticStackFrameData> {
-    let debugger = session.debugger();
-    let frames = debugger.backtrace();
-    frames
-        .iter()
-        .map(|(location, function)| {
-            let source_location =
-                debugger
-                    .debug_info()
-                    .chunk_opt(location.chunk)
-                    .and_then(|chunk| {
-                        let span = chunk.line_table.context_span_at(location.pc);
-                        debugger.debug_info().file(span.file_id).map(|file| {
-                            let byte = clamp_byte_boundary(&file.text, span.start);
-                            let (line, column) = file.display_line_col(byte);
-                            (file.path.to_string(), line, column, byte)
-                        })
-                    });
-            let (path, line, column, byte) = source_location
-                .map_or((None, None, None, None), |(path, line, column, byte)| {
-                    (Some(path), Some(line), Some(column), Some(byte))
-                });
-            DiagnosticStackFrameData {
-                function: function.to_string(),
-                path,
-                line,
-                column,
-                byte,
-            }
-        })
-        .collect()
+fn evaluation_failure_stack_data(failure: &EvaluationFailure) -> Vec<DiagnosticStackFrameData> {
+    let Some(crash) = failure.crash() else {
+        return Vec::new();
+    };
+    crash.frames().iter().map(crash_frame_data).collect()
+}
+
+fn crash_frame_data(frame: &CrashFrame) -> DiagnosticStackFrameData {
+    let CrashFrame::Located {
+        function, source, ..
+    } = frame
+    else {
+        return DiagnosticStackFrameData {
+            function: frame.function().to_string(),
+            path: None,
+            line: None,
+            column: None,
+            byte: None,
+        };
+    };
+    let (path, line, column, byte) = source.as_ref().map_or((None, None, None, None), |source| {
+        let byte = clamp_byte_boundary(&source.source, source.span.start);
+        (
+            Some(source.path.to_string()),
+            Some(source.line),
+            Some(source.column),
+            Some(byte),
+        )
+    });
+    DiagnosticStackFrameData {
+        function: function.to_string(),
+        path,
+        line,
+        column,
+        byte,
+    }
 }
 
 fn clamp_byte_boundary(source: &str, byte: usize) -> usize {
@@ -663,7 +664,7 @@ fn diagnostic_data(
         source: err.src.clone(),
         span: err.span,
         path: err.source_ctx.as_deref().map(|source| source.path.clone()),
-        notes: err.notes.clone(),
+        notes: err.notes.as_ref().clone(),
         data: err
             .data
             .iter()
@@ -680,6 +681,17 @@ fn diagnostic_data(
         stack,
         cause: None,
     }
+}
+
+fn evaluation_failure_diagnostic_data(
+    failure: &EvaluationFailure,
+    color_mode: ColorMode,
+) -> DiagnosticData {
+    diagnostic_data(
+        &failure.error,
+        color_mode,
+        evaluation_failure_stack_data(failure),
+    )
 }
 
 fn api_diagnostic_data(kind: &str, message: &str) -> DiagnosticData {
@@ -770,6 +782,10 @@ fn wq_error_js(err: &WqError, color_mode: ColorMode) -> JsValue {
     wq_error_with_stack_js(err, color_mode, Vec::new())
 }
 
+fn evaluation_failure_js(failure: &EvaluationFailure, color_mode: ColorMode) -> JsValue {
+    diagnostic_to_js(&evaluation_failure_diagnostic_data(failure, color_mode)).into()
+}
+
 fn wq_error_with_stack_js(
     err: &WqError,
     color_mode: ColorMode,
@@ -835,8 +851,8 @@ fn diagnostic_to_js(diagnostic: &DiagnosticData) -> Object {
     object
 }
 
-fn wasm_wqdb_pause_handler(_event: PauseEvent, debugger: &mut Debugger<'_>) -> DebugResume {
-    let loc = debugger.location();
+fn wasm_wqdb_pause_handler(event: PauseEvent, debugger: &mut Debugger<'_>) -> DebugResume {
+    let loc = event.location;
     let name = debugger.function_name(loc.chunk);
     let _ = debugger.write_stderr_line(
         "wqdb: paused; interactive browser debugger shell is not available, continuing",
@@ -1580,8 +1596,7 @@ mod tests {
         let session = WasmWqSession::new();
         let err = eval_wq_script_value(&session, "f:{assert_eq[1;2]};f[]")
             .expect_err("assertion should fail");
-        let stack = session_stack_data(&mut session.session.borrow_mut());
-        let diagnostic = diagnostic_data(&err, ColorMode::Never, stack);
+        let diagnostic = evaluation_failure_diagnostic_data(&err, ColorMode::Never);
 
         assert_eq!(diagnostic.version, 1);
         assert_eq!(diagnostic.kind, "assert");
@@ -1616,6 +1631,27 @@ mod tests {
         assert!(api.data.is_empty());
         assert!(api.stack.is_empty());
         assert_eq!(api.cause, None);
+    }
+
+    #[test]
+    fn diagnostic_stack_belongs_to_its_evaluation_failure() {
+        let session = WasmWqSession::new();
+        let runtime_failure = eval_wq_script_value(&session, "f:{1/0};f[]")
+            .expect_err("division by zero should fail");
+        assert!(
+            evaluation_failure_stack_data(&runtime_failure)
+                .iter()
+                .any(|frame| frame.function == "f")
+        );
+
+        let syntax_failure =
+            eval_wq_script_value(&session, "1+").expect_err("incomplete input should fail");
+        assert!(evaluation_failure_stack_data(&syntax_failure).is_empty());
+        assert!(
+            evaluation_failure_stack_data(&runtime_failure)
+                .iter()
+                .any(|frame| frame.function == "f")
+        );
     }
 
     #[test]

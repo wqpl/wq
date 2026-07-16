@@ -3,7 +3,7 @@ use wq_dap::r#type::{
 };
 use wqpl::debugger::Debugger;
 use wqpl::value::Excerpt;
-use wqpl::wqdb::data::{CodeLoc, DebugInfo};
+use wqpl::wqdb::data::{CrashFrame, DebugInfo};
 use wqpl::wqdb::model::SourceBreakpoint;
 
 pub(crate) struct StackTracePage {
@@ -47,14 +47,9 @@ pub(crate) fn build_source_breakpoint(
     };
 
     let (line, column) = debug_info
-        .chunk_opt(location.chunk)
-        .and_then(|chunk| {
-            let span = chunk.line_table.span_at(location.pc);
-            debug_info.file(span.file_id).map(|file| {
-                let (line, column) = file.line_col(span.start);
-                (Some(line as i64), Some(column as i64))
-            })
-        })
+        .resolve_location(location)
+        .and_then(|resolved| resolved.source)
+        .map(|source| (Some(source.line as i64), Some(source.column as i64)))
         .unwrap_or((Some(breakpoint.requested_line as i64), None));
     Breakpoint {
         id: Some(breakpoint.id as i64),
@@ -76,7 +71,7 @@ pub(crate) fn build_stack_trace(
     let frames = frames
         .iter()
         .enumerate()
-        .map(|(id, (loc, name))| loc_to_stack_frame(di, *loc, name.as_ref(), id))
+        .map(|(id, frame)| crash_frame_to_stack_frame(di, frame, id))
         .collect();
     paginate_stack_frames(frames, start_frame, levels)
 }
@@ -101,46 +96,32 @@ fn paginate_stack_frames(
     }
 }
 
-fn loc_to_stack_frame(di: &DebugInfo, loc: CodeLoc, name: &str, id: usize) -> StackFrame {
-    let meta = di.chunk_opt(loc.chunk);
-    let (source, line, column) = meta
-        .and_then(|m| {
-            let span = m.line_table.span_at(loc.pc);
-            if span.file_id == u32::MAX {
-                let ctx = m.line_table.context_span_at(loc.pc);
-                if ctx.file_id == u32::MAX {
-                    return None;
-                }
-                di.file(ctx.file_id).map(|sf| {
-                    let (l, c) = sf.line_col(ctx.start);
-                    (
-                        Some(Source {
-                            path: Some(sf.path.to_string()),
-                            ..Default::default()
-                        }),
-                        l as i64,
-                        c as i64,
-                    )
-                })
-            } else {
-                di.file(span.file_id).map(|sf| {
-                    let (l, c) = sf.line_col(span.start);
-                    (
-                        Some(Source {
-                            path: Some(sf.path.to_string()),
-                            ..Default::default()
-                        }),
-                        l as i64,
-                        c as i64,
-                    )
-                })
-            }
+fn crash_frame_to_stack_frame(di: &DebugInfo, frame: &CrashFrame, id: usize) -> StackFrame {
+    let source = match frame {
+        CrashFrame::Located {
+            location, source, ..
+        } => source.clone().or_else(|| {
+            di.resolve_location(*location)
+                .and_then(|resolved| resolved.source)
+        }),
+        CrashFrame::TailCallsOmitted => None,
+    };
+    let (source, line, column) = source
+        .map(|source| {
+            (
+                Some(Source {
+                    path: Some(source.path.to_string()),
+                    ..Default::default()
+                }),
+                source.line as i64,
+                source.column as i64,
+            )
         })
         .unwrap_or((None, 0, 0));
 
     StackFrame {
         id: id as i64,
-        name: name.to_string(),
+        name: frame.function().to_string(),
         source,
         line,
         column,
@@ -154,19 +135,22 @@ pub(crate) fn build_scopes(debugger: &Debugger<'_>, frame_id: usize) -> Vec<Scop
         return Vec::new();
     }
 
-    let mut scopes = vec![Scope {
-        name: "Locals".to_string(),
-        presentation_hint: Some(ScopePresentationhint::Locals),
-        variables_reference: locals_ref(frame_id),
-        named_variables: None,
-        indexed_variables: None,
-        expensive: false,
-        source: None,
-        line: None,
-        column: None,
-        end_line: None,
-        end_column: None,
-    }];
+    let mut scopes = Vec::new();
+    if debugger.frame_locals(frame_id).is_some() {
+        scopes.push(Scope {
+            name: "Locals".to_string(),
+            presentation_hint: Some(ScopePresentationhint::Locals),
+            variables_reference: locals_ref(frame_id),
+            named_variables: None,
+            indexed_variables: None,
+            expensive: false,
+            source: None,
+            line: None,
+            column: None,
+            end_line: None,
+            end_column: None,
+        });
+    }
 
     if frame_id == 0 {
         scopes.push(Scope {
@@ -204,16 +188,16 @@ pub(crate) fn build_variables(
             })
             .collect()
     } else if let Some(frame_id) = decode_locals_ref(variables_reference) {
-        let all_frames = debugger.local_frames();
-        if let Some(frame) = all_frames.get(frame_id) {
-            let meta = debugger.debug_info().chunk(frame.loc.chunk);
+        if let Some(frame) = debugger.frame_locals(frame_id) {
+            let local_names = debugger
+                .debug_info()
+                .get_chunk(frame.loc.chunk)
+                .and_then(|meta| meta.local_names.as_deref());
             frame
                 .locals
                 .iter()
                 .map(|(slot, value)| {
-                    let name = meta
-                        .local_names
-                        .as_ref()
+                    let name = local_names
                         .and_then(|names| names.get(*slot).cloned())
                         .unwrap_or_else(|| format!("loc[{slot}]"));
                     Variable {
@@ -262,7 +246,43 @@ fn decode_locals_ref(variables_reference: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use wqpl::wqdb::data::{ChunkId, CodeLoc};
+
     use super::*;
+
+    #[test]
+    fn tail_call_marker_is_a_source_less_stack_frame() {
+        let frame =
+            crash_frame_to_stack_frame(&DebugInfo::default(), &CrashFrame::TailCallsOmitted, 2);
+
+        assert_eq!(frame.id, 2);
+        assert_eq!(frame.name, "(... tail calls omitted ...)");
+        assert!(frame.source.is_none());
+        assert_eq!(frame.line, 0);
+        assert_eq!(frame.column, 0);
+    }
+
+    #[test]
+    fn stack_frame_tolerates_missing_debug_metadata() {
+        let crash_frame = CrashFrame::Located {
+            function: Arc::from("f"),
+            location: CodeLoc {
+                chunk: ChunkId(u32::MAX),
+                pc: usize::MAX,
+            },
+            source: None,
+            locals: None,
+        };
+
+        let frame = crash_frame_to_stack_frame(&DebugInfo::default(), &crash_frame, 0);
+
+        assert_eq!(frame.name, "f");
+        assert!(frame.source.is_none());
+        assert_eq!(frame.line, 0);
+        assert_eq!(frame.column, 0);
+    }
 
     #[test]
     fn stack_trace_pagination_keeps_the_full_available_frame_count() {
