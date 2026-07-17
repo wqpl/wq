@@ -16,7 +16,7 @@
   - `+` is broadcasting add
   - binary `,` concats
   - leading `,` enlists
-  - `/` is classic division and integer division produces floats. `/.` is exact division and preserves rational fractions when possible.
+  - `/` is classic division and int division produces floats. `/.` is exact division and preserves rational fractions when possible.
   - `^` is classic power; negative or fractional numeric exponents may produce floats/complex values. `^.` is exact power. Use exact operands such as `1/.3`, not `1/3`, when you need exact fractional exponents.
   - CAS simplification (`@s`, `cas_*`, `numeric_*`) should preserve exact constants where possible. It may use exact dot arithmetic internally even when the symbolic surface operator is `CasOp::Divide` or `CasOp::Power`.
     - If you add or change CAS integration strategies, update the unsupported integral reason classifier in `wqpl/src/cas/integrate.rs` and its tests so `unsupported symbolic integral` notes stay accurate.
@@ -24,7 +24,7 @@
   - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns an empty list `()`.
   - `$$[c1;t1;c2;t2;default]` is a condition chain. Conditions are checked in order. The final default is optional; an omitted default is an empty list.
   - `|` is pipe, which inserts lhs as the first arg to rhs call
-  - `band[...]`, `bor[...]`, and `bxor[...]` apply eager bitwise logic to integers or bools.
+  - `band[...]`, `bor[...]`, and `bxor[...]` apply eager bitwise logic to ints or bools.
   - `A[...]` and `O[...]` are short-circuit bool and/or forms.
   - `and[...]` and `or[...]` are parser aliases for `A[...]` and `O[...]`.
   - `(1)` is not a list. It is atom `1`.
@@ -39,7 +39,15 @@
   - canonical value naming:
     - user-facing containers are `list` and `dict`
     - user-facing non-containers are atoms; do not call wq values scalars
-    - use `int-list`, `bool-list`, and `float-list` in display, debug/profiler output, tests, and code comments
+    - `ValueCategory` and `Value::category()` are the stable public model
+    - public categories are `int`, `float`, `complex`, `fraction`, `algebraic`, `char`, `tag`, `bool`, `list`, `cas`, `dict`, `function`, `rng`, and `stream`
+    - both machine-width and bigint-backed ints have category `int`; all specialized list storage and strings have category `list`; compiled functions, closures, builtin-functions, and function compositions have category `function`
+    - internal int storage details like `int` and `bigint` are both reported as `int` in user-facing messages and docs.
+    - `ValueKind` and `Value::debug_kind()` are representation-oriented and distinguish `bigint`, `string`, `closure`, `builtin-function`, and `function-composition`
+    - use `int-list`, `bool-list`, and `float-list` as debug-kind names in display, debugger/profiler output, tests, and code comments; do not use custom languages like `list<int>`, `list<bool>`, or `list<float>`
+    - route public surfaces such as the REPL, language-server hover, WASM values, and diagnostic data through `category()`
+    - route representation-oriented debugger, profiler, trace, DAP, and inspection surfaces through `debug_kind()`; label the field or column `kind`, not `type`
+    - when a surface intentionally shows both, label them explicitly as `category` and `kind`
     - in user-facing docs, treat strings as part of the public list/container story unless text behavior is the point; the word "string" is fine when it helps clarity
     - do not describe strings as "lists of chars", "char lists", or "text" in user-facing docs; say "string"
     - do not use "list-like" in user-facing docs; use "container" when both list and dict are meant, or "list" when dicts are not included
@@ -49,6 +57,25 @@
     - use `builtin` as the shorthand in compact UI labels, navigation, and prose
     - use `builtin-function` as the formal full term and debug kind; pluralize it as `builtin-functions`
     - do not use `bfn`, `built-in`, or `builtin function`
+  - canonical diagnostics and requirements:
+    - construct reusable expectations with `wqerror::Requirement` and finish them with `WqError::expected`; do not hand-build parallel `expected ...` strings when the model can express the requirement
+    - keep articles and the word `expected` outside `Requirement`; requirement renderings must compose grammatically in singular, plural, union, list, dict, modifier, and bounded-range contexts
+    - use `Requirement::one_of` for alternatives, `Requirement::list` and `Requirement::dict` for containers, `Requirement::int_range` with explicit inclusive/exclusive `Bound`s for int domains, modifiers for constraints such as positive/non-negative/finite, `string_literal` for string values, and `literal` only for canonical bare values
+    - preserve exact range semantics in prose; for example, `(0,255]` is `int greater than 0 and at most 255`
+    - nested alternatives must retain clear scope, such as `list whose elements are positive ints or positive floats`; complex dict members must use scoped wording such as `values that are lists of ints`
+    - the public `int` category includes bigint-backed values; if an operation has a machine-width or other numeric limit, either accept bigint-backed ints that fit or state the real bounded requirement
+    - never emit a self-contradictory diagnostic such as `expected int` followed by `got ... (int)` when the actual rejection is an unstated range or representation limit
+    - standardize value context as `got VALUE (category)`, `got lhs VALUE (category)`, or `got rhs VALUE (category)` using excerpts and `category()`; do not add generic outer quotes around values
+    - use one-based `at argument N`, `at named argument 'name'`, and precise zero-based element/index context where applicable
+    - use the centralized arity helpers so messages include correct singular/plural grammar, the actual count, and builtin usage
+    - quote identifiers, callable names, operators, and source syntax with single quotes
+    - quote actual string values with double quotes, preferably through `Requirement::string_literal`; render tag values with canonical backtick syntax
+    - use source lexemes or canonical diagnostic names instead of Rust `Debug` output for tokens, operators, and syntax
+    - classify impossible compiler, VM, and CAS invariants as internal errors; do not expose helper names, storage widths, Rust types, or implementation shapes in user-facing messages
+  - canonical consumer/API naming:
+    - `\category` and `\category?` are the canonical REPL commands; `\type` and `\type?` may remain compatibility aliases
+    - external structured values and bindings use a `category` field; debug-only structured values use `kind`
+    - bump a versioned external diagnostic schema when renaming or changing its stable fields, and migrate all checked-in consumers and contract tests together
   - use `bool` consistently for wq values, operations, docs, diagnostics, tests, and UI copy
   - `@r expr` returns from a function.
   - `@s <expr>` creates a symbolic CAS structure.
@@ -66,7 +93,7 @@
   - Also update `wq-ts/grammar.js`, and
   - verify it with `tree-sitter generate`, and
   - add a new corpse test using `tree-sitter test -u`
-- Delevopment should be test-driven. Choose between unit tests and snapshot tests depending on situation.
+- Development should be test-driven. Choose between unit tests and snapshot tests depending on situation.
   - Integration/snapshot tests use `hotchoco.py`.
     - This tests semantics, formatter, backtraces, etc.
     - `python3 hotchoco.py run`, when you touched:
