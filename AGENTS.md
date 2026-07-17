@@ -113,6 +113,18 @@
 | let chains      | Rust 1.88.0   | 2025-06-26   | Stable only in Rust 2024 edition. Allows `if let ... && let ... && condition` and similar in `while`. |
 | `if let` guards | Rust 1.95.0   | 2026-04-16   | Stabilizes `if let` guards on `match` arms, e.g. `pat if let Some(x) = expr => ...`.                  |
 
+## Documentation Markdown
+
+- When inline wq source contains backticks, use a CommonMark delimiter longer than every backtick run inside the source.
+- If the source begins or ends with a backtick, add one padding space inside both delimiters so it renders without padding. For example:
+
+  ```markdown
+  `` `tag ``
+  ``(`a:1;`b:2)``
+  ```
+
+- Do not omit representative tag or dict examples, or rewrite an example merely to avoid handling the delimiters. Verify the rendered Markdown whenever a code span contains backticks.
+
 ## Commit messages
 
 At the final handoff only, recommend one commit message when this session produced an actual change that is ready to commit.

@@ -2,7 +2,7 @@ use std::io::{IsTerminal as _, Write as _};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
 use terminal_size::{Width, terminal_size};
 use unicode_width::UnicodeWidthStr as _;
 use wqpl::format::{FormatConfig, Formatter};
@@ -97,7 +97,7 @@ fn split_markdown_blocks(segments: Vec<Segment>) -> Vec<Segment> {
 }
 
 fn parse_segments(markdown: &str) -> Vec<Segment> {
-    let parser = Parser::new(markdown);
+    let parser = Parser::new_ext(markdown, Options::ENABLE_TABLES);
     let mut segments = Vec::new();
     let mut pos = 0usize;
 
@@ -308,8 +308,162 @@ fn terminal_width(s: &str) -> usize {
     s.width()
 }
 
+#[derive(Debug)]
+struct TerminalTable {
+    alignments: Vec<Alignment>,
+    header: Vec<String>,
+    rows: Vec<Vec<String>>,
+    current_row: Vec<String>,
+    current_cell: Option<String>,
+    current_row_is_header: bool,
+}
+
+impl TerminalTable {
+    fn new(alignments: Vec<Alignment>) -> Self {
+        Self {
+            alignments,
+            header: Vec::new(),
+            rows: Vec::new(),
+            current_row: Vec::new(),
+            current_cell: None,
+            current_row_is_header: false,
+        }
+    }
+
+    fn start_row(&mut self, is_header: bool) {
+        self.current_row.clear();
+        self.current_row_is_header = is_header;
+    }
+
+    fn start_cell(&mut self) {
+        self.current_cell = Some(String::new());
+    }
+
+    fn push_cell_text(&mut self, text: &str) {
+        if let Some(cell) = self.current_cell.as_mut() {
+            cell.push_str(text);
+        }
+    }
+
+    fn push_cell_space(&mut self) {
+        if let Some(cell) = self.current_cell.as_mut()
+            && !cell.ends_with(char::is_whitespace)
+        {
+            cell.push(' ');
+        }
+    }
+
+    fn finish_cell(&mut self) {
+        if let Some(cell) = self.current_cell.take() {
+            self.current_row.push(cell.trim().to_string());
+        }
+    }
+
+    fn finish_row(&mut self) {
+        let row = std::mem::take(&mut self.current_row);
+        if self.current_row_is_header {
+            self.header = row;
+        } else if !row.is_empty() {
+            self.rows.push(row);
+        }
+    }
+}
+
+fn render_terminal_table(table: &TerminalTable) -> String {
+    let column_count = table
+        .rows
+        .iter()
+        .map(Vec::len)
+        .chain([table.header.len(), table.alignments.len()])
+        .max()
+        .unwrap_or(0);
+    if column_count == 0 {
+        return String::new();
+    }
+
+    let mut widths = vec![0; column_count];
+    for row in std::iter::once(&table.header).chain(&table.rows) {
+        for (column, cell) in row.iter().enumerate() {
+            widths[column] = widths[column].max(visible_terminal_width(cell));
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str(&terminal_table_rule(&widths));
+    out.push('\n');
+    out.push_str(&terminal_table_row(
+        &table.header,
+        &widths,
+        &table.alignments,
+    ));
+    if !table.rows.is_empty() {
+        out.push('\n');
+        out.push_str(&terminal_table_rule(&widths));
+        for row in &table.rows {
+            out.push('\n');
+            out.push_str(&terminal_table_row(row, &widths, &table.alignments));
+        }
+    }
+    out.push('\n');
+    out.push_str(&terminal_table_rule(&widths));
+    out
+}
+
+fn terminal_table_rule(widths: &[usize]) -> String {
+    let mut rule = String::new();
+    rule.push('+');
+    for (index, width) in widths.iter().enumerate() {
+        if index > 0 {
+            rule.push('+');
+        }
+        rule.push_str(&"-".repeat(width + 2));
+    }
+    rule.push('+');
+    note_dim(&rule)
+}
+
+fn terminal_table_row(row: &[String], widths: &[usize], alignments: &[Alignment]) -> String {
+    let mut out = String::new();
+    out.push_str(&note_dim("|"));
+    for (column, width) in widths.iter().copied().enumerate() {
+        let cell = row.get(column).map(String::as_str).unwrap_or_default();
+        let padding = width.saturating_sub(visible_terminal_width(cell));
+        let alignment = alignments.get(column).copied().unwrap_or(Alignment::None);
+        let (left_padding, right_padding) = match alignment {
+            Alignment::Right => (padding, 0),
+            Alignment::Center => (padding / 2, padding - padding / 2),
+            Alignment::None | Alignment::Left => (0, padding),
+        };
+        out.push(' ');
+        out.push_str(&" ".repeat(left_padding));
+        out.push_str(cell);
+        out.push_str(&" ".repeat(right_padding));
+        out.push(' ');
+        out.push_str(&note_dim("|"));
+    }
+    out
+}
+
+fn visible_terminal_width(text: &str) -> usize {
+    let mut visible = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
+            for code_ch in chars.by_ref() {
+                if ('@'..='~').contains(&code_ch) {
+                    break;
+                }
+            }
+        } else {
+            visible.push(ch);
+        }
+    }
+    visible.width()
+}
+
 fn render_terminal_with_soft_break_mode(md: &str, soft_break_mode: SoftBreakMode) -> String {
-    let parser = Parser::new(md);
+    let parser = Parser::new_ext(md, Options::ENABLE_TABLES);
     let mut out = String::new();
 
     let mut _in_paragraph = false;
@@ -319,9 +473,84 @@ fn render_terminal_with_soft_break_mode(md: &str, soft_break_mode: SoftBreakMode
     let mut in_list: Vec<bool> = Vec::new();
     let mut item_continuation_indent: Vec<String> = Vec::new();
     let mut item_number: Vec<usize> = Vec::new();
+    let mut table: Option<TerminalTable> = None;
 
     for event in parser {
+        if table.is_some() {
+            match event {
+                Event::End(TagEnd::Table) => {
+                    let finished = table.take().expect("table should be active");
+                    out.push_str(&render_terminal_table(&finished));
+                    out.push('\n');
+                    out.push('\n');
+                }
+                Event::Start(Tag::TableHead) => {
+                    table
+                        .as_mut()
+                        .expect("table should be active")
+                        .start_row(true);
+                }
+                Event::End(TagEnd::TableHead) => {
+                    table.as_mut().expect("table should be active").finish_row();
+                }
+                Event::Start(Tag::TableRow) => {
+                    table
+                        .as_mut()
+                        .expect("table should be active")
+                        .start_row(false);
+                }
+                Event::End(TagEnd::TableRow) => {
+                    table.as_mut().expect("table should be active").finish_row();
+                }
+                Event::Start(Tag::TableCell) => {
+                    table.as_mut().expect("table should be active").start_cell();
+                }
+                Event::End(TagEnd::TableCell) => {
+                    table
+                        .as_mut()
+                        .expect("table should be active")
+                        .finish_cell();
+                }
+                Event::Start(Tag::Strong) => in_strong = true,
+                Event::End(TagEnd::Strong) => in_strong = false,
+                Event::Start(Tag::Emphasis) => in_em = true,
+                Event::End(TagEnd::Emphasis) => in_em = false,
+                Event::Start(Tag::Link { .. }) => in_link = true,
+                Event::End(TagEnd::Link) => in_link = false,
+                Event::Text(text) => {
+                    let text = apply_text_style(&text, in_strong, in_em, in_link);
+                    table
+                        .as_mut()
+                        .expect("table should be active")
+                        .push_cell_text(&text);
+                }
+                Event::Code(code) => {
+                    table
+                        .as_mut()
+                        .expect("table should be active")
+                        .push_cell_text(&format!("`{}`", note_dim(&code)));
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    table
+                        .as_mut()
+                        .expect("table should be active")
+                        .push_cell_space();
+                }
+                Event::Html(html) | Event::InlineHtml(html) => {
+                    table
+                        .as_mut()
+                        .expect("table should be active")
+                        .push_cell_text(&html);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
         match event {
+            Event::Start(Tag::Table(alignments)) => {
+                table = Some(TerminalTable::new(alignments));
+            }
             Event::Start(Tag::Paragraph) => _in_paragraph = true,
             Event::End(TagEnd::Paragraph) => {
                 _in_paragraph = false;
@@ -647,6 +876,21 @@ mod tests {
         let out = render_terminal(md);
 
         assert!(out.contains("alpha beta"));
+    }
+
+    #[test]
+    fn markdown_tables_render_as_aligned_terminal_tables() {
+        let md = "| Name | Meaning |\n| :--- | ---: |\n| `int` | number |\n| 界 | wide |";
+
+        assert_eq!(
+            strip_ansi(&render_terminal(md)),
+            "+-------+---------+\n\
+             | Name  | Meaning |\n\
+             +-------+---------+\n\
+             | `int` |  number |\n\
+             | 界    |    wide |\n\
+             +-------+---------+"
+        );
     }
 
     #[test]

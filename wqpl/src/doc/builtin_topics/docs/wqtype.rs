@@ -3,19 +3,19 @@ use crate::builtins::BuiltinEnum;
 
 const TYPE_EXAMPLES: &[DocExample] = &[
     DocExample {
-        title: "Inspect a value category",
-        code: "type (1;2)",
-        expectation: ExampleExpectation::ResultContains("\"list\""),
+        title: "Inspect several public categories",
+        code: "(type[42];type[1/.3];type[@u\"x\"];type[\"wq\"])",
+        expectation: ExampleExpectation::ResultContains("(\"int\";\"fraction\";\"char\";\"list\")"),
     },
     DocExample {
-        title: "Hide int storage width",
-        code: "type 9223372036854775808",
-        expectation: ExampleExpectation::ResultContains("\"int\""),
+        title: "Inspect lists",
+        code: "(type[til 3];type[\"wq\"])",
+        expectation: ExampleExpectation::ResultContains("(\"list\";\"list\")"),
     },
     DocExample {
-        title: "Treat strings as list values",
-        code: "type \"wq\"",
-        expectation: ExampleExpectation::ResultContains("\"list\""),
+        title: "Inspect functions",
+        code: "(type[{x+1}];type[map])",
+        expectation: ExampleExpectation::ResultContains("(\"function\";\"function\")"),
     },
 ];
 
@@ -64,7 +64,9 @@ const DICT_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const TYPE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Type,
     summary: "Return the public value category for a value.",
-    details: "`type[x]` returns the stable public category of `x` as a string. It does not expose storage width or list representation: all ints report `\"int\"`, and all lists report `\"list\"`. Strings also report `\"list\"` because they belong to the public list category. Use predicates such as `atom?` and `unit?` for structural questions.",
+    details: "`type[x]` returns the stable public category of `x` as a string.
+The result is one of `\"int\"`, `\"float\"`, `\"complex\"`, `\"fraction\"`, `\"algebraic\"`, `\"char\"`, `\"tag\"`, `\"bool\"`, `\"list\"`, `\"cas\"`, `\"dict\"`, `\"function\"`, `\"rng\"`, or `\"stream\"`.
+Use predicates such as `atom?` and `unit?` for structural questions.",
     examples: TYPE_EXAMPLES,
     related: &["atom?", "unit?", "shape"],
 };
