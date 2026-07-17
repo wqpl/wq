@@ -11,7 +11,7 @@ use crate::wqdb::data::ChunkId;
 pub enum Capture {
     Local(u16),
     LocalShared(u16),
-    Outer(u16), // FromCapture
+    FromCapture(u16),
     Global(String, Option<(usize, usize)>),
 }
 
@@ -687,7 +687,7 @@ impl InstPrettyDumper {
         match capture {
             Capture::Local(slot) => format!("Local({slot})"),
             Capture::LocalShared(slot) => format!("LocalShared({slot})"),
-            Capture::Outer(slot) => format!("FromCapture({slot})"),
+            Capture::FromCapture(slot) => format!("FromCapture({slot})"),
             Capture::Global(name, _) => format!("Global({name})"),
         }
     }

@@ -895,7 +895,7 @@ fn closure_capture_values(state: &State, captures: &[Capture]) -> Vec<Option<Val
         .map(|capture| match capture {
             Capture::Local(slot) => state.local(*slot),
             Capture::Global(name, _) => state.global(name),
-            Capture::LocalShared(_) | Capture::Outer(_) => None,
+            Capture::LocalShared(_) | Capture::FromCapture(_) => None,
         })
         .collect()
 }

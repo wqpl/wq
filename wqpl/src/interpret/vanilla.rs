@@ -239,7 +239,7 @@ impl VanillaInterpreter {
                                     };
                                     captured_vals.push(cell);
                                 }
-                                Capture::Outer(i) => {
+                                Capture::FromCapture(i) => {
                                     let cap_idx = usize::from(*i);
                                     let cell = vm
                                         .captures

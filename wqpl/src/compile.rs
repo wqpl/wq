@@ -2207,7 +2207,7 @@ impl Compiler {
             }
             let idx = child.next_capture_slot()?;
             child.capture_map.insert(k.clone(), idx);
-            child.captures.push(Capture::Outer(i_parent));
+            child.captures.push(Capture::FromCapture(i_parent));
         }
 
         let mut parent_ref_caps: Vec<(String, u16)> = self
@@ -2225,7 +2225,7 @@ impl Compiler {
             }
             let idx = child.next_capture_slot()?;
             child.ref_capture_map.insert(k.clone(), idx);
-            child.captures.push(Capture::Outer(i_parent));
+            child.captures.push(Capture::FromCapture(i_parent));
         }
         Ok(())
     }
@@ -3746,7 +3746,7 @@ mod tests {
         let h = first_closure_payload(g.instructions.as_ref());
 
         assert_eq!(g.captures, vec![Capture::LocalShared(a_slot)]);
-        assert_eq!(h.captures, vec![Capture::Outer(0)]);
+        assert_eq!(h.captures, vec![Capture::FromCapture(0)]);
     }
 
     // #[test]
