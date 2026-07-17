@@ -5,4 +5,7 @@ asciibox_:{[lines](maxlen;i):alloc 2;N[#lines;len_:#lines i
     echo ("|",repeat[" ";pad],l,repeat[" ";pad+spaces],"|");i+:1]
   echo border}
 asciibox:{asciibox_ split x}
-asciibox_file:{asciibox_ freadtlns open x}
+read_text:{open x|read|decode"utf-8"}
+split_lines:{lines:split[x;"\n"]
+  $.[and[#lines>0;U lines[-1]];lines!];lines}
+asciibox_file:{asciibox_ split_lines read_text x}

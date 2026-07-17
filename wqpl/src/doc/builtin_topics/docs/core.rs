@@ -355,7 +355,7 @@ Named options:
 
 When checking is enabled, failures include the exit code plus stderr and stdout excerpts when available.",
     examples: EXEC_EXAMPLES,
-    related: &["input", "open", "freadt"],
+    related: &["input", "open", "read"],
 };
 
 pub(super) const LEN: BuiltinDoc = BuiltinDoc {

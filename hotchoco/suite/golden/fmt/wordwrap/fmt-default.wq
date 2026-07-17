@@ -6,6 +6,10 @@ wordwrap:{[cs;w]
   $.[~U cs;echo cs]}
 "abcd efghi jklm"|repeat 100|wordwrap 10
 
+read_text:{open x|read|decode "utf-8"}
+split_lines:{
+  lines:split[x;"\n"]
+  $.[and[#lines>0;U lines[-1]];lines!];lines}
 wrap_file:{[path;w]
-  line:freadtln (h:open path)
-  W[~U line;line|wordwrap w;line:freadtln h];fclose h}
+  lines:split_lines read_text path
+  N[#lines;lines _n|wordwrap w]}

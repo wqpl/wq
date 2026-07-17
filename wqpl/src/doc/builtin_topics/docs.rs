@@ -49,29 +49,21 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     #[cfg(not(target_arch = "wasm32"))]
     file_io::OPEN,
     #[cfg(not(target_arch = "wasm32"))]
-    file_io::FEXISTS_Q,
+    file_io::PATH_EXISTS,
     #[cfg(not(target_arch = "wasm32"))]
     file_io::MKDIR,
     #[cfg(not(target_arch = "wasm32"))]
-    file_io::FSIZE,
+    file_io::FILE_SIZE,
     #[cfg(not(target_arch = "wasm32"))]
-    file_io::FWRITE,
+    file_io::WRITE,
     #[cfg(not(target_arch = "wasm32"))]
-    file_io::FWRITET,
+    file_io::READ,
     #[cfg(not(target_arch = "wasm32"))]
-    file_io::FREAD,
+    file_io::SEEK,
     #[cfg(not(target_arch = "wasm32"))]
-    file_io::FREADT,
+    file_io::TELL,
     #[cfg(not(target_arch = "wasm32"))]
-    file_io::FREADTLN,
-    #[cfg(not(target_arch = "wasm32"))]
-    file_io::FREADTLNS,
-    #[cfg(not(target_arch = "wasm32"))]
-    file_io::FSEEK,
-    #[cfg(not(target_arch = "wasm32"))]
-    file_io::FTELL,
-    #[cfg(not(target_arch = "wasm32"))]
-    file_io::FCLOSE,
+    file_io::CLOSE,
     meta::SHAPE,
     meta::DEPTH,
     meta::UNIFORM_Q,

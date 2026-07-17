@@ -1004,26 +1004,22 @@ declare_builtins! {
     (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), plain(core::exec), builtin_metadata!(Exec, UNCONSTRAINED_EFFECT)),
 
     // ENCODING =========================================================
-    (DECODE, Decode, "decode", "decode[bytes;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::decode), builtin_metadata!(Encoding, PURE)),
-    (ENCODE, Encode, "encode", "encode[text;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::encode), builtin_metadata!(Encoding, PURE)),
+    (DECODE, Decode, "decode", "decode[bytes;codec;`mode;`bom]", sig!(arity!(2), named DECODE_NAMED_ARGS), plain(encoding::decode), builtin_metadata!(Encoding, PURE)),
+    (ENCODE, Encode, "encode", "encode[text;codec;`mode]", sig!(arity!(2), named ENCODE_NAMED_ARGS), plain(encoding::encode), builtin_metadata!(Encoding, PURE)),
     (VALIDBYTES, ValidBytes, "bytes?", "bytes?[x]", sig!(arity!(1)), plain(encoding::is_valid_bytes), builtin_metadata!(Encoding, PURE)),
 
     // FILE IO =========================================================
     #[cfg(not(target_arch = "wasm32"))]
     {
-        (OPEN, Open, "open", "open[path;`r;`w;`a;`t;`c;`cn]", sig!(arity!(1), named OPEN_NAMED_ARGS), plain(io::open), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FEXISTS_Q, FexistsQ, "fexists?", "fexists?[path]", sig!(arity!(1)), plain(io::fexists), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (OPEN, Open, "open", "open[path;`read;`write;`append;`truncate;`create;`create_new]", sig!(arity!(1), named OPEN_NAMED_ARGS), plain(io::open), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (PATH_EXISTS_Q, PathExistsQ, "path_exists?", "path_exists?[path]", sig!(arity!(1)), plain(io::path_exists), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
         (MKDIR, Mkdir, "mkdir", "mkdir[path]", sig!(arity!(1)), plain(io::mkdir), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FSIZE, Fsize, "fsize", "fsize[path]", sig!(arity!(1)), plain(io::fsize), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FWRITE, Fwrite, "fwrite", "fwrite[stream;bytes]", sig!(arity!(2)), plain(io::fwrite), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FWRITET, Fwritet, "fwritet", "fwritet[stream;text]", sig!(arity!(2)), plain(io::fwritet), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FREAD, Fread, "fread", "fread[stream;len?]", sig!(arity!(1, 2)), plain(io::fread), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FREADT, Freadt, "freadt", "freadt[stream;len?]", sig!(arity!(1, 2)), plain(io::freadt), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FREADTLN, Freadtln, "freadtln", "freadtln[stream]", sig!(arity!(1)), plain(io::freadtln), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FREADTLNS, Freadtlns, "freadtlns", "freadtlns[stream]", sig!(arity!(1)), plain(io::freadtlns), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FSEEK, Fseek, "fseek", "fseek[stream;offset;whence?]", sig!(arity!(2, 3)), plain(io::fseek), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FTELL, Ftell, "ftell", "ftell[stream]", sig!(arity!(1)), plain(io::ftell), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
-        (FCLOSE, Fclose, "fclose", "fclose[stream]", sig!(arity!(1)), plain(io::fclose), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FILE_SIZE, FileSize, "file_size", "file_size[path]", sig!(arity!(1)), plain(io::file_size), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (WRITE, Write, "write", "write[stream;bytes]", sig!(arity!(2)), plain(io::write), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (READ, Read, "read", "read[stream;count?]", sig!(arity!(1, 2)), plain(io::read), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (SEEK, Seek, "seek", "seek[stream;offset;origin?]", sig!(arity!(2, 3)), plain(io::seek), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (TELL, Tell, "tell", "tell[stream]", sig!(arity!(1)), plain(io::tell), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (CLOSE, Close, "close", "close[stream]", sig!(arity!(1)), plain(io::close), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
     },
 
     // Meta =========================================================
@@ -1287,7 +1283,16 @@ const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
 #[cfg(not(target_arch = "wasm32"))]
 const EXEC_NAMED_ARGS: &[&str] = &["stdin", "cwd", "env", "timeout", "check"];
 #[cfg(not(target_arch = "wasm32"))]
-const OPEN_NAMED_ARGS: &[&str] = &["r", "w", "a", "t", "c", "cn"];
+const OPEN_NAMED_ARGS: &[&str] = &[
+    "read",
+    "write",
+    "append",
+    "truncate",
+    "create",
+    "create_new",
+];
+const DECODE_NAMED_ARGS: &[&str] = &["mode", "bom"];
+const ENCODE_NAMED_ARGS: &[&str] = &["mode"];
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct BuiltinCallCheck {
@@ -1692,35 +1697,27 @@ mod tests {
             (BuiltinEnum::Input, "0 1"),
             #[cfg(not(target_arch = "wasm32"))]
             (BuiltinEnum::Exec, "1.."),
-            (BuiltinEnum::Decode, "2 3"),
-            (BuiltinEnum::Encode, "2 3"),
+            (BuiltinEnum::Decode, "2"),
+            (BuiltinEnum::Encode, "2"),
             (BuiltinEnum::ValidBytes, "1"),
             #[cfg(not(target_arch = "wasm32"))]
             (BuiltinEnum::Open, "1"),
             #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::FexistsQ, "1"),
+            (BuiltinEnum::PathExistsQ, "1"),
             #[cfg(not(target_arch = "wasm32"))]
             (BuiltinEnum::Mkdir, "1"),
             #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Fsize, "1"),
+            (BuiltinEnum::FileSize, "1"),
             #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Fwrite, "2"),
+            (BuiltinEnum::Write, "2"),
             #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Fwritet, "2"),
+            (BuiltinEnum::Read, "1 2"),
             #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Fread, "1 2"),
+            (BuiltinEnum::Seek, "2 3"),
             #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Freadt, "1 2"),
+            (BuiltinEnum::Tell, "1"),
             #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Freadtln, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Freadtlns, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Fseek, "2 3"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Ftell, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Fclose, "1"),
+            (BuiltinEnum::Close, "1"),
             (BuiltinEnum::Len, "1"),
             (BuiltinEnum::Shape, "1"),
             (BuiltinEnum::Depth, "1"),

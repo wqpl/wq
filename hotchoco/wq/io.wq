@@ -1,0 +1,17 @@
+path:"hotchoco/wq/data/orange"
+echo path_exists? path
+echo file_size path
+
+h:open path
+echo read[h;2]
+echo tell h
+echo seek[h;0;`start]
+bytes:read h
+echo tell h
+echo decode[bytes;"utf-8"]
+echo read h
+close h
+close h
+
+echo decode[(239;187;191;104;128;105);"utf-8";`mode:`replace;`bom:`strip]
+echo encode["a🦀";"windows-1252";`mode:`replace]

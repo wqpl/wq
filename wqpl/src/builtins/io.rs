@@ -2,18 +2,26 @@
 
 use std::error::Error;
 use std::fs::{self, OpenOptions};
-use std::io::{BufReader, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::sync::Arc;
+
+use num_traits::ToPrimitive as _;
 
 use crate::builtins::{
     BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
 };
-use crate::value::stream::{BufReadSeek, StreamHandle, WriteSeek};
-use crate::value::{
-    IntoWqValue, Value, WqResult, expected_bytes1, expected_string1, into_wq_string,
-};
+use crate::value::stream::StreamHandle;
+use crate::value::{IntoWqValue, Value, WqResult, expected_bytes1, expected_string1};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
+
+const OPEN_FLAGS: &[&str] = &[
+    "read",
+    "write",
+    "append",
+    "truncate",
+    "create",
+    "create_new",
+];
 
 #[derive(Clone, Copy, Debug, Default)]
 struct OpenFlags {
@@ -27,113 +35,95 @@ struct OpenFlags {
 
 impl OpenFlags {
     fn into_openoptions(self) -> OpenOptions {
-        let mut o = OpenOptions::new();
-        o.read(self.is_read())
-            .write(self.is_write())
+        let mut options = OpenOptions::new();
+        options
+            .read(self.read)
+            .write(self.write)
             .append(self.append)
             .truncate(self.truncate)
             .create(self.create)
             .create_new(self.create_new);
-        o
+        options
     }
-    fn is_read(&self) -> bool {
-        self.read
-    }
-    fn is_write(&self) -> bool {
+
+    fn writable(self) -> bool {
         self.write || self.append
     }
 }
 
 pub(super) fn open(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BE::Open, [1], &args, &["r", "w", "a", "t", "c", "cn"])?;
+    check_arity_named(BE::Open, [1], &args, OPEN_FLAGS)?;
     let path = args[0]
         .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::Open))?;
-
-    let flags = openflags_from_named(&args)?;
-    let options = flags.into_openoptions();
-    let file = options.open(&path).map_err(|e| io_err(e, BE::Open))?;
-    let reader = if flags.is_read() {
-        Some(Box::new(BufReader::new(
-            file.try_clone().map_err(|e| io_err(e, BE::Open))?,
-        )) as Box<dyn BufReadSeek + Send>)
-    } else {
-        None
-    };
-    let writer = if flags.is_write() {
-        Some(Box::new(file.try_clone().map_err(|e| io_err(e, BE::Open))?)
-            as Box<dyn WriteSeek + Send>)
-    } else {
-        None
-    };
-    let handle = StreamHandle { reader, writer };
-    Ok(Value::stream(handle))
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::Open).at_arg(0))?;
+    let flags = open_flags_from_named(&args)?;
+    let file = flags
+        .into_openoptions()
+        .open(&path)
+        .map_err(|error| io_err(error, BE::Open))?;
+    Ok(Value::stream(StreamHandle {
+        file: Some(file),
+        readable: flags.read,
+        writable: flags.writable(),
+    }))
 }
 
-fn openflags_from_named(args: &BuiltinFnArgs) -> WqResult<OpenFlags> {
-    fn get_bool(args: &BuiltinFnArgs, name: &str) -> Result<bool, WqError> {
+fn open_flags_from_named(args: &BuiltinFnArgs) -> WqResult<OpenFlags> {
+    fn get_bool(args: &BuiltinFnArgs, name: &str) -> WqResult<bool> {
         match args.named(name) {
             None => Ok(false),
-            Some(v) if let Some(b) = v.try_to_rust_bool() => Ok(b),
-            Some(other) => Err(WqError::new(WqErrorType::Domain)
+            Some(value) if let Some(flag) = value.try_to_rust_bool() => Ok(flag),
+            Some(value) => Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Open)
                 .expected(Requirement::BOOL)
                 .at_named_arg(name)
-                .got1(other)),
+                .got1(value)),
         }
     }
 
-    let read = get_bool(args, "r")?;
-    let write = get_bool(args, "w")?;
-    let append = get_bool(args, "a")?;
-    let truncate = get_bool(args, "t")?;
-    let create = get_bool(args, "c")?;
-    let create_new = get_bool(args, "cn")?;
-
-    // Default to read-only when no flags are provided
-    if !read && !write && !append && !truncate && !create && !create_new {
+    if !args.has_named() {
         return Ok(OpenFlags {
             read: true,
-            ..Default::default()
+            ..OpenFlags::default()
         });
     }
 
-    // Must ask for at least one of read/write/append
-    if !(read || write || append) {
-        return Err(io_err(
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "expected at least one of: r, w, a",
-            ),
-            BE::Open,
-        ));
+    let flags = OpenFlags {
+        read: get_bool(args, "read")?,
+        write: get_bool(args, "write")?,
+        append: get_bool(args, "append")?,
+        truncate: get_bool(args, "truncate")?,
+        create: get_bool(args, "create")?,
+        create_new: get_bool(args, "create_new")?,
+    };
+    if !(flags.read || flags.writable()) {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Open)
+            .msg("expected at least one of `read, `write, or `append to be true"));
     }
-    // Truncate requires write permission (append counts as write)
-    if truncate && !(write || append) {
-        return Err(io_err(
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "flag t (truncate) requires w (write) or a (append)",
-            ),
-            BE::Open,
-        ));
+    if flags.truncate && !flags.writable() {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Open)
+            .msg("`truncate requires `write or `append"));
     }
-    Ok(OpenFlags {
-        read,
-        write,
-        append,
-        truncate,
-        create,
-        create_new,
-    })
+    if (flags.create || flags.create_new) && !flags.writable() {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Open)
+            .msg("`create and `create_new require `write or `append"));
+    }
+    Ok(flags)
 }
 
-pub(super) fn fexists(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::FexistsQ, [1], &args)?;
+pub(super) fn path_exists(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::PathExistsQ, [1], &args)?;
     let path = args[0]
         .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::FexistsQ).at_arg(0))?;
-    Ok(Value::Bool(Path::new(&path).exists()))
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::PathExistsQ).at_arg(0))?;
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(Value::Bool(true)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Value::Bool(false)),
+        Err(error) => Err(io_err(error, BE::PathExistsQ)),
+    }
 }
 
 pub(super) fn mkdir(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -141,415 +131,448 @@ pub(super) fn mkdir(args: BuiltinFnArgs) -> WqResult<Value> {
     let path = args[0]
         .try_to_rust_string()
         .ok_or_else(|| expected_string1(&args[0]).src(BE::Mkdir).at_arg(0))?;
-    fs::create_dir_all(&path).map_err(|e| io_err(e, BE::Mkdir))?;
+    fs::create_dir_all(&path).map_err(|error| io_err(error, BE::Mkdir))?;
     Ok(Value::unit())
 }
 
-pub(super) fn fsize(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Fsize, [1], &args)?;
+pub(super) fn file_size(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::FileSize, [1], &args)?;
     let path = args[0]
         .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::Fsize).at_arg(0))?;
-    let meta = fs::metadata(&path).map_err(|e| io_err(e, BE::Fsize))?;
-    Ok(meta.len().into_wq_value())
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::FileSize).at_arg(0))?;
+    let metadata = fs::metadata(path).map_err(|error| io_err(error, BE::FileSize))?;
+    Ok(metadata.len().into_wq_value())
 }
 
-pub(super) fn fwrite(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Fwrite, [2], &args)?;
-    let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(BE::Fwrite, 0, Requirement::STREAM, &args[0]));
-    };
-    let mut handle = rc.lock().unwrap();
-    let Some(w) = handle.writer.as_mut() else {
-        return Err(stream_not_writable(BE::Fwrite));
+pub(super) fn write(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Write, [2], &args)?;
+    let Value::Stream(stream) = &args[0] else {
+        return Err(type_mismatch(BE::Write, 0, Requirement::STREAM, &args[0]));
     };
     let bytes = args[1]
         .try_to_rust_vec_u8()
-        .ok_or_else(|| expected_bytes1(&args[1]).src(BE::Fwrite).at_arg(1))?;
-    w.write_all(&bytes).map_err(|e| io_err(e, BE::Fwrite))?;
-    w.flush().map_err(|e| io_err(e, BE::Fwrite))?;
+        .ok_or_else(|| expected_bytes1(&args[1]).src(BE::Write).at_arg(1))?;
+    let mut handle = stream.lock().map_err(|_| stream_lock_error(BE::Write))?;
+    if handle.file.is_none() {
+        return Err(stream_closed(BE::Write));
+    }
+    if !handle.writable {
+        return Err(stream_not_writable(BE::Write));
+    }
+    let file = handle
+        .file
+        .as_mut()
+        .ok_or_else(|| stream_closed(BE::Write))?;
+    file.write_all(&bytes)
+        .map_err(|error| io_err(error, BE::Write))?;
+    file.flush().map_err(|error| io_err(error, BE::Write))?;
     Ok(Value::unit())
 }
 
-pub(super) fn fwritet(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Fwritet, [2], &args)?;
-    let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(BE::Fwritet, 0, Requirement::STREAM, &args[0]));
+pub(super) fn read(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Read, [1, 2], &args)?;
+    let Value::Stream(stream) = &args[0] else {
+        return Err(type_mismatch(BE::Read, 0, Requirement::STREAM, &args[0]));
     };
-    let mut handle = rc.lock().unwrap();
-    let Some(w) = handle.writer.as_mut() else {
-        return Err(stream_not_writable(BE::Fwritet));
-    };
-    let s = args[1]
-        .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[1]).src(BE::Fwritet).at_arg(1))?;
-    w.write_all(s.as_bytes())
-        .map_err(|e| io_err(e, BE::Fwritet))?;
-    w.flush().map_err(|e| io_err(e, BE::Fwritet))?;
-    Ok(Value::unit())
-}
-
-fn fread_impl(src: BE, stream: &Value, length: Option<&Value>) -> WqResult<Option<Vec<u8>>> {
-    let Value::Stream(rc) = stream else {
-        return Err(type_mismatch(src, 0, Requirement::STREAM, stream));
-    };
-    let mut handle = rc.lock().unwrap();
-    let Some(reader) = handle.reader.as_mut() else {
-        return Err(stream_not_readable(src));
-    };
-    // length-mode
-    if let Some(length) = length {
-        let n = match length {
-            Value::Int(n) if *n >= 0 => usize::try_from(*n).map_err(|_| {
-                type_mismatch(src, 1, Requirement::non_negative(Requirement::INT), length)
-            })?,
-            other => {
-                return Err(type_mismatch(
-                    src,
-                    1,
-                    Requirement::non_negative(Requirement::INT),
-                    other,
-                ));
-            }
-        };
-        let mut tmp = vec![0u8; n];
-        let read = reader.read(&mut tmp).map_err(|e| io_err(e, src))?;
-        if read == 0 {
-            // length mode and hit EOF
-            return Ok(None);
+    let length = args.get(1).map(read_length).transpose()?;
+    let mut handle = stream.lock().map_err(|_| stream_lock_error(BE::Read))?;
+    if handle.file.is_none() {
+        return Err(stream_closed(BE::Read));
+    }
+    if !handle.readable {
+        return Err(stream_not_readable(BE::Read));
+    }
+    if length == Some(0) {
+        return Ok(Value::unit());
+    }
+    let file = handle
+        .file
+        .as_mut()
+        .ok_or_else(|| stream_closed(BE::Read))?;
+    let mut bytes = Vec::new();
+    match length {
+        Some(length) => {
+            file.take(length as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|error| io_err(error, BE::Read))?;
         }
-        tmp.truncate(read);
-        return Ok(Some(tmp));
-    }
-    // no length -> read entire remainder
-    let mut buf = Vec::new();
-    reader.read_to_end(&mut buf).map_err(|e| io_err(e, src))?;
-    Ok(Some(buf))
-}
-
-fn read_trimmed_line(reader: &mut dyn BufReadSeek, src: BE) -> WqResult<Option<String>> {
-    let mut line = String::new();
-    let n = reader.read_line(&mut line).map_err(|e| io_err(e, src))?;
-    if n == 0 {
-        return Ok(None);
-    }
-    if line.ends_with('\n') {
-        line.pop();
-        if line.ends_with('\r') {
-            line.pop();
+        None => {
+            file.read_to_end(&mut bytes)
+                .map_err(|error| io_err(error, BE::Read))?;
         }
     }
-    Ok(Some(line))
-}
-
-pub(super) fn fread(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Fread, [1, 2], &args)?;
-    match args.len() {
-        1 => match fread_impl(BE::Fread, &args[0], None)? {
-            None => Ok(Value::unit()),
-            Some(buf) => Ok(Value::IntList(Arc::new(
-                buf.into_iter().map(|b| b.into()).collect(),
-            ))),
-        },
-        2 => match fread_impl(BE::Fread, &args[0], Some(&args[1]))? {
-            None => Ok(Value::unit()),
-            Some(buf) => Ok(Value::IntList(Arc::new(
-                buf.into_iter().map(|b| b.into()).collect(),
-            ))),
-        },
-        _ => unreachable!(),
-    }
-}
-
-pub(super) fn freadt(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Freadt, [1, 2], &args)?;
-    match args.len() {
-        1 => match fread_impl(BE::Freadt, &args[0], None)? {
-            None => Ok(Value::unit()),
-            Some(buf) => {
-                let s = String::from_utf8(buf).map_err(|e| io_err(e, BE::Freadt))?;
-                Ok(into_wq_string(s))
-            }
-        },
-        2 => match fread_impl(BE::Freadt, &args[0], Some(&args[1]))? {
-            None => Ok(Value::unit()),
-            Some(buf) => {
-                let s = String::from_utf8(buf).map_err(|e| io_err(e, BE::Freadt))?;
-                Ok(into_wq_string(s))
-            }
-        },
-        _ => unreachable!(),
-    }
-}
-
-pub(super) fn freadtln(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Freadtln, [1], &args)?;
-    let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(
-            BE::Freadtln,
-            0,
-            Requirement::STREAM,
-            &args[0],
-        ));
-    };
-    let mut handle = rc.lock().unwrap();
-    let Some(reader) = handle.reader.as_mut() else {
-        return Err(stream_not_readable(BE::Freadtln));
-    };
-    match read_trimmed_line(&mut **reader, BE::Freadtln)? {
-        Some(line) => Ok(into_wq_string(line)),
-        None => Ok(Value::unit()),
-    }
-}
-
-pub(super) fn freadtlns(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Freadtlns, [1], &args)?;
-    let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(
-            BE::Freadtlns,
-            0,
-            Requirement::STREAM,
-            &args[0],
-        ));
-    };
-    let mut handle = rc.lock().unwrap();
-    let Some(reader) = handle.reader.as_mut() else {
-        return Err(stream_not_readable(BE::Freadtlns));
-    };
-    let mut lines = Vec::new();
-    while let Some(line) = read_trimmed_line(&mut **reader, BE::Freadtlns)? {
-        lines.push(into_wq_string(line));
-    }
-    Ok(Value::List(Arc::new(lines)))
-}
-
-pub(super) fn fseek(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Fseek, [2, 3], &args)?;
-    let offset_arg = &args[1];
-    let offset = if let Value::Int(n) = *offset_arg {
-        n
-    } else {
-        return Err(type_mismatch(BE::Fseek, 1, Requirement::INT, &args[1]));
-    };
-    let whence = if args.len() == 3 {
-        let whence_arg = &args[2];
-        if let Value::Int(w) = *whence_arg
-            && [0, 1, 2].contains(&w)
-        {
-            w
-        } else {
-            return Err(WqError::new(WqErrorType::Domain)
-                .src(BE::Fseek)
-                .expected(Requirement::one_of([
-                    Requirement::literal("0"),
-                    Requirement::literal("1"),
-                    Requirement::literal("2"),
-                ]))
-                .at_arg(2)
-                .attach_note("0 means start; 1 means current position; 2 means end")
-                .got1(whence_arg));
-        }
-    } else {
-        0
-    };
-    if offset < 0 && whence == 0 {
-        return Err(WqError::new(WqErrorType::Domain)
-            .src(BE::Fseek)
-            .msg("offset must be non-negative when whence is 0")
-            .at_arg(1)
-            .got1(offset_arg));
-    }
-    if let Value::Stream(rc) = &args[0] {
-        let mut handle = rc.lock().unwrap();
-        let seek_from = match whence {
-            0 => SeekFrom::Start(
-                u64::try_from(offset).expect("offset checked non-negative for SeekFrom::Start"),
-            ),
-            1 => SeekFrom::Current(offset),
-            2 => SeekFrom::End(offset),
-            _ => unreachable!(),
-        };
-        if let Some(w) = handle.writer.as_mut() {
-            let pos = w.seek(seek_from).map_err(|e| io_err(e, BE::Fseek))?;
-            if let Some(r) = handle.reader.as_mut() {
-                r.seek(SeekFrom::Start(pos))
-                    .map_err(|e| io_err(e, BE::Fseek))?;
-            }
-            Ok(pos.into_wq_value())
-        } else if let Some(r) = handle.reader.as_mut() {
-            let pos = r.seek(seek_from).map_err(|e| io_err(e, BE::Fseek))?;
-            Ok(pos.into_wq_value())
-        } else {
-            Err(stream_not_seekable(BE::Fseek))
-        }
-    } else {
-        Err(type_mismatch(BE::Fseek, 0, Requirement::STREAM, &args[0]))
-    }
-}
-
-pub(super) fn ftell(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Ftell, [1], &args)?;
-    if let Value::Stream(rc) = &args[0] {
-        let mut handle = rc.lock().unwrap();
-        // Prefer writer if present.
-        // Both sides are Seek, so just ask for stream_position.
-        if let Some(w) = handle.writer.as_mut() {
-            let pos = w.stream_position().map_err(|e| io_err(e, BE::Ftell))?;
-            return Ok(pos.into_wq_value());
-        }
-        if let Some(r) = handle.reader.as_mut() {
-            let pos = r.stream_position().map_err(|e| io_err(e, BE::Ftell))?;
-            return Ok(pos.into_wq_value());
-        }
-        Err(stream_not_seekable(BE::Ftell))
-    } else {
-        Err(type_mismatch(BE::Ftell, 0, Requirement::STREAM, &args[0]))
-    }
-}
-
-pub(super) fn fclose(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Fclose, [1], &args)?;
-    if let Value::Stream(rc) = &args[0] {
-        let mut handle = rc.lock().unwrap();
-        handle.reader = None;
-        handle.writer = None;
+    if bytes.is_empty() {
         Ok(Value::unit())
     } else {
-        Err(type_mismatch(BE::Fclose, 0, Requirement::STREAM, &args[0]))
+        Ok(Value::IntList(Arc::new(
+            bytes.into_iter().map(i64::from).collect(),
+        )))
     }
 }
 
-fn io_err(e: impl Error, src: BE) -> WqError {
-    WqError::new(WqErrorType::Io).src(src).msg(e)
+fn read_length(value: &Value) -> WqResult<usize> {
+    let length = match value {
+        Value::Int(length) if *length >= 0 => usize::try_from(*length).ok(),
+        Value::BigInt(length) => length.to_usize(),
+        _ => None,
+    };
+    length.ok_or_else(|| {
+        type_mismatch(
+            BE::Read,
+            1,
+            Requirement::non_negative(Requirement::INT),
+            value,
+        )
+    })
 }
 
-fn stream_not_readable(src: BE) -> WqError {
+#[derive(Clone, Copy)]
+enum SeekOrigin {
+    Start,
+    Current,
+    End,
+}
+
+pub(super) fn seek(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Seek, [2, 3], &args)?;
+    let origin = args
+        .get(2)
+        .map(parse_seek_origin)
+        .transpose()?
+        .unwrap_or(SeekOrigin::Start);
+    let seek_from = parse_seek_offset(&args[1], origin)?;
+    let Value::Stream(stream) = &args[0] else {
+        return Err(type_mismatch(BE::Seek, 0, Requirement::STREAM, &args[0]));
+    };
+    let mut handle = stream.lock().map_err(|_| stream_lock_error(BE::Seek))?;
+    let file = handle
+        .file
+        .as_mut()
+        .ok_or_else(|| stream_closed(BE::Seek))?;
+    let position = file
+        .seek(seek_from)
+        .map_err(|error| io_err(error, BE::Seek))?;
+    Ok(position.into_wq_value())
+}
+
+fn parse_seek_origin(value: &Value) -> WqResult<SeekOrigin> {
+    match value {
+        Value::Tag(origin) if origin.as_ref() == "start" => Ok(SeekOrigin::Start),
+        Value::Tag(origin) if origin.as_ref() == "current" => Ok(SeekOrigin::Current),
+        Value::Tag(origin) if origin.as_ref() == "end" => Ok(SeekOrigin::End),
+        _ => Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Seek)
+            .expected(Requirement::one_of([
+                Requirement::literal("`start"),
+                Requirement::literal("`current"),
+                Requirement::literal("`end"),
+            ]))
+            .at_arg(2)
+            .got1(value)),
+    }
+}
+
+fn parse_seek_offset(value: &Value, origin: SeekOrigin) -> WqResult<SeekFrom> {
+    let out_of_range = || {
+        WqError::new(WqErrorType::Domain)
+            .src(BE::Seek)
+            .msg("offset is out of range for the selected seek origin")
+            .at_arg(1)
+            .got1(value)
+    };
+    match origin {
+        SeekOrigin::Start => match value {
+            Value::Int(offset) => u64::try_from(*offset)
+                .map(SeekFrom::Start)
+                .map_err(|_| out_of_range()),
+            Value::BigInt(offset) => offset
+                .to_u64()
+                .map(SeekFrom::Start)
+                .ok_or_else(out_of_range),
+            _ => Err(type_mismatch(BE::Seek, 1, Requirement::INT, value)),
+        },
+        SeekOrigin::Current | SeekOrigin::End => {
+            let offset = match value {
+                Value::Int(offset) => Some(*offset),
+                Value::BigInt(offset) => offset.to_i64(),
+                _ => return Err(type_mismatch(BE::Seek, 1, Requirement::INT, value)),
+            }
+            .ok_or_else(out_of_range)?;
+            Ok(match origin {
+                SeekOrigin::Current => SeekFrom::Current(offset),
+                SeekOrigin::End => SeekFrom::End(offset),
+                SeekOrigin::Start => unreachable!(),
+            })
+        }
+    }
+}
+
+pub(super) fn tell(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Tell, [1], &args)?;
+    let Value::Stream(stream) = &args[0] else {
+        return Err(type_mismatch(BE::Tell, 0, Requirement::STREAM, &args[0]));
+    };
+    let mut handle = stream.lock().map_err(|_| stream_lock_error(BE::Tell))?;
+    let file = handle
+        .file
+        .as_mut()
+        .ok_or_else(|| stream_closed(BE::Tell))?;
+    let position = file
+        .stream_position()
+        .map_err(|error| io_err(error, BE::Tell))?;
+    Ok(position.into_wq_value())
+}
+
+pub(super) fn close(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Close, [1], &args)?;
+    let Value::Stream(stream) = &args[0] else {
+        return Err(type_mismatch(BE::Close, 0, Requirement::STREAM, &args[0]));
+    };
+    let mut handle = stream.lock().map_err(|_| stream_lock_error(BE::Close))?;
+    if handle.writable
+        && let Some(file) = handle.file.as_mut()
+    {
+        file.flush().map_err(|error| io_err(error, BE::Close))?;
+    }
+    handle.file = None;
+    Ok(Value::unit())
+}
+
+fn io_err(error: impl Error, source: BE) -> WqError {
+    WqError::new(WqErrorType::Io).src(source).msg(error)
+}
+
+fn stream_lock_error(source: BE) -> WqError {
     WqError::new(WqErrorType::Io)
-        .src(src)
+        .src(source)
+        .msg("this stream's lock is poisoned")
+}
+
+fn stream_closed(source: BE) -> WqError {
+    WqError::new(WqErrorType::Io)
+        .src(source)
+        .msg("this stream is closed")
+}
+
+fn stream_not_readable(source: BE) -> WqError {
+    WqError::new(WqErrorType::Io)
+        .src(source)
         .msg("this stream is not readable")
 }
 
-fn stream_not_writable(src: BE) -> WqError {
+fn stream_not_writable(source: BE) -> WqError {
     WqError::new(WqErrorType::Io)
-        .src(src)
+        .src(source)
         .msg("this stream is not writable")
-}
-
-fn stream_not_seekable(src: BE) -> WqError {
-    WqError::new(WqErrorType::Io)
-        .src(src)
-        .msg("this stream is not seekable")
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
 
+    use num_bigint::BigInt;
+
     use super::*;
     use crate::value::into_wq_string;
 
-    fn tmpfile() -> String {
+    fn tmp_path() -> String {
         let name: u64 = rand::random();
-        let path = std::env::temp_dir().join(format!("wq_io_{name}"));
-        path.to_string_lossy().to_string()
+        std::env::temp_dir()
+            .join(format!("wq_io_{name}"))
+            .to_string_lossy()
+            .to_string()
     }
 
-    // #[test]
-    // fn write_read_seek() {
-    //     let mut vm = Vm::new(vec![]);
-    //     let path = tmpfile();
-    //     let h = open(&mut vm, &[str_val(&path), str_val("w+")]).unwrap();
-    //     fwritet(&mut vm, &[h.clone(), str_val("hi")]).unwrap();
-    //     fseek(&mut vm, &[h.clone(), Value::Int(0)]).unwrap();
-    //     let txt = freadt(&mut vm, std::slice::from_ref(&h)).unwrap();
-    //     assert_eq!(txt, str_val("hi"));
-    //     let size = fsize( &[str_val(&path)]).unwrap();
-    //     assert_eq!(size, Value::Int(2));
-    //     fclose( &[h]).unwrap();
-    //     fs::remove_file(&path).unwrap();
-    // }
+    fn open_named(path: &str, flags: &[(&str, bool)]) -> Value {
+        open(BuiltinFnArgs::with_named(
+            smallvec::smallvec![into_wq_string(path)],
+            flags
+                .iter()
+                .map(|(name, value)| (Arc::from(*name), Value::Bool(*value)))
+                .collect(),
+        ))
+        .expect("stream should open")
+    }
 
     #[test]
-    fn pexists_and_mkdir() {
-        let path = tmpfile();
+    fn path_exists_and_mkdir() {
+        let path = tmp_path();
         assert_eq!(
-            fexists(BuiltinFnArgs::from(into_wq_string(&path))).unwrap(),
+            path_exists(BuiltinFnArgs::from(into_wq_string(&path)))
+                .expect("missing path check should succeed"),
             Value::Bool(false)
         );
-        mkdir(BuiltinFnArgs::from(into_wq_string(&path))).unwrap();
+        mkdir(BuiltinFnArgs::from(into_wq_string(&path))).expect("directory should be created");
         assert_eq!(
-            fexists(BuiltinFnArgs::from(into_wq_string(&path))).unwrap(),
+            path_exists(BuiltinFnArgs::from(into_wq_string(&path)))
+                .expect("created path check should succeed"),
             Value::Bool(true)
         );
-        fs::remove_dir_all(&path).unwrap();
+        fs::remove_dir_all(path).expect("test directory should be removed");
     }
 
+    #[cfg(unix)]
     #[test]
-    fn fseek_reports_allowed_whence_values() {
-        let error = fseek(BuiltinFnArgs::from(smallvec::smallvec![
-            Value::unit(),
-            Value::Int(0),
-            Value::Int(3),
-        ]))
-        .expect_err("an unsupported whence should fail before stream access");
+    fn path_exists_recognizes_a_dangling_symlink() {
+        use std::os::unix::fs::symlink;
 
-        assert_eq!(error.msg.as_deref(), Some("expected 0, 1, or 2"));
+        let path = tmp_path();
+        symlink(format!("{path}_missing"), &path).expect("test symlink should be created");
         assert_eq!(
-            error.notes.as_slice(),
-            [
-                "at argument 3",
-                "0 means start; 1 means current position; 2 means end",
-                "got 3 (int)"
-            ]
+            path_exists(BuiltinFnArgs::from(into_wq_string(&path)))
+                .expect("symlink check should succeed"),
+            Value::Bool(true)
         );
+        fs::remove_file(path).expect("test symlink should be removed");
     }
 
     #[test]
-    fn freadtlns_reads_remaining_lines() {
-        let path = tmpfile();
-        fs::write(&path, "a\nb\r\nc\n").unwrap();
+    fn explicit_false_open_flags_do_not_enable_default_reading() {
+        let path = tmp_path();
+        fs::write(&path, b"contents").expect("test file should be written");
+        let args = BuiltinFnArgs::with_named(
+            smallvec::smallvec![into_wq_string(&path)],
+            vec![(Arc::from("read"), Value::Bool(false))],
+        );
 
-        let handle = open(BuiltinFnArgs::from(into_wq_string(&path))).unwrap();
+        let error = open(args).expect_err("an explicit false flag must suppress defaults");
+        assert!(
+            error
+                .msg
+                .as_deref()
+                .is_some_and(|message| message.contains("at least one"))
+        );
+        fs::remove_file(path).expect("test file should be removed");
+    }
+
+    #[test]
+    fn readable_writable_stream_has_one_logical_cursor() {
+        let path = tmp_path();
+        fs::write(&path, b"abcdef").expect("test file should be written");
+        let handle = open_named(&path, &[("read", true), ("write", true)]);
+
         assert_eq!(
-            freadtlns(BuiltinFnArgs::from(handle.clone())).unwrap(),
-            Value::List(Arc::new(vec![
-                into_wq_string("a"),
-                into_wq_string("b"),
-                into_wq_string("c")
+            read(BuiltinFnArgs::from(smallvec::smallvec![
+                handle.clone(),
+                Value::Int(1),
             ]))
+            .expect("one byte should be read"),
+            Value::IntList(Arc::new(vec![i64::from(b'a')]))
         );
         assert_eq!(
-            freadtlns(BuiltinFnArgs::from(handle.clone())).unwrap(),
-            Value::List(Arc::new(vec![]))
+            tell(BuiltinFnArgs::from(handle.clone())).expect("position should be reported"),
+            Value::Int(1)
         );
-        fclose(BuiltinFnArgs::from(handle)).unwrap();
-        fs::remove_file(&path).unwrap();
+        write(BuiltinFnArgs::from(smallvec::smallvec![
+            handle.clone(),
+            Value::IntList(Arc::new(vec![i64::from(b'X')])),
+        ]))
+        .expect("one byte should be written");
+        seek(BuiltinFnArgs::from(smallvec::smallvec![
+            handle.clone(),
+            Value::Int(0),
+        ]))
+        .expect("stream should seek to its start");
+        assert_eq!(
+            read(BuiltinFnArgs::from(handle.clone())).expect("remaining bytes should be read"),
+            Value::IntList(Arc::new(
+                b"aXcdef".iter().map(|byte| i64::from(*byte)).collect()
+            ))
+        );
+
+        close(BuiltinFnArgs::from(handle)).expect("stream should close");
+        fs::remove_file(path).expect("test file should be removed");
     }
 
-    // #[test]
-    // fn open_missing_file_error() {
-    //     let mut vm = Vm::new(vec![]);
-    //     let res = open( &[str_val("/no/such/file"), str_val("r")]);
-    //     assert!(matches!(res, Err(WqError::Io(_))));
-    // }
+    #[test]
+    fn bounded_read_handles_zero_eof_and_cursor_position() {
+        let path = tmp_path();
+        fs::write(&path, b"abc").expect("test file should be written");
+        let handle =
+            open(BuiltinFnArgs::from(into_wq_string(&path))).expect("test file should open");
 
-    // #[test]
-    // fn ftell_basic() {
-    //     let mut vm = Vm::new(vec![]);
-    //     let path = std::env::temp_dir().join("wq_ftell_test.txt");
-    //     let sv = |s: &str| Value::List(s.chars().map(Value::Char).collect());
+        assert!(
+            read(BuiltinFnArgs::from(smallvec::smallvec![
+                handle.clone(),
+                Value::Int(0),
+            ]))
+            .expect("zero-count read should succeed")
+            .is_unit()
+        );
+        assert_eq!(
+            tell(BuiltinFnArgs::from(handle.clone())).expect("position should be reported"),
+            Value::Int(0)
+        );
+        assert_eq!(
+            read(BuiltinFnArgs::from(smallvec::smallvec![
+                handle.clone(),
+                Value::BigInt(Arc::new(BigInt::from(20))),
+            ]))
+            .expect("bounded read should succeed"),
+            Value::IntList(Arc::new(vec![97, 98, 99]))
+        );
+        assert!(
+            read(BuiltinFnArgs::from(handle.clone()))
+                .expect("EOF read should succeed")
+                .is_unit()
+        );
 
-    //     let h = open(&mut vm, &[sv(path.to_str().unwrap()),
-    // sv("w+")]).unwrap();     fwritet(&mut vm, &[h.clone(),
-    // sv("hello")]).unwrap();     let pos1 = ftell(&mut vm,
-    // std::slice::from_ref(&h)).unwrap();     assert_eq!(pos1,
-    // Value::Int(5));
+        close(BuiltinFnArgs::from(handle)).expect("stream should close");
+        fs::remove_file(path).expect("test file should be removed");
+    }
 
-    //     fseek(&mut vm, &[h.clone(), Value::Int(2)]).unwrap();
-    //     let pos2 = ftell(&mut vm, std::slice::from_ref(&h)).unwrap();
-    //     assert_eq!(pos2, Value::Int(2));
+    #[test]
+    fn seek_uses_tag_origins() {
+        let path = tmp_path();
+        fs::write(&path, b"abcdef").expect("test file should be written");
+        let handle =
+            open(BuiltinFnArgs::from(into_wq_string(&path))).expect("test file should open");
 
-    //     fclose(&mut vm, &[h]).unwrap();
-    //     let _ = std::fs::remove_file(path);
-    // }
+        assert_eq!(
+            seek(BuiltinFnArgs::from(smallvec::smallvec![
+                handle.clone(),
+                Value::Int(-2),
+                Value::Tag(Arc::from("end")),
+            ]))
+            .expect("end-relative seek should succeed"),
+            Value::Int(4)
+        );
+        assert_eq!(
+            seek(BuiltinFnArgs::from(smallvec::smallvec![
+                handle.clone(),
+                Value::BigInt(Arc::new(BigInt::from(1))),
+                Value::Tag(Arc::from("current")),
+            ]))
+            .expect("current-relative bigint seek should succeed"),
+            Value::Int(5)
+        );
+        let error = seek(BuiltinFnArgs::from(smallvec::smallvec![
+            handle.clone(),
+            Value::Int(0),
+            Value::Int(0),
+        ]))
+        .expect_err("numeric seek origins should be rejected");
+        assert_eq!(error.err_type, WqErrorType::Domain);
+
+        close(BuiltinFnArgs::from(handle)).expect("stream should close");
+        fs::remove_file(path).expect("test file should be removed");
+    }
+
+    #[test]
+    fn close_is_idempotent_and_later_operations_fail() {
+        let path = tmp_path();
+        fs::write(&path, b"abc").expect("test file should be written");
+        let handle =
+            open(BuiltinFnArgs::from(into_wq_string(&path))).expect("test file should open");
+
+        close(BuiltinFnArgs::from(handle.clone())).expect("stream should close");
+        close(BuiltinFnArgs::from(handle.clone())).expect("second close should succeed");
+        let error = read(BuiltinFnArgs::from(smallvec::smallvec![
+            handle,
+            Value::Int(0),
+        ]))
+        .expect_err("even a zero-count read on a closed stream should fail");
+        assert_eq!(error.msg.as_deref(), Some("this stream is closed"));
+        fs::remove_file(path).expect("test file should be removed");
+    }
 }
