@@ -1,0 +1,3 @@
+//exclude
+\p
+builtin[]|map echo;"== END =="

@@ -40,7 +40,7 @@ enum ExpandFrame {
     MulNoExpand(usize),
     /// Combine the top result (expanded base) with the saved exponent.
     Pow { exp: Value, power: Option<usize> },
-    /// Re-assemble a built-in function call from the top `n` results.
+    /// Reassemble a builtin-function call from the top `n` results.
     Function { function: CasFunction, n: usize },
     /// Re-assemble an uninterpreted symbolic application from the top `n`
     /// results.

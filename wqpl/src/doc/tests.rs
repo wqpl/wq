@@ -32,7 +32,7 @@ fn resolves_keywords_and_depth_modifiers() {
         "wqdb".to_string()
     );
     assert_eq!(
-        resolve(r"\bfn").expect(r"\bfn doc").id,
+        resolve(r"\builtin").expect(r"\builtin doc").id,
         "builtins".to_string()
     );
     assert_eq!(

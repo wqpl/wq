@@ -8,7 +8,7 @@ Every code block below can be run on its own.
 
 ## The Shape
 
-Start with a limit, then make one boolean for each number from `0` through that limit.
+Start with a limit, then make one bool for each number from `0` through that limit.
 
 ```wq
 x:10
@@ -151,7 +151,7 @@ primes[100][-10..0]|echo
 
 ## Keep
 
-- A sieve keeps a boolean mask and crosses out composites.
+- A sieve keeps a bool mask and crosses out composites.
 - `where mask` returns the positions that are still true.
 - `p[indexes]:false` mutates many positions at once.
 - Starting at `i^2` avoids crossing out numbers smaller factors already handled.

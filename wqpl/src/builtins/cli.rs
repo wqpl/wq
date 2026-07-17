@@ -1241,7 +1241,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
             .eval_string("cliargs[(`name:\"\")]")
             .expect_err("empty command name should fail");
 
-        assert_eq!(error.src.as_deref(), Some("bfn 'cliargs'"));
+        assert_eq!(error.src.as_deref(), Some("builtin-function 'cliargs'"));
     }
 
     #[test]

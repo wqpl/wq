@@ -9,19 +9,19 @@ const OPERATOR_EXAMPLES: &[DocExample] = &[DocExample {
 const BUILTIN_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Ask code which builtins are enabled",
-        code: "bfn[]|has?[\"echo\"]",
+        code: "builtin[]|has?[\"echo\"]",
         expectation: ExampleExpectation::ResultContains("T"),
     },
     DocExample {
         title: "Show enabled builtins in the REPL",
-        code: r"\bfn",
+        code: r"\builtin",
         expectation: ExampleExpectation::NoRun(
             "REPL command: shows the current preset and enabled builtin table",
         ),
     },
     DocExample {
         title: "Switch builtin preset in the REPL",
-        code: r"\bfn pure",
+        code: r"\builtin pure",
         expectation: ExampleExpectation::NoRun("REPL command: switches to the pure builtin preset"),
     },
 ];
@@ -59,18 +59,18 @@ pub(super) const BUILTINS: StaticDoc = StaticDoc {
     title: "Builtins",
     kind: DocKind::Guide,
     group: "Reference",
-    aliases: &["bfn", "builtin", "builtins", "builtin presets", r"\bfn", "\\"],
-    summary: "Built-in functions are values provided by wq.",
+    aliases: &["builtin", "builtins", "builtin presets", r"\builtin", "\\"],
+    summary: "Builtin-functions are values provided by wq.",
     details: "Builtins can be called with bracket syntax, postfix syntax for one argument, or through pipes.
 Individual builtin pages always render their signature and arity from `builtins.rs` metadata.
-The `bfn[]` builtin returns a sorted list of builtin names enabled in the current preset, which lets wq code inspect its own runtime surface.
+The `builtin[]` builtin returns a sorted list of builtin names enabled in the current preset, which lets wq code inspect its own runtime surface.
 The standard CLI and REPL expose four preset names: `all`, `pure`, `minimal`, and `constrained`; short names `a`, `p`, `m`, and `c` are accepted where a preset is parsed.
-`all` enables every builtin. `minimal` keeps operators, `fmt`, `len`, and `bfn`.
+`all` enables every builtin. `minimal` keeps operators, `fmt`, `len`, and `builtin`.
 `pure` keeps side-effect-free builtins, and `constrained` additionally permits standard I/O, random generation, and visualization while excluding process execution and file I/O.
 At the command line, `--builtins <preset>` selects the initial preset.
-In the interactive REPL, `\\bfn` or `\\` shows the current preset and enabled builtin table, while `\\bfn pure`, `\\bfn minimal`, and similar commands switch the live session preset.",
+In the interactive REPL, `\\builtin` or `\\` shows the current preset and enabled builtin table, while `\\builtin pure`, `\\builtin minimal`, and similar commands switch the live session preset.",
     examples: BUILTIN_EXAMPLES,
-    related: &["bfn", "operators", "calls"],
+    related: &["builtin", "operators", "calls"],
 };
 
 pub(super) const OPERATORS: StaticDoc = StaticDoc {
@@ -79,7 +79,7 @@ pub(super) const OPERATORS: StaticDoc = StaticDoc {
     kind: DocKind::Guide,
     group: "Reference",
     aliases: &["operator", "operators", "+", "-", "*", "/", ","],
-    summary: "Operators are also builtin functions.",
+    summary: "Operators are also builtin-functions.",
     details: "Most binary operators broadcast over compatible values. The comma operator concatenates, while leading comma enlists a value.",
     examples: OPERATOR_EXAMPLES,
     related: &["builtins", "lists", "pipes"],

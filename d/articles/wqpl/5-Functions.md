@@ -66,4 +66,4 @@ The inner function remembers `n`.
 - `{x*x}` creates a one-argument function with implicit `x`.
 - `{[a;b]a+b}` names parameters.
 - `fn[arg1;arg2]` passes multiple arguments.
-- Higher-order bfns like `map`, `filter`, and `fold` make lists feel alive.
+- Higher-order builtins like `map`, `filter`, and `fold` make lists feel alive.

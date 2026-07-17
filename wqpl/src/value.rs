@@ -130,9 +130,9 @@ impl ValueKind {
             Self::Char => "char",
             Self::Tag => "tag",
             Self::Bool => "bool",
-            Self::IntList => "list<int>",
-            Self::FloatList => "list<float>",
-            Self::BoolList => "list<bool>",
+            Self::IntList => "int-list",
+            Self::FloatList => "float-list",
+            Self::BoolList => "bool-list",
             Self::List => "list",
             Self::String => "string",
             Self::Cas => "cas",
@@ -505,9 +505,9 @@ mod tests {
             (ValueKind::Char, "char"),
             (ValueKind::Tag, "tag"),
             (ValueKind::Bool, "bool"),
-            (ValueKind::IntList, "list<int>"),
-            (ValueKind::FloatList, "list<float>"),
-            (ValueKind::BoolList, "list<bool>"),
+            (ValueKind::IntList, "int-list"),
+            (ValueKind::FloatList, "float-list"),
+            (ValueKind::BoolList, "bool-list"),
             (ValueKind::List, "list"),
             (ValueKind::String, "string"),
             (ValueKind::Cas, "cas"),
@@ -524,6 +524,11 @@ mod tests {
             assert_eq!(kind.as_str(), expected);
             assert_eq!(kind.to_string(), expected);
         }
+    }
+
+    #[test]
+    fn builtin_function_display_uses_formal_name() {
+        assert_eq!(test_builtin("f", 1).to_string(), "<builtin-function 'f'>");
     }
 
     #[test]
@@ -1119,7 +1124,7 @@ mod tests {
         let c = into_wq_string("world");
         assert_eq!(a, b);
         assert_ne!(a, c);
-        // String and List<Char> are cross-equal (same user-facing value)
+        // String and char-list are cross-equal (same user-facing value)
         let list = Value::List(Arc::new("hello".chars().map(Value::Char).collect()));
         assert_eq!(a, list);
     }
@@ -1162,7 +1167,7 @@ mod tests {
 
     #[test]
     fn string_backward_compat_list_char_still_works() {
-        // Old-style List<Char> still works as a string via fallback paths
+        // An old-style char-list still works as a string via fallback paths
         let old_style = Value::List(Arc::new("hi".chars().map(Value::Char).collect()));
         assert!(old_style.is_string());
         assert_eq!(old_style.try_to_rust_string().unwrap(), "hi".to_string());

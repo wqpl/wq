@@ -54,7 +54,7 @@ pub(crate) fn expected_bytes1(value: &Value) -> WqError {
         Value::IntList(_) | Value::IntRange(_) => {
             let invalid = value
                 .packed_int_seq()
-                .expect("list<int> and int-range are packed int sequences")
+                .expect("int-list and int-range are packed int sequences")
                 .iter()
                 .enumerate()
                 .find(|(_, item)| u8::try_from(*item).is_err());

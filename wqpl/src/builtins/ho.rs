@@ -621,7 +621,7 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
     let limit = maxsplit.unwrap_or(usize::MAX);
     let mut splits_done = 0;
 
-    // Direct String handling to avoid List<Char> allocation.
+    // Direct String handling avoids char-list allocation.
     if let Value::String(s) = &val {
         let mut chunks = Vec::new();
         let mut current = String::new();
@@ -648,7 +648,7 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
         return Ok(Value::value_from_str_chunks(chunks));
     }
 
-    // Normalize String to List<Char> for uniform handling
+    // Normalize String to a char-list for uniform handling
     match &val {
         l @ Value::List(items) if l.is_string() => {
             let mut chunks = Vec::new();

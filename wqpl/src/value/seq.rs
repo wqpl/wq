@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn bool_list_reads_without_widening() {
         let value = Value::BoolList(Arc::new(vec![true, false, true]));
-        let seq = ValueSeq::from_value(&value).expect("list<bool> is sequence-like");
+        let seq = ValueSeq::from_value(&value).expect("bool-list is sequence-like");
 
         assert_eq!(seq.get(1), Some(Value::Bool(false)));
         assert_eq!(
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn list_storage_seq_expands_list_storage_but_excludes_strings() {
         let bools = Value::BoolList(Arc::new(vec![true, false]));
-        let seq = ListStorageSeq::from_value(&bools).expect("list<bool> is list storage");
+        let seq = ListStorageSeq::from_value(&bools).expect("bool-list is list storage");
         assert_eq!(
             seq.to_values_vec(),
             vec![Value::Bool(true), Value::Bool(false)]
@@ -750,7 +750,7 @@ mod tests {
         ]));
         let seq = general
             .exact_int_seq()
-            .expect("list<int> is an exact int sequence");
+            .expect("int-list is an exact int sequence");
         assert!(!seq.is_atom());
         assert!(!seq.is_packed());
         assert_eq!(seq.to_vec(), vec![1, 2]);

@@ -508,7 +508,7 @@ fn parse_builtin_preset(name: &str) -> Result<BuiltinPreset, JsValue> {
         api_error_js(
             "invalid-builtin-preset",
             &format!(
-                "unknown bfn preset '{name}'\nAvailable: {}",
+                "unknown builtin preset '{name}'\nAvailable: {}",
                 BuiltinPreset::names().join(", ")
             ),
         )
@@ -1210,7 +1210,7 @@ fn class_for_name(name: HighlightName) -> &'static str {
         HighlightName::KeywordReturn => "hl-keyword-return",
         HighlightName::KeywordDebug => "hl-keyword-debug",
         HighlightName::Number => "hl-number",
-        HighlightName::Boolean => "hl-boolean",
+        HighlightName::Bool => "hl-bool",
         HighlightName::Operator => "hl-operator",
         HighlightName::OperatorPipe => "hl-operator-pipe",
         HighlightName::PunctuationBracket => "hl-punctuation-bracket",
@@ -1741,5 +1741,13 @@ mod tests {
 
         assert!(html.contains("<span class=\"hl-string\">&quot;ok&quot;</span>"));
         assert_eq!(html.matches("class=\"hl-string-invalid\"").count(), 3);
+    }
+
+    #[test]
+    fn html_highlighter_uses_bool_class() {
+        let frontend = default_frontend();
+        let html = highlight_wq_data(&frontend, "T F");
+
+        assert_eq!(html.matches("class=\"hl-bool\"").count(), 2);
     }
 }

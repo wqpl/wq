@@ -36,7 +36,7 @@
       "slug": "functions",
       "title": "Functions",
       "file": "articles/wqpl/5-Functions.md",
-      "description": "Package transformations and pass functions into list bfns.",
+      "description": "Package transformations and pass functions into list builtins.",
       "section": "wqpl",
       "code": "twice:{x*2};twice 4"
     },
@@ -60,7 +60,7 @@
       "slug": "cas",
       "title": "CAS",
       "file": "articles/wqpl/8-CAS.md",
-      "description": "Treat symbolic math as data with `@s` and CAS bfns.",
+      "description": "Treat symbolic math as data with `@s` and CAS builtins.",
       "section": "wqpl",
       "code": "factor[@s x^2-1]"
     },

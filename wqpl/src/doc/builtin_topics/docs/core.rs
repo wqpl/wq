@@ -1,15 +1,15 @@
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
-const BFN_EXAMPLES: &[DocExample] = &[
+const BUILTIN_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Check whether a builtin is available",
-        code: "bfn[]|has?[\"echo\"]",
+        code: "builtin[]|has?[\"echo\"]",
         expectation: ExampleExpectation::ResultContains("T"),
     },
     DocExample {
         title: "Count enabled builtins",
-        code: "len bfn[]>0",
+        code: "len builtin[]>0",
         expectation: ExampleExpectation::ResultContains("T"),
     },
 ];
@@ -172,12 +172,12 @@ const LEN_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("3"),
 }];
 
-pub(super) const BFN: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Bfn,
+pub(super) const BUILTIN: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Builtin,
     summary: "Return the names of enabled builtins.",
-    details: "`bfn[]` returns a sorted list of builtin names available in the current builtin preset. It returns strings, so code can search the list with `has?`, `in?`, `find`, or ordinary indexing. The result reflects the active preset selected by the host, such as the CLI `--builtins` flag or the REPL `\\bfn <preset>` command. Use the `builtins` guide for preset and REPL command details.",
-    examples: BFN_EXAMPLES,
-    related: &["builtins", r"\bfn", "help", "symbols"],
+    details: "`builtin[]` returns a sorted list of builtin names available in the current builtin preset. It returns strings, so code can search the list with `has?`, `in?`, `find`, or ordinary indexing. The result reflects the active preset selected by the host, such as the CLI `--builtins` flag or the REPL `\\builtin <preset>` command. Use the `builtins` guide for preset and REPL command details.",
+    examples: BUILTIN_EXAMPLES,
+    related: &["builtins", r"\builtin", "help", "symbols"],
 };
 
 pub(super) const CHR: BuiltinDoc = BuiltinDoc {

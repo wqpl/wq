@@ -2253,7 +2253,7 @@ impl Compiler {
                 self.instructions.push(Instruction::LoadCapture(*idx));
                 return Ok(());
             }
-            // If the name refers to a builtin function, do not capture it.
+            // If the name refers to a builtin-function, do not capture it.
             // Emit a global load so it resolves via builtin lookup at runtime.
             if self.builtins.has_function(name) {
                 self.instructions

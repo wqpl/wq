@@ -5,8 +5,8 @@ use crate::value::seq::ListStorageSeq;
 
 impl Value {
     pub(crate) fn cat(self, other: Value) -> Value {
-        // Fast path: if both sides are char-sequences (String, List<Char>, or Char),
-        // produce a unified String result. This also handles mixed String/List<Char>
+        // Fast path: if both sides are char-sequences (String, char-list, or Char),
+        // produce a unified String result. This also handles mixed String/char-list
         // concatenation which would otherwise fall through to generic List arms.
 
         if self.is_string() && other.is_string() {

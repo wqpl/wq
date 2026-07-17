@@ -16,7 +16,7 @@ const tutorials = [
   {
     slug: "cas",
     title: "CAS",
-    description: "Treat symbolic math as data with `@s` and CAS bfns.",
+    description: "Treat symbolic math as data with `@s` and CAS builtins.",
     section: "wqpl",
     code: "factor[@s x^2-1]",
   },

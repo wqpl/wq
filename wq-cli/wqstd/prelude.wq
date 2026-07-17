@@ -28,4 +28,4 @@ memo:{[f]keys_:();vals_:();'{[arg]i:0;W[i<#keys_;$.[keys_ i=arg;@r vals_ i];i+:1
     val:f arg;keys_,:,arg;vals_,:,val;val}} // Memoize a one-argument function.
 once:{[f]done:F;val:();'{[]$[done;val;[val:f[];done:T;val]]}} // Return a thunk that runs f once.
 
-dumpbfn:{bfn[]|map{"\"",x,"\""}|join","|echo} // Print enabled builtin names as quoted CSV.
+dumpbuiltin:{builtin[]|map{"\"",x,"\""}|join","|echo} // Print enabled builtin names as quoted CSV.

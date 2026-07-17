@@ -629,7 +629,7 @@ function replHelpText() {
     "\\exit, \\e, \\\\",
     "\\info",
     "\\dry, \\dry?",
-    "\\bfn [preset], \\",
+    "\\builtin [preset], \\",
     "\\gb, \\g",
     "\\reset, \\r",
     "\\box, \\b, \\box <spec>, \\box?",
@@ -702,9 +702,9 @@ function parseReplCommand(input) {
     case "\\fmt":
     case "\\fmt?":
       return { kind: "fmt" };
-    case "\\bfn":
+    case "\\builtin":
     case "\\":
-      return { kind: "bfn" };
+      return { kind: "builtin" };
     case "\\gb":
     case "\\g":
       return { kind: "gb" };
@@ -769,7 +769,7 @@ function parseReplCommand(input) {
 
   const prefixed = [
     ["\\fmt ", "fmt"],
-    ["\\bfn ", "bfn-set"],
+    ["\\builtin ", "builtin-set"],
     ["\\box ", "box-set"],
     ["\\b ", "box-set"],
     ["\\interpreter ", "interpreter-set"],
@@ -818,7 +818,7 @@ async function handleReplCommand(code) {
         return true;
       case "info":
         append(
-          `wq ${getWqVersion()}\ninterpreter: ${session.get_interpreter_name()}\nbfn: ${session.get_builtins_preset()}\n`,
+          `wq ${getWqVersion()}\ninterpreter: ${session.get_interpreter_name()}\nbuiltin: ${session.get_builtins_preset()}\n`,
           "info",
         );
         return true;
@@ -834,16 +834,16 @@ async function handleReplCommand(code) {
       case "fmt":
         append("fmt command is not available in wqide yet\n", "info");
         return true;
-      case "bfn":
+      case "builtin":
         append(
           `Current: ${session.get_builtins_preset()}\nAvailable: ${Array.from(session.builtin_preset_names()).join(", ")}\n\n${formatNameColumns(frontend.builtin_names())}\n`,
           "info",
         );
         return true;
-      case "bfn-set": {
+      case "builtin-set": {
         const selected = session.set_builtins_preset(command.arg);
         frontend.set_builtins_preset(selected);
-        commandLine("bfn", selected);
+        commandLine("builtin", selected);
         return true;
       }
       case "gb":

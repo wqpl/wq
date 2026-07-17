@@ -132,7 +132,7 @@ pub(super) fn dispatch_postfix<const TAIL: bool>(
 ) -> WqResult<bool> {
     match target {
         Value::BuiltinFunction { id, .. } => {
-            let result = vm.invoke_bfn_value(*id, argc)?;
+            let result = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(result);
             Ok(false)
         }
@@ -191,7 +191,7 @@ pub(super) fn dispatch_anon_call<const TAIL: bool>(
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction { id, .. } => {
-            let out = vm.invoke_bfn_value(*id, argc)?;
+            let out = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(out);
             Ok(false)
         }
@@ -279,7 +279,7 @@ pub(super) fn dispatch_loaded_local_call<const TAIL: bool>(
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction { id, .. } => {
-            let out = vm.invoke_bfn_value(*id, argc)?;
+            let out = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(out);
             Ok(false)
         }
@@ -305,7 +305,7 @@ pub(super) fn dispatch_loaded_user_call<const TAIL: bool>(
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction { id, .. } => {
-            let out = vm.invoke_bfn_value(*id, argc)?;
+            let out = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(out);
             Ok(false)
         }

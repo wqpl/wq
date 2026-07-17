@@ -106,8 +106,8 @@ pub(super) fn input(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
     }
 }
 
-pub(super) fn bfn(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::Bfn, [0], &args)?;
+pub(super) fn builtin(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BuiltinEnum::Builtin, [0], &args)?;
     let mut funcs = vm.list_enabled_builtins();
     funcs.sort();
     let funcstr = funcs.into_iter().map(into_wq_string).collect();

@@ -467,13 +467,13 @@ mod tests {
 
         assert_eq!(
             unique(BuiltinFnArgs::from(smallvec![a_int.clone()]))
-                .expect("list<int> unique should succeed"),
+                .expect("int-list unique should succeed"),
             unique(BuiltinFnArgs::from(smallvec![a_list.clone()]))
                 .expect("list unique should succeed")
         );
         assert_eq!(
             union(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
-                .expect("list<int> union should succeed"),
+                .expect("int-list union should succeed"),
             union(BuiltinFnArgs::from(smallvec![
                 a_list.clone(),
                 b_list.clone()
@@ -482,7 +482,7 @@ mod tests {
         );
         assert_eq!(
             intersect(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
-                .expect("list<int> intersect should succeed"),
+                .expect("int-list intersect should succeed"),
             intersect(BuiltinFnArgs::from(smallvec![
                 a_list.clone(),
                 b_list.clone()
@@ -491,7 +491,7 @@ mod tests {
         );
         assert_eq!(
             without(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
-                .expect("list<int> without should succeed"),
+                .expect("int-list without should succeed"),
             without(BuiltinFnArgs::from(smallvec![
                 a_list.clone(),
                 b_list.clone()
@@ -500,7 +500,7 @@ mod tests {
         );
         assert_eq!(
             symdiff(BuiltinFnArgs::from(smallvec![a_int, b_int]))
-                .expect("list<int> symdiff should succeed"),
+                .expect("int-list symdiff should succeed"),
             symdiff(BuiltinFnArgs::from(smallvec![a_list, b_list]))
                 .expect("list symdiff should succeed")
         );

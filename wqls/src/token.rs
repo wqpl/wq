@@ -60,7 +60,7 @@ fn token_type_index(name: HighlightName) -> Option<u32> {
         | HighlightName::VariableRefCapture
         | HighlightName::CasVariable => 1,
         HighlightName::ConstantBuiltin
-        | HighlightName::Boolean
+        | HighlightName::Bool
         | HighlightName::Tag
         | HighlightName::CasConstant => 2,
         HighlightName::FunctionBuiltin | HighlightName::CasFunction => 3,

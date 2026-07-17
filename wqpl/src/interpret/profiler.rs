@@ -301,7 +301,7 @@ impl InterpreterHook for ProfilerInterpreter {
     }
 
     fn on_builtin_result(&self, name: &str, argc: usize, result: &Value) {
-        let label = format!("bfn {name}/{argc}");
+        let label = format!("builtin-function {name}/{argc}");
         self.stats
             .borrow_mut()
             .record_sequence_output(label, result);

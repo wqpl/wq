@@ -601,7 +601,7 @@ impl Vm {
     }
 
     #[inline]
-    pub(crate) fn invoke_bfn_id(&mut self, id: u16, argc: u16) -> WqResult<Value> {
+    pub(crate) fn invoke_builtin_id(&mut self, id: u16, argc: u16) -> WqResult<Value> {
         let argc = usize::from(argc);
         let taken = self.take_builtin_args_from_stack(argc)?;
         if self.builtins.is_enabled_id(id) {
@@ -640,7 +640,7 @@ impl Vm {
     }
 
     #[inline]
-    pub(crate) fn invoke_bfn_discard_id(&mut self, id: u16, argc: u16) -> WqResult<Value> {
+    pub(crate) fn invoke_builtin_discard_id(&mut self, id: u16, argc: u16) -> WqResult<Value> {
         let argc = usize::from(argc);
         let taken = self.take_builtin_args_from_stack(argc)?;
         if self.builtins.is_enabled_id(id) {
@@ -679,7 +679,7 @@ impl Vm {
     }
 
     #[inline]
-    pub(crate) fn invoke_bfn_value(&mut self, id: u16, argc: usize) -> WqResult<Value> {
+    pub(crate) fn invoke_builtin_value(&mut self, id: u16, argc: usize) -> WqResult<Value> {
         let taken = self.take_builtin_args_from_stack(argc)?;
         self.call_builtin_id(id, taken.args)
     }

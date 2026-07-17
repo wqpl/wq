@@ -71,7 +71,7 @@ Reserved special-forms are `limit` and `root`.
 Reserved unary functions are `abs`, `sgn`, `sin`, `cos`, `tan`, `sec`, `csc`, `cot`, `erf`, `erfc`, `gamma`, `lngamma`, `si`, `ci`, `ei`, `ellpk`, `ellpe`, `heaviside`, `delta`, `exp`, `ln`, `log2`, `log10`, `sqrt`, `arcsin`, `arccos`, `arctan`, `sinh`, `cosh`, `tanh`, `arcsinh`, `arccosh`, `arctanh`, `floor`, `ceil`, and `round`.
 The binary functions are `en`, `ellik`, `ellie`, `log`, and `arctan2`.
 `integrate` accepts one, two, or four arguments.
-These built-in functions and predicates do not accept named arguments inside `@s`.
+These builtin-functions and predicates do not accept named arguments inside `@s`.
 Other identifiers remain ordinary symbolic variables, and other call heads remain uninterpreted symbolic applications.";
 
 const AT_FSTRING_DETAILS: &str = "`@f\"...{expr}...\"` is inline formatting.

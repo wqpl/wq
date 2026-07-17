@@ -21,7 +21,7 @@ pub enum HighlightName {
     KeywordReturn,
     KeywordDebug,
     Number,
-    Boolean,
+    Bool,
     Operator,
     OperatorPipe,
     PunctuationBracket,
@@ -181,7 +181,7 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::KeywordReturn => ("\x1b[38;5;220m", ANSI_RESET),
         HighlightName::KeywordDebug => ("\x1b[38;5;210m", ANSI_RESET),
         HighlightName::Number => ("\x1b[38;5;220m", ANSI_RESET),
-        HighlightName::Boolean => ("\x1b[38;5;220m", ANSI_RESET),
+        HighlightName::Bool => ("\x1b[38;5;220m", ANSI_RESET),
         HighlightName::Operator => ("\x1b[38;5;208m", ANSI_RESET),
         HighlightName::OperatorPipe => ("\x1b[38;5;170m", ANSI_RESET),
         HighlightName::PunctuationBracket => ("\x1b[38;5;245m", ANSI_RESET),
@@ -931,7 +931,7 @@ impl Highlighter {
             | TokenType::Imaginary(_) => Some(HighlightName::Number),
 
             TokenType::Inf => Some(HighlightName::ConstantBuiltin),
-            TokenType::True | TokenType::False => Some(HighlightName::Boolean),
+            TokenType::True | TokenType::False => Some(HighlightName::Bool),
 
             TokenType::String(_) => Some(HighlightName::String),
             TokenType::Character(_) => Some(HighlightName::Character),

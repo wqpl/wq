@@ -387,11 +387,11 @@ impl VanillaInterpreter {
                     }
 
                     Instruction::CallBuiltinId(id, argc) => {
-                        let result = vm.invoke_bfn_id(*id, *argc)?;
+                        let result = vm.invoke_builtin_id(*id, *argc)?;
                         vm.stack.push(result);
                     }
                     Instruction::CallBuiltinDiscardId(id, argc) => {
-                        let result = vm.invoke_bfn_discard_id(*id, *argc)?;
+                        let result = vm.invoke_builtin_discard_id(*id, *argc)?;
                         vm.stack.push(result);
                     }
                     Instruction::CallUser(name, argc) => {
@@ -1906,7 +1906,7 @@ mod tests {
 
         assert_eq!(out, Value::IntList(Arc::new(vec![9, 2, 3])));
         let Some(Value::IntList(items)) = vm.lookup_global_ref("a") else {
-            panic!("expected global a to be a list<int>");
+            panic!("expected global a to be an int-list");
         };
         assert_eq!(Arc::as_ptr(items), backing_ptr);
     }

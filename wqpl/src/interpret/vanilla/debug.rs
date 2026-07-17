@@ -532,7 +532,7 @@ mod tests {
         let rendered = strip_ansi(&render_trace_line(&vm, 0, &value, &[]));
 
         assert!(
-            rendered.contains("(list<int>, strong=1)"),
+            rendered.contains("(int-list, strong=1)"),
             "expected Arc strong count in debug output, got: {rendered:?}"
         );
     }

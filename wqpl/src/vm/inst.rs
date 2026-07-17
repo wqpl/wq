@@ -150,11 +150,11 @@ pub(crate) enum Instruction {
     /// Concatenate N items from the stack into a single value
     Cat(usize),
     UnaryOp(Box<UnaryOpData>),
-    /// Short-circuit boolean and lazy check (A[...])
+    /// Short-circuit bool and lazy check (A[...])
     BoolAndLazy(usize),
-    /// Short-circuit boolean or lazy check (O[...])
+    /// Short-circuit bool or lazy check (O[...])
     BoolOrLazy(usize),
-    /// Combine two already-evaluated lazy boolean operands from the stack.
+    /// Combine two already-evaluated lazy bool operands from the stack.
     BoolCombine(BoolOperator),
     // CallBuiltin(String, usize),
     /// Builtin call resolved to an ID at compile time for faster dispatch
@@ -202,7 +202,7 @@ pub(crate) enum Instruction {
     IndexManyAssignCaptureDrop(u16, usize),
     Jump(usize),
     JumpIfFalse(usize),
-    /// Evaluate a comparison and jump if its boolean result is false.
+    /// Evaluate a comparison and jump if its bool result is false.
     JumpIfCmpFalse(Box<CmpBranchData>),
     /// Jump if left >= right (pops two operands)
     JumpIfGE(usize),

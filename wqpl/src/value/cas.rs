@@ -90,7 +90,7 @@ impl fmt::Display for CasConst {
     }
 }
 
-/// Built-in CAS functions with known semantics.
+/// Builtin-functions with known CAS semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum CasFunction {
     Abs,

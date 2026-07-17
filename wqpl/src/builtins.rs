@@ -366,7 +366,7 @@ pub trait BuiltinContext {
 pub type BuiltinPlainFn = fn(BuiltinFnArgs) -> WqResult<Value>;
 pub type BuiltinContextFn = fn(&mut dyn BuiltinContext, BuiltinFnArgs) -> WqResult<Value>;
 
-/// builtin functions
+/// builtin-functions
 #[derive(Copy, Clone)]
 pub enum BuiltinFn {
     Plain(BuiltinPlainFn),
@@ -980,7 +980,7 @@ macro_rules! __declare_builtins_impl {
 
 declare_builtins! {
     // Core =========================================================
-    (BFN, Bfn, "bfn", "bfn[]", sig!(arity!(0)), with_context(core::bfn), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
+    (BUILTIN, Builtin, "builtin", "builtin[]", sig!(arity!(0)), with_context(core::builtin), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
     (CHR, Chr, "chr", "chr[xs]", sig!(arity!(1)), plain(core::chr), builtin_metadata!(Core, PURE)),
     (ORD, Ord, "ord", "ord[xs]", sig!(arity!(1)), plain(core::ord), builtin_metadata!(Core, PURE)),
     (INT, Int, "int", "int[x], int[x;base]", sig!(arity!(1, 2)), plain(core::int), builtin_metadata!(Core, PURE)),
@@ -1413,7 +1413,7 @@ pub(super) fn at_least_arity_error(builtin: BuiltinEnum, minimum: usize, actual:
 
 impl std::fmt::Display for BuiltinEnum {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bfn '{}'", self.name())
+        write!(f, "builtin-function '{}'", self.name())
     }
 }
 
@@ -1658,12 +1658,12 @@ mod tests {
         let mut names = minimal.list_functions();
         names.sort();
 
-        assert!(minimal.is_enabled_name("bfn"));
+        assert!(minimal.is_enabled_name("builtin"));
         assert_eq!(
             names,
             [
                 "#", "%", "*", "**", "+", ",", "-", "/", "/%", "/.", "<", "<=", "=", "=.", ">",
-                ">=", "^", "^.", "argv", "bfn", "fmt", "len", "~", "~.",
+                ">=", "^", "^.", "argv", "builtin", "fmt", "len", "~", "~.",
             ]
         );
     }
@@ -1671,7 +1671,7 @@ mod tests {
     #[test]
     fn builtin_signature_displays_match_legacy_arity_strings() {
         let expected = [
-            (BuiltinEnum::Bfn, "0"),
+            (BuiltinEnum::Builtin, "0"),
             (BuiltinEnum::Chr, "1"),
             (BuiltinEnum::Ord, "1"),
             (BuiltinEnum::Int, "1 2"),
@@ -2064,12 +2064,12 @@ mod tests {
         let err = builtins
             .validate_runtime_call_args(Builtins::V, &BuiltinFnArgs::new())
             .expect_err("V with zero args should fail runtime validation");
-        assert_eq!(err.src.as_deref(), Some("bfn 'reverse'"));
+        assert_eq!(err.src.as_deref(), Some("builtin-function 'reverse'"));
 
         let err = builtins
             .validate_runtime_call_args(Builtins::M, &BuiltinFnArgs::new())
             .expect_err("M with zero args should fail runtime validation");
-        assert_eq!(err.src.as_deref(), Some("bfn 'map'"));
+        assert_eq!(err.src.as_deref(), Some("builtin-function 'map'"));
     }
 
     #[test]
@@ -2093,7 +2093,7 @@ mod tests {
         let err = builtins
             .validate_runtime_call_args(Builtins::E, &bad_args)
             .expect_err("unknown named arg should fail runtime validation");
-        assert_eq!(err.src.as_deref(), Some("bfn 'echo'"));
+        assert_eq!(err.src.as_deref(), Some("builtin-function 'echo'"));
         assert_eq!(err.msg.as_deref(), Some("unknown named argument 'bad'"));
 
         let duplicate_args = BuiltinFnArgs::with_named(

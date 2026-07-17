@@ -236,7 +236,7 @@ mod tests {
         let error = to_bool(BuiltinFnArgs::from(Value::Int(2)))
             .expect_err("an int other than zero or one should fail");
 
-        assert_eq!(error.src.as_deref(), Some("bfn 'bool'"));
+        assert_eq!(error.src.as_deref(), Some("builtin-function 'bool'"));
         assert_eq!(error.msg.as_deref(), Some("expected 0 or 1"));
         assert_eq!(error.notes.as_slice(), ["at argument 1", "got 2 (int)"]);
     }

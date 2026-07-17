@@ -451,7 +451,7 @@ mod tests {
         let msg = into_wq_string("abc");
         let code = Value::Int(42);
         let v = Value::List(Arc::new(vec![msg, code]));
-        // String is non-atom, so it renders as its own row (same as old List<Char>)
+        // String is non-atom, so it renders as its own row (same as the old char-list)
         assert_eq!(format_boxed(&v), "\"abc\"\n42");
     }
 

@@ -1,6 +1,6 @@
 ▍ Error at <TEST_PATH>
   zero-div: cannot divide by zero
-  - from bfn 'map'
+  - from builtin-function 'map'
   - at [1]
   * at f, <TEST_PATH>
   |    1 -> f:{[den]1/den}

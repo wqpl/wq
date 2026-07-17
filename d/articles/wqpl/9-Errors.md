@@ -25,7 +25,7 @@ head ()
 
 ## Assertions
 
-`assert` requires a boolean condition to be true.
+`assert` requires a bool condition to be true.
 
 ```wq
 assert[2<3]
@@ -76,5 +76,5 @@ people. Branch on the `kind` tag instead of parsing those strings.
 
 - Errors stop the current run.
 - `raise` creates an error intentionally.
-- `assert` checks a boolean condition and `assert_eq` compares whole values.
+- `assert` checks a bool condition and `assert_eq` compares whole values.
 - `@t` catches failure and returns a tagged result with the value or error.

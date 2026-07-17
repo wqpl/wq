@@ -39,12 +39,17 @@
   - canonical value naming:
     - user-facing containers are `list` and `dict`
     - user-facing non-containers are atoms; do not call wq values scalars
-    - use `list<int>`, `list<bool>`, and `list<float>` in display, debug/profiler output, tests, and code comments
+    - use `int-list`, `bool-list`, and `float-list` in display, debug/profiler output, tests, and code comments
     - in user-facing docs, treat strings as part of the public list/container story unless text behavior is the point; the word "string" is fine when it helps clarity
     - do not describe strings as "lists of chars", "char lists", or "text" in user-facing docs; say "string"
     - do not use "list-like" in user-facing docs; use "container" when both list and dict are meant, or "list" when dicts are not included
     - in user-facing docs, prefer prose such as "list of ints" over compact type notation
     - reserve internal Rust storage names such as `Value::IntList`, `Value::BoolList`, `Value::FloatList`, and `Value::String` for implementation details
+  - canonical builtin naming:
+    - use `builtin` as the shorthand in compact UI labels, navigation, and prose
+    - use `builtin-function` as the formal full term and debug kind; pluralize it as `builtin-functions`
+    - do not use `bfn`, `built-in`, or `builtin function`
+  - use `bool` consistently for wq values, operations, docs, diagnostics, tests, and UI copy
   - `@r expr` returns from a function.
   - `@s <expr>` creates a symbolic CAS structure.
     - After using `@s` to create one, apply operations directly instead of stacking `@s`.

@@ -5476,11 +5476,11 @@ mod cst_integration_tests {
     }
 
     #[test]
-    fn lazy_boolean_forms_have_dedicated_cst_nodes() {
+    fn lazy_bool_forms_have_dedicated_cst_nodes() {
         for src in ["A[T;F]", "O[T;F]", "and[T;F]", "or[T;F]"] {
             let (_, cst) = parse_with_cst(src);
             let root = SyntaxNode::new_root(cst);
-            let lazy = root.children().next().expect("lazy boolean expression");
+            let lazy = root.children().next().expect("lazy bool expression");
             assert_eq!(lazy.kind(), SyntaxKind::LazyBoolExpr, "source: {src}");
             assert_eq!(
                 lazy.children()
@@ -5514,7 +5514,7 @@ mod cst_integration_tests {
     }
 
     #[test]
-    fn word_boolean_forms_alias_lazy_boolean_forms() {
+    fn word_bool_forms_alias_lazy_bool_forms() {
         for (src, expected) in [
             ("and[T;F]", BoolOperator::And),
             ("or[T;F]", BoolOperator::Or),
@@ -5528,13 +5528,13 @@ mod cst_integration_tests {
     }
 
     #[test]
-    fn lazy_boolean_ast_is_nary() {
+    fn lazy_bool_ast_is_nary() {
         let ast = parse_without_cst("and[x;y;z;q]");
         let AstNode::LazyBool {
             operator, operands, ..
         } = ast
         else {
-            panic!("expected lazy boolean AST, got {ast:?}");
+            panic!("expected lazy bool AST, got {ast:?}");
         };
         assert_eq!(operator, BoolOperator::And);
         assert_eq!(operands.len(), 4);

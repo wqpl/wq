@@ -76,10 +76,10 @@ pub(crate) fn eval_bool_op(op: BoolOperator, left: &Value, right: &Value) -> WqR
     match op {
         BoolOperator::And => left
             .bool_and(right)
-            .map_err(|e| e.src("boolean operator 'A' (alias 'and')")),
+            .map_err(|e| e.src("bool operator 'A' (alias 'and')")),
         BoolOperator::Or => left
             .bool_or(right)
-            .map_err(|e| e.src("boolean operator 'O' (alias 'or')")),
+            .map_err(|e| e.src("bool operator 'O' (alias 'or')")),
     }
 }
 
@@ -150,10 +150,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn operator_sources_use_single_quotes() {
+    fn operator_sources_use_canonical_terms_and_quotes() {
         let error = eval_binary(&BinaryOperator::BitAnd, &Value::Char('a'), &Value::Int(1))
             .expect_err("char bitwise operation should fail");
 
         assert_eq!(error.src.as_deref(), Some("binary operator 'band'"));
+
+        let error = eval_bool_op(BoolOperator::And, &Value::Int(1), &Value::Bool(true))
+            .expect_err("non-bool lazy operation should fail");
+
+        assert_eq!(
+            error.src.as_deref(),
+            Some("bool operator 'A' (alias 'and')")
+        );
     }
 }

@@ -16,7 +16,7 @@ const topics = [
     kind: "guide",
     group: "Reference",
     title: "Builtins",
-    summary: "Built-in functions are values provided by wq.",
+    summary: "Builtin-functions are values provided by wq.",
     aliases: ["builtins"],
   },
   {
@@ -24,7 +24,7 @@ const topics = [
     kind: "guide",
     group: "Reference",
     title: "Operators",
-    summary: "Operators are also builtin functions.",
+    summary: "Operators are also builtin-functions.",
     aliases: ["operators"],
   },
   {

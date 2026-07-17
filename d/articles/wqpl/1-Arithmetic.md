@@ -102,7 +102,7 @@ Because arithmetic broadcasts, a list can stand in for a little row of inputs.
 (0;1;2;3;4;5)^2 |echo
 ```
 
-You can pipe the result into a bfn too. Here `sum` adds the squared values:
+You can pipe the result into a builtin too. Here `sum` adds the squared values:
 
 ```wq
 (1;2;3;4;5)^2|sum |echo
@@ -112,7 +112,7 @@ It is a small thing, but this is the shape of a lot of wq: make a value, transfo
 
 ## Number Questions
 
-Comparisons produce booleans, `T` or `F`.
+Comparisons produce bools, `T` or `F`.
 
 ```wq
 1<2<3     |echo

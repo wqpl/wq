@@ -1406,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn lazy_boolean_forms_preserve_their_sigil() {
+    fn lazy_bool_forms_preserve_their_sigil() {
         assert_eq!(fmt("A[T; F]", 80), "A[T;F]");
         assert_eq!(fmt("O[F; raise \"boom\"]", 80), "O[F;raise \"boom\"]");
         let nested = fmt("$[A[#token>1;token[-1]=\"/\"];1;0]", 80);

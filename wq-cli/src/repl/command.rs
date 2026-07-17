@@ -19,7 +19,7 @@ pub(super) enum ReplCommandKind {
     Info,
     Dry,
     Fmt,
-    Bfn,
+    Builtin,
     Gb,
     Reset,
     Box,
@@ -290,13 +290,13 @@ const REPL_COMMAND_SPECS: &[ReplCommandSpec] = &[
         ReplCommandKind::FmtQuery,
     ),
     optional_space_arg(
-        &[r"\bfn"],
+        &[r"\builtin"],
         "show or set builtins preset",
-        ReplCommandKind::Bfn,
-        ReplCommandKind::Bfn,
+        ReplCommandKind::Builtin,
+        ReplCommandKind::Builtin,
         ReplArgKind::BuiltinPreset,
     ),
-    exact(&["\\"], "show builtins preset", ReplCommandKind::Bfn),
+    exact(&["\\"], "show builtins preset", ReplCommandKind::Builtin),
     directive(&[r"\p"], "load prelude", None),
     directive(
         &[r"\load", r"\l"],
@@ -570,6 +570,24 @@ fn parsed_from_target(target: ReplCommandTarget, arg: Option<String>) -> ParsedR
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_command_parses_with_optional_preset() {
+        assert!(matches!(
+            parse(r"\builtin"),
+            ParsedReplCommand::Handled {
+                kind: ReplCommandKind::Builtin,
+                arg: None
+            }
+        ));
+        assert!(matches!(
+            parse(r"\builtin pure"),
+            ParsedReplCommand::Handled {
+                kind: ReplCommandKind::Builtin,
+                arg: Some(arg)
+            } if arg == "pure"
+        ));
+    }
 
     #[test]
     fn command_dump_command_parses() {

@@ -3622,7 +3622,7 @@ textarea.editor-text.repl-input,
 .hl-number {
   color: #b35a00;
 }
-.hl-boolean {
+.hl-bool {
   color: #b35a00;
 }
 .hl-constant-builtin {
@@ -5301,7 +5301,7 @@ textarea.editor-text.repl-input,
 }
 
 :root[data-theme="midnight"] .hl-number,
-:root[data-theme="midnight"] .hl-boolean,
+:root[data-theme="midnight"] .hl-bool,
 :root[data-theme="midnight"] .hl-constant-builtin,
 :root[data-theme="midnight"] .hl-cas-constant,
 :root[data-theme="midnight"] .hl-keyword-return,

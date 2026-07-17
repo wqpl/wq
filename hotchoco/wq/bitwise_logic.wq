@@ -1,9 +1,9 @@
-// boolean and
+// bool and
 A[true;true] |echo
 A[true;false] |echo
 A[false;true] |echo
 
-// boolean or
+// bool or
 O[true;true] |echo
 O[true;false] |echo
 O[false;false] |echo

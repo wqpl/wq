@@ -50,7 +50,7 @@ impl fmt::Display for Value {
             Value::IntList(_) | Value::IntRange(_) => fmt_int_seq(
                 f,
                 self.packed_int_seq()
-                    .expect("list<int> and int-range are packed int sequences"),
+                    .expect("int-list and int-range are packed int sequences"),
             ),
             Value::String(s) => {
                 if s.is_empty() {
@@ -155,7 +155,7 @@ impl fmt::Display for Value {
                     write!(f, "{{[{}]...}}", parts.join(";"))
                 }
             }
-            Value::BuiltinFunction { name, .. } => write!(f, "<bfn '{name}'>"),
+            Value::BuiltinFunction { name, .. } => write!(f, "<builtin-function '{name}'>"),
             Value::LiftedCallable(data) => {
                 write!(f, "<fn {}>", fmt_callable_expr(&data.expr, false))
             }

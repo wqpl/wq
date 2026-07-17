@@ -44,7 +44,7 @@ print_ast:{[node;d;isleft]$.[U node;@r 0];print_ast[node`right;d+1;F]
            node`op=OP_EQUAL;"EQUAL(=)";         "UNKNOWN"]
   echo@f"{prefix}{label}";print_ast[node`left;d+1;T]}
 //--main--
-//inp:input"Input the Boolean Expression: "
+//inp:input"Input the Bool Expression: "
 inp:"A&B|C^B"
 toks:tokenize inp;expr:parse toks;vars:collect_vars[expr;()]
 print_table[inp;expr;vars];echo"";print_ast[expr;0;F];echo""

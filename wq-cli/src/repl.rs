@@ -90,7 +90,7 @@ enum ReplCommand {
     Info,
     Dry,
     Fmt(Option<String>),
-    Bfn(Option<String>),
+    Builtin(Option<String>),
     Gb,
     Reset,
     Box,
@@ -146,7 +146,7 @@ impl ReplCommand {
             command::ReplCommandKind::Info => Self::Info,
             command::ReplCommandKind::Dry => Self::Dry,
             command::ReplCommandKind::Fmt => Self::Fmt(arg),
-            command::ReplCommandKind::Bfn => Self::Bfn(arg),
+            command::ReplCommandKind::Builtin => Self::Builtin(arg),
             command::ReplCommandKind::Gb => Self::Gb,
             command::ReplCommandKind::Reset => Self::Reset,
             command::ReplCommandKind::Box => Self::Box,
@@ -307,7 +307,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         }
                         continue;
                     }
-                    ReplCommand::Bfn(opt) => {
+                    ReplCommand::Builtin(opt) => {
                         let names = BuiltinPreset::names().join(", ");
                         if let Some(preset) = opt {
                             match BuiltinPreset::from_name(&preset) {
@@ -315,14 +315,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                     session.set_builtins_preset(preset);
                                     sync_builtin_state(&session, &editor, &mut highlighter);
                                     system_msg_out(
-                                        format!("bfn -> {}", preset.name()),
+                                        format!("builtin -> {}", preset.name()),
                                         MsgType::Info,
                                     );
                                 }
                                 None => {
                                     system_msg_err(
                                         format!(
-                                            "unknown bfn preset '{preset}'\nAvailable: {names}"
+                                            "unknown builtin preset '{preset}'\nAvailable: {names}"
                                         ),
                                         MsgType::Error,
                                     );
@@ -990,7 +990,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
     interp_line.push_str(&" ".repeat(SECOND_COL.saturating_sub(vis_width(&interp_line))));
     interp_line.push_str(&format!(
         "{}  {}",
-        pad_label(repl_color("bfn", AnsiColor::BrightYellow), 5),
+        pad_label(repl_color("builtin", AnsiColor::BrightYellow), 7),
         repl_dim(evaluator.builtins_preset().name())
     ));
     lines.push(repl_card_row(interp_line, INNER));

@@ -22,7 +22,7 @@ mod wqtype;
 use super::super::model::BuiltinDoc;
 
 pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
-    core::BFN,
+    core::BUILTIN,
     core::CHR,
     core::ORD,
     core::INT,

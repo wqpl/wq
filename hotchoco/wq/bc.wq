@@ -19,7 +19,7 @@
 (`a:1;`b:2)=.(`a:1;`b:2) | echo
 "ab"=."ab" | echo
 
-// list<int>/list<float>
+// int-list/float-list
 (1;2)=.(1.0;2.0) | echo
 (1.0;2.0)=.(1;2) | echo
 
