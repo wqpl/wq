@@ -1267,22 +1267,47 @@ mod tests {
 
     #[test]
     fn unicode_scalar_literals_distinguish_valid_invalid_and_string_regions() {
-        let src = r#""a" @u"a" @u"\n" @u"" @u"ab" @u"é" @u"\q" @u"x"#;
+        let src = r#""a" @u"a" @u"\n" @u{41} @u{1f980} @u"" @u"ab" @u"é" @u"\q" @u{} @u{d800} @u{110000} @u{xyz} @u"x"#;
         let h = Highlighter::new();
         let regions = named_regions(&h.highlight(src), src);
 
         assert_region(&regions, r#""a""#, HighlightName::String);
         assert_region(&regions, r#"@u"a""#, HighlightName::Character);
+        assert_region(&regions, "@u{41}", HighlightName::Character);
+        assert_region(&regions, "@u{1f980}", HighlightName::Character);
         assert_region(&regions, r"\n", HighlightName::StringEscape);
         assert_eq!(
             regions_with_name(&regions, HighlightName::InvalidCharacter),
-            vec![r#"@u"""#, r#"@u"ab""#, r#"@u"é""#, r#"@u"\q""#, r#"@u"x"#]
+            vec![
+                r#"@u"""#,
+                r#"@u"ab""#,
+                r#"@u"é""#,
+                r#"@u"\q""#,
+                "@u{}",
+                "@u{d800}",
+                "@u{110000}",
+                "@u{xyz}",
+                r#"@u"x"#,
+            ]
         );
     }
 
     #[test]
     fn invalid_unicode_scalar_literal_suppresses_completion_inside_its_contents() {
         assert_eq!(cursor_context_at(r#"@u"x"#, 4), CursorContext::String);
+    }
+
+    #[test]
+    fn incomplete_unicode_scalar_shorthand_stays_in_character_context() {
+        let src = "@u{1f980";
+        let h = Highlighter::new();
+        let regions = named_regions(&h.highlight(src), src);
+
+        assert_eq!(
+            regions_with_name(&regions, HighlightName::InvalidCharacter),
+            vec![src]
+        );
+        assert_eq!(cursor_context_at(src, src.len()), CursorContext::String);
     }
 
     #[test]

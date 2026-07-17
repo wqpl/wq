@@ -115,11 +115,18 @@ const AT_RAW_STRING_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("2"),
 }];
 
-const AT_UNICODE_SCALAR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Create a char atom",
-    code: "type @u\"a\"",
-    expectation: ExampleExpectation::ResultContains("char"),
-}];
+const AT_UNICODE_SCALAR_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Create a char atom",
+        code: "type @u\"a\"",
+        expectation: ExampleExpectation::ResultContains("char"),
+    },
+    DocExample {
+        title: "Create a char atom from its hexadecimal code point",
+        code: "@u{1f980}",
+        expectation: ExampleExpectation::ResultContains("🦀"),
+    },
+];
 
 const AT_DEPTH_EXAMPLES: &[DocExample] = &[
     DocExample {
@@ -257,7 +264,7 @@ pub(super) const AT_UNICODE_SCALAR: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@u", "unicode scalar", "char", "character"],
     summary: "Create a char atom from one Unicode scalar.",
-    details: "`@u\"...\"` decodes escapes and requires exactly one Unicode scalar. Ordinary quoted literals are strings at every length, so `\"a\"` is a one-character string while `@u\"a\"` is a char atom. Hex escapes require exactly two digits, such as `\\x41`; malformed hex and Unicode escapes are syntax errors. A user-perceived character may contain more than one Unicode scalar; use `graphemes` when that distinction matters.",
+    details: "`@u\"...\"` decodes escapes and requires exactly one Unicode scalar. `@u{...}` is a shorthand that accepts 1 to 6 hexadecimal digits, so `@u{41}` is equivalent to `@u\"\\u{41}\"`. Surrogates and values above `10ffff` are rejected. Ordinary quoted literals are strings at every length, so `\"a\"` is a one-character string while `@u\"a\"` is a char atom. Hex escapes require exactly two digits, such as `\\x41`; malformed hex and Unicode escapes are syntax errors. A user-perceived character may contain more than one Unicode scalar; use `graphemes` when that distinction matters.",
     examples: AT_UNICODE_SCALAR_EXAMPLES,
     related: &["@l", "chr", "ord", "graphemes"],
 };

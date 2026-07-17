@@ -579,13 +579,16 @@ impl<'a> Lexer<'a> {
         start_byte: usize,
     ) -> WqResult<TokenType> {
         self.skip_whitespace();
+        if self.current_char == Some('{') {
+            return self.read_unicode_scalar_shorthand(start_line, start_column, start_byte);
+        }
         if self.current_char != Some('"') {
             return Err(self.syntax_error_span(
                 start_line,
                 start_column,
                 start_byte,
                 self.byte_pos,
-                "expected quoted Unicode scalar after @u",
+                "expected quoted Unicode scalar or hexadecimal shorthand after @u",
             ));
         }
 
@@ -613,6 +616,63 @@ impl<'a> Lexer<'a> {
                 "Unicode scalar literal must contain exactly one scalar",
             ));
         }
+        Ok(TokenType::Character(value))
+    }
+
+    fn read_unicode_scalar_shorthand(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+        start_byte: usize,
+    ) -> WqResult<TokenType> {
+        debug_assert_eq!(self.current_char, Some('{'));
+        self.advance();
+
+        let mut digits = String::new();
+        let mut closed = false;
+        while let Some(ch) = self.current_char {
+            if ch == '}' {
+                self.advance();
+                closed = true;
+                break;
+            }
+            digits.push(ch);
+            self.advance();
+        }
+
+        if !closed && !self.recovery_mode {
+            return Err(self.eof_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "Unicode scalar shorthand is not properly terminated",
+            ));
+        }
+
+        if !(1..=6).contains(&digits.len()) || !digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "Unicode scalar shorthand must contain 1 to 6 hexadecimal digits",
+            ));
+        }
+
+        let value = u32::from_str_radix(&digits, 16)
+            .expect("validated hexadecimal Unicode scalar shorthand");
+        let Some(value) = char::from_u32(value) else {
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "invalid Unicode scalar shorthand value",
+            ));
+        };
+
         Ok(TokenType::Character(value))
     }
 
@@ -1611,6 +1671,41 @@ mod tests {
         assert_eq!(tokens[0].token_type, TokenType::Character('a'));
         assert_eq!(tokens[1].token_type, TokenType::Character('\n'));
         assert_eq!(tokens[2].token_type, TokenType::Character('🦀'));
+    }
+
+    #[test]
+    fn test_tokenize_unicode_scalar_shorthand() {
+        let mut lexer = Lexer::new("@u{0} @u{41} @u {a} @u{1f980} @u{10FFFF}+1");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].token_type, TokenType::Character('\0'));
+        assert_eq!(tokens[1].token_type, TokenType::Character('A'));
+        assert_eq!(tokens[2].token_type, TokenType::Character('\n'));
+        assert_eq!(tokens[3].token_type, TokenType::Character('🦀'));
+        assert_eq!(tokens[4].token_type, TokenType::Character('\u{10ffff}'));
+        assert_eq!(tokens[5].token_type, TokenType::Plus);
+        assert_eq!(tokens[6].token_type, TokenType::Integer(1));
+    }
+
+    #[test]
+    fn test_unicode_scalar_shorthand_rejects_invalid_code_points() {
+        for source in [
+            "@u{}",
+            "@u{xyz}",
+            "@u{41_}",
+            "@u{1234567}",
+            "@u{d800}",
+            "@u{110000}",
+        ] {
+            let mut lexer = Lexer::new(source);
+            assert!(lexer.tokenize().is_err(), "{source} should be rejected");
+        }
+    }
+
+    #[test]
+    fn test_unterminated_unicode_scalar_shorthand_is_incomplete() {
+        let error = lexer_err("@u{1f980");
+
+        assert_eq!(error.err_type, WqErrorType::Eof);
     }
 
     #[test]

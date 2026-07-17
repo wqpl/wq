@@ -710,7 +710,11 @@ export default grammar({
 
     string: ($) => $._string_content,
     unicode_scalar: ($) =>
-      seq("@u", optional(/[ \t\r]*/), $._string_content),
+      seq(
+        "@u",
+        optional(/[ \t\r]*/),
+        choice($._string_content, token(/\{[0-9a-fA-F]{1,6}\}/)),
+      ),
     raw_string: ($) => seq("@l", optional(/[ \t\r]*/), $._raw_string_content),
     format_string: ($) =>
       seq("@f", optional(/[ \t\r]*/), $._format_string_content),

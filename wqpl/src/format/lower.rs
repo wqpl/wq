@@ -1306,6 +1306,7 @@ mod tests {
         assert_eq!(fmt("foo", 80), "foo");
         assert_eq!(fmt("\"hi\"", 80), "\"hi\"");
         assert_eq!(fmt("@u\"a\"", 80), "@u\"a\"");
+        assert_eq!(fmt("@u{1f980}", 80), "@u{1f980}");
     }
 
     #[test]
