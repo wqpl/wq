@@ -140,6 +140,20 @@
 | let chains      | Rust 1.88.0   | 2025-06-26   | Stable only in Rust 2024 edition. Allows `if let ... && let ... && condition` and similar in `while`. |
 | `if let` guards | Rust 1.95.0   | 2026-04-16   | Stabilizes `if let` guards on `match` arms, e.g. `pat if let Some(x) = expr => ...`.                  |
 
+## DRY and established helpers
+
+- Before adding a local helper, repeated `match` over `Value`, or parallel implementation of a language rule, search the repository with `rg`. Reuse or extend the canonical helper when its contract fits. If several modules need a new rule, place it in the narrowest shared module and test it there. Do not generalize code that has only one specialized use.
+- Use the storage and container abstractions in `wqpl/src/value/seq.rs`:
+  - `ValueSeq` is a borrowed view over every public list representation, including strings and virtual int ranges. Use it for representation-independent length, indexing, gathering, iteration, and equality.
+  - `ListStorageSeq` covers generic and packed list storage but deliberately excludes strings. Use it when list insertion or mutation must treat a string as one value unless a string-specific path applies.
+  - `ExactIntSeq` handles int atoms, packed int lists, virtual int ranges, and exact general int lists without duplicating conversion and storage checks.
+  - `ValueSeqBuilder` and `Value::from_items` select packed int, float, bool, or string storage when possible and widen to a general list when required. Use them for results assembled from `Value` items. Construct `Value::List` directly only when the result must stay in generic list storage.
+- Use the existing `Value` predicates instead of repeating variant sets. The central predicates and classifications include `is_atom`, `is_list`, `is_unit`, `is_string`, `is_dict`, `is_container`, `is_runtime_callable`, `is_callable`, `category`, and `debug_kind` in `wqpl/src/value.rs`, plus numeric predicates in the relevant `wqpl/src/value/` modules.
+- Use the constructor and conversion helpers in `wqpl/src/value.rs`, `wqpl/src/value/convert.rs`, and `wqpl/src/value/display.rs`. Established helpers include `Value::empty_list`, `Value::float`, `Value::from_bigint`, `Value::from_complex64`, `Value::from_fraction_parts`, `Value::from_items`, `IntoWqValue`, `into_wq_string`, and the `try_to_rust_*` methods. These preserve normalization, storage selection, and conversion semantics.
+- Use `Value::bc1`, `Value::bc2`, their depth-aware variants, and `BcError` in `wqpl/src/value/bc.rs` for recursive broadcasting and path-aware failures. Use `wqpl/src/value/access.rs` for indexing and mutation semantics, and `Value::cat`, `Value::cat_many`, and `Value::flatten` in `wqpl/src/value/op/container.rs` for established container operations.
+- Treat `wqpl/src/escape.rs` as the source of truth for wq escapes. Use `escape_string_inner`, `quote_string`, `unescape_string_inner`, and `valid_escape_sequence_len` instead of implementing escaping or escape validation in lexers, parsers, highlighters, formatters, or display code. Use `escape_str_for_display` when formatting a displayed wq string.
+- Reuse the diagnostic helpers as part of DRY. Build domain expectations with `Requirement` and `WqError`; use the shared `expected_*` helpers in `wqpl/src/value/error.rs` when they fit. Builtins must use `check_arity`, `check_arity_named`, `check_arity_any_named`, `check_named_args`, `type_mismatch`, and declaration metadata in `wqpl/src/builtins.rs` instead of hand-built arity, named-argument, usage, or type errors.
+
 ## Documentation Markdown
 
 - When inline wq source contains backticks, use a CommonMark delimiter longer than every backtick run inside the source.
