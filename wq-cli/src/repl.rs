@@ -119,8 +119,8 @@ enum ReplCommand {
     TimeQuery,
     WqdbQuery,
     FmtQuery,
-    TypeShow,
-    TypeQuery,
+    CategoryShow,
+    CategoryQuery,
     Empty,
     Unknown,
 }
@@ -173,8 +173,8 @@ impl ReplCommand {
             command::ReplCommandKind::TimeQuery => Self::TimeQuery,
             command::ReplCommandKind::WqdbQuery => Self::WqdbQuery,
             command::ReplCommandKind::FmtQuery => Self::FmtQuery,
-            command::ReplCommandKind::TypeShow => Self::TypeShow,
-            command::ReplCommandKind::TypeQuery => Self::TypeQuery,
+            command::ReplCommandKind::CategoryShow => Self::CategoryShow,
+            command::ReplCommandKind::CategoryQuery => Self::CategoryQuery,
         }
     }
 }
@@ -210,7 +210,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     session.set_pause_handler(move |_event, debugger| wqdb_shell(debugger, &debugger_editor));
     let mut time_mode = false;
     let mut box_config = rtflags.box_print;
-    let mut show_type = true;
+    let mut show_category = true;
     let mut fmt_state = ReplFmtState::default();
     let mut highlighter = WqReplHighlighter::new();
     session.set_debug_flags(rtflags.debug_flags);
@@ -348,40 +348,40 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         } else {
                             let mut name_w = "name".len();
                             let mut value_w = "value".len();
-                            let mut type_w = "type".len();
+                            let mut category_w = "category".len();
                             for (name, v) in &env {
                                 name_w = name_w.max(name.len());
                                 value_w = value_w.max(v.to_string().len());
-                                type_w = type_w.max(v.type_name().len());
+                                category_w = category_w.max(v.category().as_str().len());
                             }
                             eprintln!(
-                                "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                                "{:<name_w$}  {:<value_w$}  {:<category_w$}",
                                 "name",
                                 "value",
-                                "type",
+                                "category",
                                 name_w = name_w,
                                 value_w = value_w,
-                                type_w = type_w
+                                category_w = category_w
                             );
                             eprintln!(
-                                "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
+                                "{:-<name_w$}  {:-<value_w$}  {:-<category_w$}",
                                 "",
                                 "",
                                 "",
                                 name_w = name_w,
                                 value_w = value_w,
-                                type_w = type_w
+                                category_w = category_w
                             );
                             // Print rows
                             for (name, v) in &env {
                                 eprintln!(
-                                    "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                                    "{:<name_w$}  {:<value_w$}  {:<category_w$}",
                                     name,
                                     v.to_string(),
-                                    v.type_name(),
+                                    v.category(),
                                     name_w = name_w,
                                     value_w = value_w,
-                                    type_w = type_w
+                                    category_w = category_w
                                 );
                             }
                         }
@@ -649,16 +649,19 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         system_msg_out(format!("fmt: {}", fmt_state.summary()), MsgType::Info);
                         continue;
                     }
-                    ReplCommand::TypeShow => {
-                        show_type = !show_type;
+                    ReplCommand::CategoryShow => {
+                        show_category = !show_category;
                         system_msg_out(
-                            format!("type -> {}", repl_status(show_type)),
+                            format!("category -> {}", repl_status(show_category)),
                             MsgType::Info,
                         );
                         continue;
                     }
-                    ReplCommand::TypeQuery => {
-                        system_msg_out(format!("type: {}", repl_status(show_type)), MsgType::Info);
+                    ReplCommand::CategoryQuery => {
+                        system_msg_out(
+                            format!("category: {}", repl_status(show_category)),
+                            MsgType::Info,
+                        );
                         continue;
                     }
                     ReplCommand::Empty => {
@@ -696,11 +699,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             if let Some(result) = report.result
                                 && !session.dry_mode()
                             {
-                                let resstr = format_repl_result_with_type(
+                                let resstr = format_repl_result_with_category(
                                     &result,
                                     &box_config,
                                     &highlighter,
-                                    show_type,
+                                    show_category,
                                 );
                                 print_repl_result_msg(resstr);
                                 if box_config.shows_xray() {
@@ -751,11 +754,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         if session.dry_mode() {
                             print_dry_run_status();
                         } else {
-                            let resstr = format_repl_result_with_type(
+                            let resstr = format_repl_result_with_category(
                                 &result,
                                 &box_config,
                                 &highlighter,
-                                show_type,
+                                show_category,
                             );
                             print_repl_result_msg(resstr);
                             if box_config.shows_xray() {
@@ -831,7 +834,7 @@ fn sync_global_hints(session: &Session, input: &RustylineInput) {
         .iter()
         .map(|(name, value)| WqGlobalHint {
             name: name.clone(),
-            type_name: value.type_name().to_string(),
+            category: value.category().to_string(),
             excerpt: value.excerpt(),
         })
         .collect();
@@ -1184,44 +1187,44 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
     lines
 }
 
-fn format_repl_result_with_type(
+fn format_repl_result_with_category(
     result: &Value,
     box_config: &BoxPrintConfig,
     highlighter: &WqReplHighlighter,
-    show_type: bool,
+    show_category: bool,
 ) -> String {
     let mut resstr = format_repl_result(result, box_config, highlighter);
-    if !show_type {
+    if !show_category {
         return resstr;
     }
     let term_w = terminal_size()
         .map(|(Width(w), _)| w as usize)
         .unwrap_or(80);
-    let type_str = result.type_name();
-    let type_vis = vis_width(type_str);
+    let category = result.category().as_str();
+    let category_width = vis_width(category);
     const PREFIX_W: usize = 2; // "▍ "
 
     let lines: Vec<&str> = resstr.split('\n').collect();
     let first_vis = vis_width(lines[0]);
-    let total_needed = PREFIX_W + first_vis + 1 + type_vis;
+    let total_needed = PREFIX_W + first_vis + 1 + category_width;
 
     if term_w >= total_needed {
         let pad = term_w - total_needed;
-        let mut out = String::with_capacity(resstr.len() + pad + type_str.len() + 20);
+        let mut out = String::with_capacity(resstr.len() + pad + category.len() + 20);
         out.push_str(lines[0]);
         out.push_str(&" ".repeat(pad));
-        out.push_str(&repl_dim(type_str));
+        out.push_str(&repl_dim(category));
         for line in &lines[1..] {
             out.push('\n');
             out.push_str(line);
         }
         resstr = out;
     } else {
-        // Not enough space: place type on its own line, right-aligned.
-        let pad = term_w.saturating_sub(PREFIX_W + type_vis);
+        // Not enough space: place the category on its own line, right-aligned.
+        let pad = term_w.saturating_sub(PREFIX_W + category_width);
         resstr.push('\n');
         resstr.push_str(&" ".repeat(pad));
-        resstr.push_str(&repl_dim(type_str));
+        resstr.push_str(&repl_dim(category));
     }
 
     resstr

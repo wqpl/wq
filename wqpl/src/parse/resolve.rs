@@ -75,6 +75,27 @@ impl Resolver {
         self.resolve_node(node)
     }
 
+    fn invalid_mutating_index_target(span: AstSpan) -> AstNode {
+        AstNode::Error(
+            crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
+                .src("resolver")
+                .msg("bang indexing can mutate only a variable")
+                .attach_note("assign the container to a variable before using '[!...]'"),
+            span,
+        )
+    }
+
+    fn invalid_unpack_target(span: AstSpan) -> AstNode {
+        AstNode::Error(
+            crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
+                .src("resolver")
+                .msg(
+                    "unpack assignment target must be an identifier, index target, '_', '...', or a nested list",
+                ),
+            span,
+        )
+    }
+
     fn resolve_node(&mut self, node: AstNode) -> AstNode {
         match node {
             AstNode::Assignment {
@@ -358,12 +379,7 @@ impl Resolver {
                     object.as_ref(),
                     AstNode::Variable(_, _) | AstNode::OuterVariable(_, _)
                 ) {
-                    return AstNode::Error(
-                        crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
-                            .src("resolver")
-                            .msg("mutating index target must be a variable"),
-                        span,
-                    );
+                    return Self::invalid_mutating_index_target(span);
                 }
                 AstNode::MutatingIndex {
                     object,
@@ -397,12 +413,7 @@ impl Resolver {
                     object.as_ref(),
                     AstNode::Variable(_, _) | AstNode::OuterVariable(_, _)
                 ) {
-                    return AstNode::Error(
-                        crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
-                            .src("resolver")
-                            .msg("mutating index target must be a variable"),
-                        span,
-                    );
+                    return Self::invalid_mutating_index_target(span);
                 }
                 AstNode::MutatingIndexAssign {
                     object,
@@ -842,12 +853,7 @@ impl Resolver {
                 }
             }
             _ => {
-                stmts.push(AstNode::Error(
-                    crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
-                        .src("resolver")
-                        .msg("invalid unpack assignment target"),
-                    span,
-                ));
+                stmts.push(Self::invalid_unpack_target(span));
             }
         }
     }
@@ -974,12 +980,7 @@ impl Resolver {
                 }
                 stmts
             }
-            _ => vec![AstNode::Error(
-                crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
-                    .src("resolver")
-                    .msg("invalid unpack assignment target"),
-                span,
-            )],
+            _ => vec![Self::invalid_unpack_target(span)],
         }
     }
 
@@ -1796,6 +1797,24 @@ mod tests {
             | AstNode::Continue(_)
             | AstNode::Ellipsis(_)
             | AstNode::Error(..) => false,
+        }
+    }
+
+    #[test]
+    fn bang_index_error_explains_the_variable_requirement() {
+        for src in ["(1;2)[!]", "(1;2)[!]:3"] {
+            let ast = resolve_src(src);
+            let AstNode::Error(err, _) = ast else {
+                panic!("expected resolver error for {src}, got {ast:?}");
+            };
+            assert_eq!(
+                err.msg.as_deref(),
+                Some("bang indexing can mutate only a variable")
+            );
+            assert_eq!(
+                err.notes.as_slice(),
+                ["assign the container to a variable before using '[!...]'"]
+            );
         }
     }
 

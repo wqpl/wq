@@ -85,7 +85,7 @@
   --globals-row-border: #d9eddd;
   --globals-row-hover: #f2faf4;
   --globals-name: #286c3f;
-  --globals-type: #66836f;
+  --globals-category: #66836f;
   --globals-value: #173c28;
   --globals-error-bg: #fff6f5;
   --globals-error-border: #efcfcb;
@@ -163,7 +163,7 @@
   --globals-row-border: #273b61;
   --globals-row-hover: #111d34;
   --globals-name: #9fd6c5;
-  --globals-type: #8798b6;
+  --globals-category: #8798b6;
   --globals-value: #e8eef8;
   --globals-error-bg: #2a1720;
   --globals-error-border: #6f3f4b;
@@ -1260,7 +1260,7 @@ body {
 }
 .globals-panel-count {
   min-width: 1.5em;
-  color: var(--globals-type);
+  color: var(--globals-category);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   font-weight: 700;
@@ -1304,7 +1304,7 @@ body {
   min-width: 0;
 }
 .global-binding-name,
-.global-binding-type,
+.global-binding-category,
 .global-binding-value {
   margin: 0;
 }
@@ -1321,9 +1321,9 @@ body {
   font-weight: 750;
   overflow-wrap: anywhere;
 }
-.global-binding-type {
+.global-binding-category {
   flex: 0 1 auto;
-  color: var(--globals-type);
+  color: var(--globals-category);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   line-height: 1.3;
@@ -1351,7 +1351,7 @@ body {
   gap: 5px;
   max-width: 220px;
   padding: 24px 14px;
-  color: var(--globals-type);
+  color: var(--globals-category);
   text-align: center;
 }
 .globals-panel-empty strong {

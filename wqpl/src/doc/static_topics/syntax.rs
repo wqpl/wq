@@ -407,7 +407,7 @@ pub(super) const DICTS: StaticDoc = StaticDoc {
     kind: DocKind::Syntax,
     group: "Syntax",
     aliases: &["dict", "dicts", "dictionary"],
-    summary: "Create dictionaries with symbol keys.",
+    summary: "Create dicts with tag keys.",
     details: "Dict keys are tags, written with a leading backtick. The empty dict is (`).",
     examples: DICT_EXAMPLES,
     related: &["keys", "named-arguments"],
@@ -568,7 +568,7 @@ pub(super) const BOOLEAN_LOGIC: StaticDoc = StaticDoc {
     details: "`A[xs;ys+]` and `O[xs;ys+]` combine bool expressions with short-circuit evaluation.
 `and[xs;ys+]` and `or[xs;ys+]` are aliases.
 `A`, `and`, `O`, and `or` are reserved names.
-`band[xs;ys+]`, `bor[xs;ys+]`, and `bxor[xs;ys+]` eagerly fold bitwise and, or, and xor over integers, bools, and compatible lists of them.",
+`band[xs;ys+]`, `bor[xs;ys+]`, and `bxor[xs;ys+]` eagerly fold bitwise and, or, and xor over ints, bools, and compatible lists of them.",
     examples: BOOLEAN_LOGIC_EXAMPLES,
     related: &["conditionals", "precedence", "not", "all", "any"],
 };

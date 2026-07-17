@@ -536,7 +536,7 @@ impl LanguageServer for Backend {
                     .def_provenance(result.def_idx)
                     .map(|provenance| provenance_label(&provenance));
             } else if let Some(val) = index.query_literal_at(byte_offset) {
-                let mut text = format!("**{}**", val.type_name());
+                let mut text = format!("**{}**", val.category());
                 match &val {
                     wqpl::value::Value::Int(n) => {
                         let abs = if *n < 0 {

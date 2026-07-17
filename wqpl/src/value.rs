@@ -17,6 +17,7 @@ pub mod rng;
 pub mod seq;
 pub mod stream;
 
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
 pub(crate) use convert::IntoWqValue;
@@ -38,6 +39,119 @@ use crate::value::stream::StreamHandle;
 use crate::wqerror::WqError;
 
 pub type WqResult<T> = Result<T, WqError>;
+
+/// A value's stable, user-facing category.
+///
+/// Categories intentionally hide storage details such as integer width and
+/// specialized list representations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ValueCategory {
+    Int,
+    Float,
+    Complex,
+    Fraction,
+    Algebraic,
+    Char,
+    Tag,
+    Bool,
+    List,
+    Cas,
+    Dict,
+    Function,
+    Rng,
+    Stream,
+}
+
+impl ValueCategory {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Int => "int",
+            Self::Float => "float",
+            Self::Complex => "complex",
+            Self::Fraction => "fraction",
+            Self::Algebraic => "algebraic",
+            Self::Char => "char",
+            Self::Tag => "tag",
+            Self::Bool => "bool",
+            Self::List => "list",
+            Self::Cas => "cas",
+            Self::Dict => "dict",
+            Self::Function => "function",
+            Self::Rng => "rng",
+            Self::Stream => "stream",
+        }
+    }
+}
+
+impl fmt::Display for ValueCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A value's representation-oriented kind for debugging and tooling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ValueKind {
+    Int,
+    BigInt,
+    Float,
+    Complex,
+    Fraction,
+    Algebraic,
+    Char,
+    Tag,
+    Bool,
+    IntList,
+    FloatList,
+    BoolList,
+    List,
+    String,
+    Cas,
+    Dict,
+    Function,
+    Closure,
+    BuiltinFunction,
+    FunctionComposition,
+    Rng,
+    Stream,
+}
+
+impl ValueKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Int => "int",
+            Self::BigInt => "bigint",
+            Self::Float => "float",
+            Self::Complex => "complex",
+            Self::Fraction => "fraction",
+            Self::Algebraic => "algebraic",
+            Self::Char => "char",
+            Self::Tag => "tag",
+            Self::Bool => "bool",
+            Self::IntList => "list<int>",
+            Self::FloatList => "list<float>",
+            Self::BoolList => "list<bool>",
+            Self::List => "list",
+            Self::String => "string",
+            Self::Cas => "cas",
+            Self::Dict => "dict",
+            Self::Function => "function",
+            Self::Closure => "closure",
+            Self::BuiltinFunction => "builtin-function",
+            Self::FunctionComposition => "function-composition",
+            Self::Rng => "rng",
+            Self::Stream => "stream",
+        }
+    }
+}
+
+impl fmt::Display for ValueKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -244,67 +358,59 @@ impl Value {
         }
     }
 
-    /// Get the type name of a value
-    pub fn type_name(&self) -> &'static str {
+    /// Return the stable, user-facing category of this value.
+    pub fn category(&self) -> ValueCategory {
         match self {
-            Value::Int(_) => "int",
-            Value::BigInt(_) => "int",
-
-            Value::Float(_) => "float",
-            Value::Complex(_) => "complex",
-            Value::Fraction(_) => "fraction",
-
-            Value::Char(_) => "char",
-            Value::Bool(_) => "bool",
-            Value::Tag(_) => "tag",
-
-            Value::IntRange(_) => "list",
-            Value::IntList(_) => "list",
-            Value::FloatList(_) => "list",
-            Value::BoolList(_) => "list",
-            Value::List(_) => "list",
-            Value::String(_) => "list",
-
-            Value::Dict(_) => "dict",
-
-            Value::Algebraic(_) => "algebraic",
-            Value::Cas(_) => "cas",
-
-            Value::CompiledFunction { .. } => "func",
-            Value::Closure { .. } => "closure",
-            Value::BuiltinFunction { .. } => "bfn",
-            Value::LiftedCallable(_) => "func",
-
-            Value::Rng(_) => "rng",
-            Value::Stream(_) => "stream",
+            Value::Int(_) | Value::BigInt(_) => ValueCategory::Int,
+            Value::Float(_) => ValueCategory::Float,
+            Value::Complex(_) => ValueCategory::Complex,
+            Value::Fraction(_) => ValueCategory::Fraction,
+            Value::Algebraic(_) => ValueCategory::Algebraic,
+            Value::Char(_) => ValueCategory::Char,
+            Value::Tag(_) => ValueCategory::Tag,
+            Value::Bool(_) => ValueCategory::Bool,
+            Value::IntRange(_)
+            | Value::IntList(_)
+            | Value::FloatList(_)
+            | Value::BoolList(_)
+            | Value::List(_)
+            | Value::String(_) => ValueCategory::List,
+            Value::Cas(_) => ValueCategory::Cas,
+            Value::Dict(_) => ValueCategory::Dict,
+            Value::CompiledFunction(_)
+            | Value::Closure(_)
+            | Value::BuiltinFunction { .. }
+            | Value::LiftedCallable(_) => ValueCategory::Function,
+            Value::Rng(_) => ValueCategory::Rng,
+            Value::Stream(_) => ValueCategory::Stream,
         }
     }
 
-    pub fn type_name_verbose(&self) -> &'static str {
+    /// Return the representation-oriented kind used by debugging tools.
+    pub fn debug_kind(&self) -> ValueKind {
         match self {
-            Value::Int(_) => "int",
-            Value::BigInt(_) => "big-int",
-            Value::Float(_) => "float",
-            Value::Complex(_) => "complex",
-            Value::Fraction(_) => "fraction",
-            Value::Algebraic(_) => "algebraic",
-            Value::Char(_) => "char",
-            Value::Tag(_) => "tag",
-            Value::Bool(_) => "bool",
-            Value::IntRange(_) => "list<int>",
-            Value::IntList(_) => "list<int>",
-            Value::FloatList(_) => "list<float>",
-            Value::BoolList(_) => "list<bool>",
-            Value::List(_) => "list",
-            Value::String(_) => "string",
-            Value::Cas(_) => "cas",
-            Value::Dict(_) => "dict",
-            Value::CompiledFunction(_) => "fn",
-            Value::Closure(_) => "closure",
-            Value::BuiltinFunction { .. } => "bfn",
-            Value::LiftedCallable(_) => "fn-comp",
-            Value::Rng(_) => "rng",
-            Value::Stream(_) => "stream",
+            Value::Int(_) => ValueKind::Int,
+            Value::BigInt(_) => ValueKind::BigInt,
+            Value::Float(_) => ValueKind::Float,
+            Value::Complex(_) => ValueKind::Complex,
+            Value::Fraction(_) => ValueKind::Fraction,
+            Value::Algebraic(_) => ValueKind::Algebraic,
+            Value::Char(_) => ValueKind::Char,
+            Value::Tag(_) => ValueKind::Tag,
+            Value::Bool(_) => ValueKind::Bool,
+            Value::IntRange(_) | Value::IntList(_) => ValueKind::IntList,
+            Value::FloatList(_) => ValueKind::FloatList,
+            Value::BoolList(_) => ValueKind::BoolList,
+            Value::List(_) => ValueKind::List,
+            Value::String(_) => ValueKind::String,
+            Value::Cas(_) => ValueKind::Cas,
+            Value::Dict(_) => ValueKind::Dict,
+            Value::CompiledFunction(_) => ValueKind::Function,
+            Value::Closure(_) => ValueKind::Closure,
+            Value::BuiltinFunction { .. } => ValueKind::BuiltinFunction,
+            Value::LiftedCallable(_) => ValueKind::FunctionComposition,
+            Value::Rng(_) => ValueKind::Rng,
+            Value::Stream(_) => ValueKind::Stream,
         }
     }
 }
@@ -323,10 +429,165 @@ mod tests {
         Value::builtin_function(name, id)
     }
 
+    fn test_function() -> Value {
+        Value::CompiledFunction(Arc::new(FunctionData {
+            params: None,
+            named_params: None,
+            locals: 0,
+            instructions: Arc::from(Vec::new()),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }))
+    }
+
+    fn test_closure() -> Value {
+        Value::Closure(Arc::new(ClosureData {
+            params: None,
+            named_params: None,
+            locals: 0,
+            captured: cell::empty_cells(),
+            instructions: Arc::from(Vec::new()),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }))
+    }
+
     fn hash_value(value: &Value) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         value.hash(&mut hasher);
         hasher.finish()
+    }
+
+    #[test]
+    fn category_names_are_stable() {
+        let cases = [
+            (ValueCategory::Int, "int"),
+            (ValueCategory::Float, "float"),
+            (ValueCategory::Complex, "complex"),
+            (ValueCategory::Fraction, "fraction"),
+            (ValueCategory::Algebraic, "algebraic"),
+            (ValueCategory::Char, "char"),
+            (ValueCategory::Tag, "tag"),
+            (ValueCategory::Bool, "bool"),
+            (ValueCategory::List, "list"),
+            (ValueCategory::Cas, "cas"),
+            (ValueCategory::Dict, "dict"),
+            (ValueCategory::Function, "function"),
+            (ValueCategory::Rng, "rng"),
+            (ValueCategory::Stream, "stream"),
+        ];
+
+        for (category, expected) in cases {
+            assert_eq!(category.as_str(), expected);
+            assert_eq!(category.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn debug_kind_names_are_stable() {
+        let cases = [
+            (ValueKind::Int, "int"),
+            (ValueKind::BigInt, "bigint"),
+            (ValueKind::Float, "float"),
+            (ValueKind::Complex, "complex"),
+            (ValueKind::Fraction, "fraction"),
+            (ValueKind::Algebraic, "algebraic"),
+            (ValueKind::Char, "char"),
+            (ValueKind::Tag, "tag"),
+            (ValueKind::Bool, "bool"),
+            (ValueKind::IntList, "list<int>"),
+            (ValueKind::FloatList, "list<float>"),
+            (ValueKind::BoolList, "list<bool>"),
+            (ValueKind::List, "list"),
+            (ValueKind::String, "string"),
+            (ValueKind::Cas, "cas"),
+            (ValueKind::Dict, "dict"),
+            (ValueKind::Function, "function"),
+            (ValueKind::Closure, "closure"),
+            (ValueKind::BuiltinFunction, "builtin-function"),
+            (ValueKind::FunctionComposition, "function-composition"),
+            (ValueKind::Rng, "rng"),
+            (ValueKind::Stream, "stream"),
+        ];
+
+        for (kind, expected) in cases {
+            assert_eq!(kind.as_str(), expected);
+            assert_eq!(kind.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn categories_hide_storage_details() {
+        let int_values = [Value::Int(1), Value::BigInt(Arc::new(BigInt::from(1)))];
+        for value in int_values {
+            assert_eq!(value.category(), ValueCategory::Int);
+        }
+
+        let list_values = [
+            Value::IntList(Arc::new(vec![1])),
+            Value::IntRange(Arc::new(seq::IntRangeData::new(1, 1, 1))),
+            Value::FloatList(Arc::new(vec![OrderedFloat(1.0)])),
+            Value::BoolList(Arc::new(vec![true])),
+            Value::List(Arc::new(vec![Value::Int(1)])),
+            into_wq_string("one"),
+        ];
+        for value in list_values {
+            assert_eq!(value.category(), ValueCategory::List);
+        }
+
+        let function_values = [
+            test_function(),
+            test_closure(),
+            test_builtin("f", 1),
+            Value::function_composition(BinaryOperator::Add, test_builtin("f", 1), Value::Int(1)),
+        ];
+        for value in function_values {
+            assert_eq!(value.category(), ValueCategory::Function);
+        }
+    }
+
+    #[test]
+    fn debug_kinds_expose_relevant_storage_details() {
+        let cases = [
+            (Value::Int(1), ValueKind::Int),
+            (Value::BigInt(Arc::new(BigInt::from(1))), ValueKind::BigInt),
+            (Value::IntList(Arc::new(vec![1])), ValueKind::IntList),
+            (
+                Value::IntRange(Arc::new(seq::IntRangeData::new(1, 1, 1))),
+                ValueKind::IntList,
+            ),
+            (
+                Value::FloatList(Arc::new(vec![OrderedFloat(1.0)])),
+                ValueKind::FloatList,
+            ),
+            (Value::BoolList(Arc::new(vec![true])), ValueKind::BoolList),
+            (into_wq_string("one"), ValueKind::String),
+            (test_function(), ValueKind::Function),
+            (test_closure(), ValueKind::Closure),
+            (test_builtin("f", 1), ValueKind::BuiltinFunction),
+            (
+                Value::function_composition(
+                    BinaryOperator::Add,
+                    test_builtin("f", 1),
+                    Value::Int(1),
+                ),
+                ValueKind::FunctionComposition,
+            ),
+        ];
+
+        for (value, expected) in cases {
+            assert_eq!(value.debug_kind(), expected);
+        }
     }
 
     #[test]
@@ -815,9 +1076,9 @@ mod tests {
     }
 
     #[test]
-    fn string_type_name() {
-        assert_eq!(into_wq_string("hello").type_name(), "list");
-        assert_eq!(into_wq_string("").type_name(), "list");
+    fn string_category() {
+        assert_eq!(into_wq_string("hello").category(), ValueCategory::List);
+        assert_eq!(into_wq_string("").category(), ValueCategory::List);
     }
 
     #[test]
@@ -960,9 +1221,9 @@ mod tests {
     }
 
     #[test]
-    fn complex_type_name() {
+    fn complex_category() {
         let z = Value::from_complex64(num_complex::Complex64::new(1.0, 0.0));
-        assert_eq!(z.type_name(), "complex");
+        assert_eq!(z.category(), ValueCategory::Complex);
     }
 
     #[test]
@@ -1018,10 +1279,10 @@ mod tests {
     }
 
     #[test]
-    fn fraction_type_name() {
+    fn fraction_category() {
         let f =
             Value::from_fraction_parts(num_bigint::BigInt::from(1), num_bigint::BigInt::from(3));
-        assert_eq!(f.type_name(), "fraction");
+        assert_eq!(f.category(), ValueCategory::Fraction);
     }
 
     #[test]

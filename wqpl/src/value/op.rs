@@ -17,7 +17,7 @@ pub(crate) fn eval_unary(op: &UnaryOperator, val: &Value) -> WqResult<Value> {
 
     macro_rules! up {
         ($s:literal) => {
-            concat!("unary operator ", $s)
+            concat!("unary operator '", $s, "'")
         };
     }
 
@@ -34,7 +34,7 @@ pub(crate) fn eval_binary(op: &BinaryOperator, left: &Value, right: &Value) -> W
 
     macro_rules! bp {
         ($s:literal) => {
-            concat!("binary operator ", $s)
+            concat!("binary operator '", $s, "'")
         };
     }
 
@@ -58,11 +58,15 @@ pub(crate) fn eval_binary(op: &BinaryOperator, left: &Value, right: &Value) -> W
         Gt => left.gt(right).map_err(|e| e.src(bp!(">"))),
         Gte => left.geq(right).map_err(|e| e.src(bp!(">="))),
         Cat => Ok(left.clone().cat(right.clone())),
-        BitAnd => left.band(right).map_err(|e| e.src("band")),
-        BitOr => left.bor(right).map_err(|e| e.src("bor")),
-        BitXor => left.bxor(right).map_err(|e| e.src("bxor")),
-        Shl => left.shl(right).map_err(|e| e.src("shl")),
-        Shr => left.shr(right).map_err(|e| e.src("shr")),
+        BitAnd => left
+            .band(right)
+            .map_err(|e| e.src("binary operator 'band'")),
+        BitOr => left.bor(right).map_err(|e| e.src("binary operator 'bor'")),
+        BitXor => left
+            .bxor(right)
+            .map_err(|e| e.src("binary operator 'bxor'")),
+        Shl => left.shl(right).map_err(|e| e.src("binary operator 'shl'")),
+        Shr => left.shr(right).map_err(|e| e.src("binary operator 'shr'")),
         FloorDiv => left.floor_div(right).map_err(|e| e.src(bp!("/%"))),
     }
 }
@@ -70,8 +74,12 @@ pub(crate) fn eval_binary(op: &BinaryOperator, left: &Value, right: &Value) -> W
 #[inline]
 pub(crate) fn eval_bool_op(op: BoolOperator, left: &Value, right: &Value) -> WqResult<Value> {
     match op {
-        BoolOperator::And => left.bool_and(right).map_err(|e| e.src("A/and")),
-        BoolOperator::Or => left.bool_or(right).map_err(|e| e.src("O/or")),
+        BoolOperator::And => left
+            .bool_and(right)
+            .map_err(|e| e.src("boolean operator 'A' (alias 'and')")),
+        BoolOperator::Or => left
+            .bool_or(right)
+            .map_err(|e| e.src("boolean operator 'O' (alias 'or')")),
     }
 }
 
@@ -134,5 +142,18 @@ impl Value {
             Err(expected_bool2(a, b))
         })
         .map_err(|e| e.into_wqerror())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operator_sources_use_single_quotes() {
+        let error = eval_binary(&BinaryOperator::BitAnd, &Value::Char('a'), &Value::Int(1))
+            .expect_err("char bitwise operation should fail");
+
+        assert_eq!(error.src.as_deref(), Some("binary operator 'band'"));
     }
 }

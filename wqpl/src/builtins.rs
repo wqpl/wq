@@ -29,7 +29,7 @@ use smallvec::SmallVec;
 use crate::interpret::vanilla::Sv4;
 use crate::session::stdio::WqIoError;
 use crate::value::{Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum BuiltinCategory {
@@ -439,10 +439,7 @@ impl BuiltinCallArity {
 
         match self {
             Self::Exact { mask } => Err(exact_arity_error(builtin, mask, n)),
-            Self::AtLeast(min) => Err(WqError::new(WqErrorType::Arity)
-                .src(builtin)
-                .msg(format!("expected {min} or more args, got {n}"))
-                .attach_note(builtin.usage())),
+            Self::AtLeast(min) => Err(at_least_arity_error(builtin, min, n)),
         }
     }
 }
@@ -1191,7 +1188,7 @@ declare_builtins! {
     (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val], substitute[expr;`name:val...]", sig!(arity!(1, 2, 3), defer), plain(cas::substitute), builtin_metadata!(Cas, PURE)),
     (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), with_context(cas::expand), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", sig!(arity!(1)), plain(cas::factor_common), builtin_metadata!(Cas, PURE)),
-    (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), builtin_metadata!(Cas, PURE)),
+    (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;T], factor[expr;T;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), builtin_metadata!(Cas, PURE)),
     (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), with_context(cas::integrate), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), with_context(cas::integrate), builtin_metadata!(Cas, PURE_CONTEXTUAL)), // alias of integrate
     (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), with_context(cas::limit), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
@@ -1389,14 +1386,28 @@ fn exact_arity_error(builtin: BuiltinEnum, mask: u128, n: usize) -> WqError {
         }
     };
     let plural = if arities.len() == 1 && arities[0] == 1 {
-        "arg"
+        "argument"
     } else {
-        "args"
+        "arguments"
     };
 
     WqError::new(WqErrorType::Arity)
         .src(builtin)
         .msg(format!("expected {expected} {plural}, got {n}"))
+        .attach_note(builtin.usage())
+}
+
+pub(super) fn at_least_arity_error(builtin: BuiltinEnum, minimum: usize, actual: usize) -> WqError {
+    let plural = if minimum == 1 {
+        "argument"
+    } else {
+        "arguments"
+    };
+    WqError::new(WqErrorType::Arity)
+        .src(builtin)
+        .msg(format!(
+            "expected at least {minimum} {plural}, got {actual}"
+        ))
         .attach_note(builtin.usage())
 }
 
@@ -1410,15 +1421,23 @@ impl std::fmt::Display for BuiltinEnum {
 pub(super) fn type_mismatch(
     builtin: BuiltinEnum,
     pos: usize,
-    expected: &str,
+    expected: Requirement,
     got: &Value,
 ) -> WqError {
     WqError::new(WqErrorType::Domain)
         .src(builtin)
-        .msg(format!("expected {expected}"))
+        .expected(expected)
         .at_arg(pos)
         .got1(got)
         .attach_note(format!("usage: {}", builtin.usage()))
+}
+
+pub(super) fn depth_requirement() -> Requirement {
+    Requirement::one_of([
+        Requirement::INT,
+        Requirement::literal("inf"),
+        Requirement::literal("-inf"),
+    ])
 }
 
 #[inline]
@@ -1513,9 +1532,9 @@ fn check_arity_inner(
             }
         };
         let plural = if arity.len() == 1 && arity[0] == 1 {
-            "arg"
+            "argument"
         } else {
-            "args"
+            "arguments"
         };
         return Err(WqError::new(WqErrorType::Arity)
             .src(builtin)
@@ -1925,7 +1944,7 @@ mod tests {
         let err = builtins
             .validate_runtime_call_args(Builtins::ARCTAN2, &BuiltinFnArgs::from(Value::Int(1)))
             .expect_err("arctan2 with one arg should fail runtime validation");
-        assert_eq!(err.msg.as_deref(), Some("expected 2 args, got 1"));
+        assert_eq!(err.msg.as_deref(), Some("expected 2 arguments, got 1"));
     }
 
     #[test]
@@ -1952,32 +1971,32 @@ mod tests {
             (
                 Builtins::MIN,
                 BuiltinFnArgs::new(),
-                "expected 1 or more args, got 0",
+                "expected at least 1 argument, got 0",
             ),
             (
                 Builtins::LIMIT,
                 BuiltinFnArgs::from(Value::Int(1)),
-                "expected 2 or more args, got 1",
+                "expected at least 2 arguments, got 1",
             ),
             (
                 Builtins::FMT,
                 BuiltinFnArgs::new(),
-                "expected 1 or more args, got 0",
+                "expected at least 1 argument, got 0",
             ),
             (
                 Builtins::OP_ADD,
                 BuiltinFnArgs::from(Value::Int(1)),
-                "expected 2 or more args, got 1",
+                "expected at least 2 arguments, got 1",
             ),
             (
                 Builtins::OP_SUB,
                 BuiltinFnArgs::new(),
-                "expected 1 or more args, got 0",
+                "expected at least 1 argument, got 0",
             ),
             (
                 Builtins::BXOR,
                 BuiltinFnArgs::from(Value::Bool(true)),
-                "expected 2 or more args, got 1",
+                "expected at least 2 arguments, got 1",
             ),
         ];
         for (id, args, expected_msg) in cases {

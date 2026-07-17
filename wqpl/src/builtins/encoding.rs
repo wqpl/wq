@@ -4,7 +4,7 @@ use encoding_rs::Encoding;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{IntoWqValue as _, Value, WqResult, expected_bytes1, expected_string1};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 fn find_encoding(label: &str) -> Option<&'static Encoding> {
     Encoding::for_label(label.as_bytes())
@@ -40,7 +40,7 @@ pub(super) fn decode(args: BuiltinFnArgs) -> WqResult<Value> {
     let enc = find_encoding(&codec).ok_or_else(|| {
         WqError::new(WqErrorType::Encode)
             .src(BE::Decode)
-            .msg(format!("unsupported codec '{codec}'"))
+            .msg(format!("unsupported codec \"{codec}\""))
     })?;
     let (text, had_errors) = enc.decode_without_bom_handling(&bytes);
     let s = match mode.as_str() {
@@ -56,8 +56,12 @@ pub(super) fn decode(args: BuiltinFnArgs) -> WqResult<Value> {
         _ => {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Decode)
-                .msg("expected valid decode mode")
-                .attach_note("valid mode is s (strict) or r (replace)"));
+                .expected(Requirement::one_of([
+                    Requirement::string_literal("s"),
+                    Requirement::string_literal("r"),
+                ]))
+                .at_arg(2)
+                .attach_note("\"s\" selects strict mode; \"r\" selects replacement mode"));
         }
     };
     Ok(s.into_wq_value())
@@ -93,7 +97,7 @@ pub(super) fn encode(args: BuiltinFnArgs) -> WqResult<Value> {
     let enc = find_encoding(&codec).ok_or_else(|| {
         WqError::new(WqErrorType::Encode)
             .src(BE::Encode)
-            .msg(format!("unsupported codec '{codec}'"))
+            .msg(format!("unsupported codec \"{codec}\""))
     })?;
     let out: Vec<u8> = match mode.as_str() {
         "s" => {
@@ -112,8 +116,12 @@ pub(super) fn encode(args: BuiltinFnArgs) -> WqResult<Value> {
         _ => {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Encode)
-                .msg("expected valid decode mode")
-                .attach_note("valid mode is s (strict) or r (replace)"));
+                .expected(Requirement::one_of([
+                    Requirement::string_literal("s"),
+                    Requirement::string_literal("r"),
+                ]))
+                .at_arg(2)
+                .attach_note("\"s\" selects strict mode; \"r\" selects replacement mode"));
         }
     };
     Ok(Value::IntList(Arc::new(
@@ -142,5 +150,33 @@ mod tests {
         .unwrap();
         let d = decode(BuiltinFnArgs::from(smallvec![b, "utf-8".into_wq_value()])).unwrap();
         assert_eq!(d, s);
+    }
+
+    #[test]
+    fn encode_and_decode_report_canonical_mode_values() {
+        let invalid_mode = "invalid".into_wq_value();
+        let encode_error = encode(BuiltinFnArgs::from(smallvec![
+            "x".into_wq_value(),
+            "utf-8".into_wq_value(),
+            invalid_mode.clone(),
+        ]))
+        .expect_err("invalid encode mode should fail");
+        let decode_error = decode(BuiltinFnArgs::from(smallvec![
+            Value::Int(65),
+            "utf-8".into_wq_value(),
+            invalid_mode,
+        ]))
+        .expect_err("invalid decode mode should fail");
+
+        assert_eq!(encode_error.msg.as_deref(), Some("expected \"s\" or \"r\""));
+        assert_eq!(decode_error.msg.as_deref(), Some("expected \"s\" or \"r\""));
+        assert_eq!(
+            encode_error.notes.as_slice(),
+            [
+                "at argument 3",
+                "\"s\" selects strict mode; \"r\" selects replacement mode"
+            ]
+        );
+        assert_eq!(decode_error.notes, encode_error.notes);
     }
 }

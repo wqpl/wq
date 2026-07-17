@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, type_mismatch};
+use crate::builtins::{
+    BuiltinEnum as BE, BuiltinFnArgs, check_arity, depth_requirement, type_mismatch,
+};
 use crate::value::seq::ListStorageSeq;
 use crate::value::{IntoWqValue, Value, WqResult};
 
@@ -284,7 +286,7 @@ fn contains_at_depth(elem: &Value, container: &Value, depth: i64) -> bool {
 
 fn parse_depth_arg(src: BE, container: &Value, depth: &Value) -> WqResult<i64> {
     eff_layers(depth, container.depth())
-        .ok_or_else(|| type_mismatch(src, 2, "int, inf or -inf", depth))
+        .ok_or_else(|| type_mismatch(src, 2, depth_requirement(), depth))
 }
 
 fn contains_with_optional_depth(

@@ -44,7 +44,7 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     const result = session.eval_wq("echo 1");
     assert.equal(result.display, "()");
     assert.deepEqual(callbackError, {
-      version: 1,
+      version: 2,
       kind: "reentrant-session-access",
       message:
         "session methods cannot be called reentrantly from an active session callback",
@@ -82,15 +82,15 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     assert.throws(
       () => session.eval_wq("f:{assert_eq[1;2]};f[]"),
       (error) => {
-        assert.equal(error.version, 1);
+        assert.equal(error.version, 2);
         assert.equal(error.kind, "assert");
         assert.deepEqual(error.data.actual, {
           display: "1",
-          type_name: "int",
+          category: "int",
         });
         assert.deepEqual(error.data.expected, {
           display: "2",
-          type_name: "int",
+          category: "int",
         });
         assert.ok(error.stack.some((frame) => frame.function === "f"));
         assert.equal(error.cause, null);
@@ -102,7 +102,7 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     assert.throws(
       () => session.eval_wq("input[]"),
       (error) => {
-        assert.equal(error.version, 1);
+        assert.equal(error.version, 2);
         assert.equal(error.kind, "io");
         assert.match(
           error.notes.join("\n"),

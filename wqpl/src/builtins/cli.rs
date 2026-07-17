@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::builtins::{BuiltinContext, BuiltinFnArgs};
+use crate::builtins::{BuiltinContext, BuiltinEnum, BuiltinFnArgs};
 use crate::value::seq::ListStorageSeq;
 use crate::value::{Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 const SPEC_FIELDS: &[&str] = &["name", "version", "about", "args"];
 const ARG_FIELDS: &[&str] = &[
@@ -39,7 +39,7 @@ enum ArgKind {
 impl ArgKind {
     fn parse(value: &Value, path: &str) -> WqResult<Self> {
         let Value::Tag(kind) = value else {
-            return Err(spec_error(format!("{path} must be a tag")));
+            return Err(spec_error(format!("'{path}' must be a tag")));
         };
         match kind.as_ref() {
             "flag" => Ok(Self::Flag),
@@ -47,7 +47,7 @@ impl ArgKind {
             "option" => Ok(Self::Option),
             "positional" => Ok(Self::Positional),
             other => Err(spec_error(format!(
-                "{path} has unknown argument kind '{other}'"
+                "'{path}' must be \"flag\", \"count\", \"option\", or \"positional\"; got \"{other}\""
             ))),
         }
     }
@@ -114,15 +114,16 @@ pub(super) fn argv(vm: &mut dyn BuiltinContext, _args: BuiltinFnArgs) -> WqResul
 }
 
 pub(super) fn argparse(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    let spec = parse_cli_spec(&args[0])?;
-    let argv = parse_argv_value(&args[1])?;
-    Ok(outcome_value(&spec, parse_args(vm, &spec, &argv)?))
+    let spec = parse_cli_spec(&args[0]).map_err(|error| error.src(BuiltinEnum::Argparse))?;
+    let argv = parse_argv_value(&args[1]).map_err(|error| error.src(BuiltinEnum::Argparse))?;
+    let outcome = parse_args(vm, &spec, &argv).map_err(|error| error.src(BuiltinEnum::Argparse))?;
+    Ok(outcome_value(&spec, outcome))
 }
 
 pub(super) fn cliargs(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    let spec = parse_cli_spec(&args[0])?;
+    let spec = parse_cli_spec(&args[0]).map_err(|error| error.src(BuiltinEnum::Cliargs))?;
     let argv = vm.argv().to_vec();
-    match parse_args(vm, &spec, &argv)? {
+    match parse_args(vm, &spec, &argv).map_err(|error| error.src(BuiltinEnum::Cliargs))? {
         ParseOutcome::Ok(value) => Ok(value),
         ParseOutcome::Help => {
             write_stdout(vm, &render_help(&spec))?;
@@ -145,7 +146,7 @@ pub(super) fn cliargs(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqRes
 fn write_stdout(vm: &dyn BuiltinContext, text: &str) -> WqResult<()> {
     vm.write_stdout_line(text).map_err(|error| {
         WqError::new(WqErrorType::Io)
-            .src("bfn 'cliargs'")
+            .src(BuiltinEnum::Cliargs)
             .attach_note(format!("host I/O error: {error}"))
     })
 }
@@ -153,7 +154,7 @@ fn write_stdout(vm: &dyn BuiltinContext, text: &str) -> WqResult<()> {
 fn write_stderr(vm: &dyn BuiltinContext, text: &str) -> WqResult<()> {
     vm.write_stderr_line(text).map_err(|error| {
         WqError::new(WqErrorType::Io)
-            .src("bfn 'cliargs'")
+            .src(BuiltinEnum::Cliargs)
             .attach_note(format!("host I/O error: {error}"))
     })
 }
@@ -163,7 +164,7 @@ fn parse_cli_spec(value: &Value) -> WqResult<CliSpec> {
     reject_unknown_fields(fields, SPEC_FIELDS, "spec")?;
     let name = required_string(fields, "name", "spec.name")?;
     if name.is_empty() {
-        return Err(spec_error("spec.name must not be empty"));
+        return Err(spec_error("'spec.name' must not be empty"));
     }
     let version = optional_string(fields, "version", "spec.version")?;
     let about = optional_string(fields, "about", "spec.about")?;
@@ -175,7 +176,7 @@ fn parse_cli_spec(value: &Value) -> WqResult<CliSpec> {
             .enumerate()
             .map(|(index, item)| parse_arg_spec(item, index))
             .collect::<WqResult<Vec<_>>>()?,
-        Some(_) => return Err(spec_error("spec.args must be a list of dicts")),
+        Some(_) => return Err(spec_error("'spec.args' must be a list of dicts")),
     };
     let spec = CliSpec {
         name,
@@ -194,12 +195,12 @@ fn parse_arg_spec(value: &Value, index: usize) -> WqResult<ArgSpec> {
     let name = required_tag(fields, "name", &format!("{path}.name"))?;
     let kind_value = fields
         .get("kind")
-        .ok_or_else(|| spec_error(format!("{path}.kind is required")))?;
+        .ok_or_else(|| spec_error(format!("'{path}.kind' is required")))?;
     let kind = ArgKind::parse(kind_value, &format!("{path}.kind"))?;
     let short = match fields.get("short") {
         None => None,
         Some(Value::Char(value)) => Some(*value),
-        Some(_) => return Err(spec_error(format!("{path}.short must be a char atom"))),
+        Some(_) => return Err(spec_error(format!("'{path}.short' must be a char"))),
     };
     let long = match fields.get("long") {
         Some(value) => Some(expect_string(value, &format!("{path}.long"))?),
@@ -224,72 +225,75 @@ fn parse_arg_spec(value: &Value, index: usize) -> WqResult<ArgSpec> {
             || long.chars().any(|ch| ch.is_whitespace() || ch == '='))
     {
         return Err(spec_error(format!(
-            "{path}.long must not be empty, start with '-', or contain '=' or whitespace"
+            "'{path}.long' must not be empty, start with '-', or contain '=' or whitespace"
         )));
     }
     if let Some(short) = short
         && (matches!(short, '-' | '=') || short.is_whitespace())
     {
         return Err(spec_error(format!(
-            "{path}.short cannot be '-', '=', or whitespace"
+            "'{path}.short' cannot be '-', '=', or whitespace"
         )));
     }
     if kind == ArgKind::Positional && (short.is_some() || fields.contains_key("long")) {
         return Err(spec_error(format!(
-            "{path} positional arguments cannot define short or long options"
+            "'{path}' positional arguments cannot define short or long options"
         )));
     }
     if !kind.takes_value() && parser.is_some() {
         return Err(spec_error(format!(
-            "{path}.parse is only valid for options and positionals"
+            "'{path}.parse' is only valid for options and positionals"
         )));
     }
     if !kind.takes_value() && value_name.is_some() {
         return Err(spec_error(format!(
-            "{path}.value_name is only valid for options and positionals"
+            "'{path}.value_name' is only valid for options and positionals"
         )));
     }
     if !kind.takes_value() && choices.is_some() {
         return Err(spec_error(format!(
-            "{path}.choices is only valid for options and positionals"
+            "'{path}.choices' is only valid for options and positionals"
         )));
     }
     if let Some(parser) = &parser
         && !parser.is_runtime_callable()
     {
-        return Err(spec_error(format!("{path}.parse must be callable")));
+        return Err(WqError::new(WqErrorType::Domain)
+            .expected(Requirement::CALLABLE)
+            .attach_note(format!("at configuration field '{path}.parse'"))
+            .got1(parser));
     }
     if !matches!(kind, ArgKind::Option | ArgKind::Positional) && multiple {
         return Err(spec_error(format!(
-            "{path}.multiple is only valid for options and positionals"
+            "'{path}.multiple' is only valid for options and positionals"
         )));
     }
     if !matches!(kind, ArgKind::Option | ArgKind::Positional) && required {
         return Err(spec_error(format!(
-            "{path}.required is only valid for options and positionals"
+            "'{path}.required' is only valid for options and positionals"
         )));
     }
     if negatable && kind != ArgKind::Flag {
         return Err(spec_error(format!(
-            "{path}.negatable is only valid for flags"
+            "'{path}.negatable' is only valid for flags"
         )));
     }
     if required && default.is_some() {
         return Err(spec_error(format!(
-            "{path} cannot combine required with default"
+            "'{path}' cannot combine 'required' with 'default'"
         )));
     }
     if let Some(default) = &default {
         match kind {
             ArgKind::Flag if !matches!(default, Value::Bool(_)) => {
-                return Err(spec_error(format!("{path}.default must be a bool")));
+                return Err(spec_error(format!("'{path}.default' must be a bool")));
             }
             ArgKind::Count if !matches!(default, Value::Int(_)) => {
-                return Err(spec_error(format!("{path}.default must be an int")));
+                return Err(spec_error(format!("'{path}.default' must be an int")));
             }
             _ if multiple && ListStorageSeq::from_value(default).is_none() => {
                 return Err(spec_error(format!(
-                    "{path}.default must be a list when multiple is true"
+                    "'{path}.default' must be a list when 'multiple' is true"
                 )));
             }
             _ => {}
@@ -305,7 +309,7 @@ fn parse_arg_spec(value: &Value, index: usize) -> WqResult<ArgSpec> {
             };
             if !valid {
                 return Err(spec_error(format!(
-                    "{path}.default contains a value not included in choices"
+                    "'{path}.default' contains a value not included in 'choices'"
                 )));
             }
         }
@@ -400,16 +404,20 @@ fn parse_argv_value(value: &Value) -> WqResult<Vec<String>> {
         return Ok(Vec::new());
     }
     let Value::List(items) = value else {
-        return Err(spec_error("argparse args must be a list of strings"));
+        return Err(WqError::new(WqErrorType::Domain)
+            .expected(Requirement::list(Requirement::STRING))
+            .at_arg(1)
+            .got1(value));
     };
     items
         .iter()
         .enumerate()
         .map(|(index, item)| match item {
             Value::String(value) => Ok(value.to_string()),
-            _ => Err(spec_error(format!(
-                "argparse args[{index}] must be a string"
-            ))),
+            _ => Err(WqError::new(WqErrorType::Domain)
+                .expected(Requirement::STRING)
+                .at_arg(1)
+                .got_at_index(item, index)),
         })
         .collect()
 }
@@ -593,7 +601,7 @@ fn parse_args(
         let Some(positional_index) = positionals.get(positional_cursor).copied() else {
             return Ok(ParseOutcome::Error(usage_error(
                 "unexpected_argument",
-                format!("unexpected positional argument '{token}'"),
+                format!("unexpected positional argument \"{token}\""),
                 Some(token.clone()),
                 None,
             )));
@@ -742,7 +750,10 @@ fn convert_value(
                     .unwrap_or_else(|| error.err_type.name());
                 return Err(usage_error(
                     "invalid_value",
-                    format!("invalid value '{raw}' for '{}': {detail}", display_arg(arg)),
+                    format!(
+                        "invalid value \"{raw}\" for '{}': {detail}",
+                        display_arg(arg)
+                    ),
                     Some(raw.to_string()),
                     Some(Arc::clone(&arg.name)),
                 ));
@@ -757,7 +768,7 @@ fn convert_value(
         return Err(usage_error(
             "invalid_choice",
             format!(
-                "value '{raw}' for '{}' is not one of the allowed choices",
+                "value \"{raw}\" for '{}' is not one of the allowed choices",
                 display_arg(arg)
             ),
             Some(raw.to_string()),
@@ -959,7 +970,7 @@ fn usage_error(
 
 fn expect_dict<'a>(value: &'a Value, path: &str) -> WqResult<&'a IndexMap<Arc<str>, Value>> {
     let Value::Dict(fields) = value else {
-        return Err(spec_error(format!("{path} must be a dict")));
+        return Err(spec_error(format!("'{path}' must be a dict")));
     };
     Ok(fields)
 }
@@ -973,7 +984,7 @@ fn reject_unknown_fields(
         .keys()
         .find(|field| !allowed.contains(&field.as_ref()))
     {
-        return Err(spec_error(format!("{path} has unknown field '{field}'")));
+        return Err(spec_error(format!("'{path}' has unknown field '{field}'")));
     }
     Ok(())
 }
@@ -981,7 +992,7 @@ fn reject_unknown_fields(
 fn required_string(fields: &IndexMap<Arc<str>, Value>, name: &str, path: &str) -> WqResult<String> {
     let value = fields
         .get(name)
-        .ok_or_else(|| spec_error(format!("{path} is required")))?;
+        .ok_or_else(|| spec_error(format!("'{path}' is required")))?;
     expect_string(value, path)
 }
 
@@ -999,15 +1010,15 @@ fn optional_string(
 fn expect_string(value: &Value, path: &str) -> WqResult<String> {
     match value {
         Value::String(value) => Ok(value.to_string()),
-        _ => Err(spec_error(format!("{path} must be a string"))),
+        _ => Err(spec_error(format!("'{path}' must be a string"))),
     }
 }
 
 fn required_tag(fields: &IndexMap<Arc<str>, Value>, name: &str, path: &str) -> WqResult<Arc<str>> {
     match fields.get(name) {
         Some(Value::Tag(value)) => Ok(Arc::clone(value)),
-        Some(_) => Err(spec_error(format!("{path} must be a tag"))),
-        None => Err(spec_error(format!("{path} is required"))),
+        Some(_) => Err(spec_error(format!("'{path}' must be a tag"))),
+        None => Err(spec_error(format!("'{path}' is required"))),
     }
 }
 
@@ -1020,7 +1031,7 @@ fn optional_bool(
     match fields.get(name) {
         None => Ok(default),
         Some(Value::Bool(value)) => Ok(*value),
-        Some(_) => Err(spec_error(format!("{path} must be a bool"))),
+        Some(_) => Err(spec_error(format!("'{path}' must be a bool"))),
     }
 }
 
@@ -1033,7 +1044,7 @@ fn optional_value_list(
         None => Ok(None),
         Some(value) => ListStorageSeq::from_value(value)
             .map(|values| Some(values.to_values_vec()))
-            .ok_or_else(|| spec_error(format!("{path} must be a list"))),
+            .ok_or_else(|| spec_error(format!("'{path}' must be a list"))),
     }
 }
 
@@ -1045,12 +1056,12 @@ fn optional_tag_list(
     match fields.get(name) {
         None => Ok(Vec::new()),
         Some(value) => ListStorageSeq::from_value(value)
-            .ok_or_else(|| spec_error(format!("{path} must be a list of tags")))?
+            .ok_or_else(|| spec_error(format!("'{path}' must be a list of tags")))?
             .values()
             .enumerate()
             .map(|(index, value)| match value {
                 Value::Tag(value) => Ok(value),
-                _ => Err(spec_error(format!("{path}[{index}] must be a tag"))),
+                _ => Err(spec_error(format!("'{path}[{index}]' must be a tag"))),
             })
             .collect(),
     }
@@ -1069,14 +1080,14 @@ fn string_value(value: impl Into<String>) -> Value {
 }
 
 fn spec_error(message: impl Into<String>) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .src("argparse")
-        .msg(message.into())
+    WqError::new(WqErrorType::Domain).msg(message.into())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::parse_argv_value;
     use crate::session::Session;
+    use crate::value::Value;
 
     const SPEC: &str = r#"(`name:"rgrep";`version:"1.0";`about:"search files";`args:((`name:`ignore_case;`kind:`flag;`short:@u"i";`help:"ignore case");(`name:`max_count;`kind:`option;`short:@u"m";`parse:int;`value_name:"N");(`name:`pattern;`kind:`positional;`required:T);(`name:`paths;`kind:`positional;`required:T;`multiple:T)))"#;
 
@@ -1165,10 +1176,13 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
 
         let invalid_choice = session
             .eval_string(
-                r#"r:argparse[(`name:"tool";`args:,(`name:`mode;`kind:`option;`choices:("fast";"safe")));("--mode";"slow")];r[`error][`code]"#,
+                r#"r:argparse[(`name:"tool";`args:,(`name:`mode;`kind:`option;`choices:("fast";"safe")));("--mode";"slow")];(r[`error][`code];r[`error][`message])"#,
             )
             .expect("parse invalid choice");
-        assert_eq!(invalid_choice.to_string(), "`invalid_choice");
+        assert_eq!(
+            invalid_choice.to_string(),
+            "(`invalid_choice;\"value \\\"slow\\\" for '--mode' is not one of the allowed choices\")"
+        );
 
         let multiple_default = session
             .eval_string(
@@ -1193,20 +1207,50 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
         for (source, message) in [
             (
                 "argparse[(`name:\"bad\";`args:,(`name:`quiet;`kind:`flag;`choices:,T));()]",
-                ".choices is only valid for options and positionals",
+                "'spec.args[0].choices' is only valid for options and positionals",
             ),
             (
                 "argparse[(`name:\"bad\";`args:,(`name:`quiet;`kind:`flag;`value_name:\"BOOL\"));()]",
-                ".value_name is only valid for options and positionals",
+                "'spec.args[0].value_name' is only valid for options and positionals",
             ),
             (
                 "argparse[(`name:\"bad\";`args:,(`name:`quiet;`kind:`flag;`short:@u\"-\"));()]",
-                ".short cannot be '-', '=', or whitespace",
+                "'spec.args[0].short' cannot be '-', '=', or whitespace",
             ),
         ] {
             let err = session.eval_string(source).expect_err("invalid spec");
             assert!(err.to_string().contains(message), "{err}");
         }
+
+        let callable_error = session
+            .eval_string(
+                "argparse[(`name:\"bad\";`args:,(`name:`value;`kind:`option;`parse:1));()]",
+            )
+            .expect_err("non-callable parser should fail");
+        assert_eq!(callable_error.msg.as_deref(), Some("expected callable"));
+        assert_eq!(
+            callable_error.notes.as_ref(),
+            &["at configuration field 'spec.args[0].parse'", "got 1 (int)",]
+        );
+    }
+
+    #[test]
+    fn cliargs_attributes_spec_errors_to_cliargs() {
+        let mut session = Session::new();
+        let error = session
+            .eval_string("cliargs[(`name:\"\")]")
+            .expect_err("empty command name should fail");
+
+        assert_eq!(error.src.as_deref(), Some("bfn 'cliargs'"));
+    }
+
+    #[test]
+    fn argparse_reports_a_structured_argument_list_requirement() {
+        let error =
+            parse_argv_value(&Value::Int(1)).expect_err("non-list argument input should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected list of strings"));
+        assert_eq!(error.notes.as_ref(), &["at argument 2", "got 1 (int)"]);
     }
 
     #[test]

@@ -182,7 +182,7 @@ pub(crate) fn build_variables(
             .map(|(name, value)| Variable {
                 name,
                 value: value.excerpt(),
-                type_field: Some(value.type_name().to_string()),
+                type_field: Some(value.debug_kind().to_string()),
                 variables_reference: 0,
                 ..Default::default()
             })
@@ -203,7 +203,7 @@ pub(crate) fn build_variables(
                     Variable {
                         name,
                         value: value.excerpt(),
-                        type_field: Some(value.type_name().to_string()),
+                        type_field: Some(value.debug_kind().to_string()),
                         variables_reference: 0,
                         ..Default::default()
                     }

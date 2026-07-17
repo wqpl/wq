@@ -10,19 +10,19 @@ export function formatGlobalBindings(globals) {
   return Array.from(globals || [], (binding) => ({
     name: tableCell(binding?.name),
     value: tableCell(binding?.display),
-    type: tableCell(binding?.type_name),
+    category: tableCell(binding?.category),
   }));
 }
 
 export function formatGlobalsTable(globals) {
-  const rows = formatGlobalBindings(globals).map(({ name, value, type }) => [
+  const rows = formatGlobalBindings(globals).map(({ name, value, category }) => [
     name,
     value,
-    type,
+    category,
   ]);
   if (!rows.length) return EMPTY_GLOBALS_TEXT;
 
-  const headers = ["name", "value", "type"];
+  const headers = ["name", "value", "category"];
   const widths = headers.map((header, column) =>
     rows.reduce(
       (width, row) => Math.max(width, row[column].length),

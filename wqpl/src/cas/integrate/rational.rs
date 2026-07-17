@@ -658,7 +658,9 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
     }
 
     if terms.is_empty() {
-        return Err(cas_err("Rothstein-Trager: no roots found for resultant"));
+        return Err(cas_err(
+            "symbolic integration could not complete this rational expression",
+        ));
     }
 
     // Check if there's an unaccounted factor in denom
@@ -670,9 +672,14 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
         if let Some(term) = integrate_remaining_factor(&remaining, &rem_numer, var)? {
             terms.push(term);
         } else {
+            let remaining_roots = poly_degree(&remaining);
+            let root_word = if remaining_roots == 1 {
+                "root"
+            } else {
+                "roots"
+            };
             return Err(cas_err(format!(
-                "Rothstein-Trager: resultant has {} unaccounted root(s); cannot complete integration",
-                poly_degree(&remaining)
+                "symbolic integration could not account for {remaining_roots} remaining polynomial {root_word}",
             )));
         }
     }
@@ -709,7 +716,7 @@ fn compute_remaining_numer(
     let (n_q, remainder) = poly_divide(&rem_numer, accumulated_gcd)?;
     if poly_degree(&remainder) > 0 {
         return Err(cas_err(
-            "Rothstein-Trager: non-zero remainder when computing remaining numerator",
+            "symbolic integration could not reduce the remaining rational expression",
         ));
     }
     Ok(n_q)
@@ -1745,7 +1752,11 @@ fn integrate_quadratic_factor_all(
     // factor = [c, b, 1]  ->  x^2 + bx + c
     let (b, c) = match factor.len() {
         3 => (factor[1].clone(), factor[0].clone()),
-        _ => return Err(cas_err("expected quadratic factor [c, b, 1]")),
+        _ => {
+            return Err(crate::cas::cas_internal_err(
+                "decomposing a rational expression",
+            ));
+        }
     };
 
     if mult == 1 {
@@ -1829,7 +1840,9 @@ fn solve_linear_coeffs_mod_quadratic(
     let det = numeric_sub(&numeric_mul(&m11, &m22)?, &numeric_mul(&m12, &m21)?)?;
 
     if numeric_is_zero(&det) {
-        return Err(cas_err("singular system in quadratic partial fraction"));
+        return Err(cas_err(
+            "symbolic integration could not decompose this rational expression",
+        ));
     }
 
     // A = (a_n*m22 - b_n*m12) / det
@@ -2232,7 +2245,9 @@ fn hermite_reduce_one_step(
 
     let det = numeric_sub(&numeric_mul(&r00, &r11)?, &numeric_mul(&r01, &r10)?)?;
     if numeric_is_zero(&det) {
-        return Err(cas_err("Hermite reduction: singular system for S"));
+        return Err(cas_err(
+            "symbolic integration could not reduce the repeated quadratic factor",
+        ));
     }
     let p0 = eval_exact_numeric_div(
         &numeric_sub(&numeric_mul(&n0, &r11)?, &numeric_mul(&n1, &r01)?)?,
@@ -2270,7 +2285,7 @@ fn hermite_reduce_one_step(
 
     if !poly_is_zero(&rem) {
         return Err(cas_err(
-            "Hermite reduction failed to cancel a repeated quadratic factor",
+            "symbolic integration could not reduce the repeated quadratic factor",
         ));
     }
 

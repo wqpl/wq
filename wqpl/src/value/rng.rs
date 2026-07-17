@@ -1,5 +1,7 @@
+use num_traits::ToPrimitive as _;
+
 use crate::value::{Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 /// The stable `wq-rng-v1` pseudo-random number generator.
 ///
@@ -24,43 +26,58 @@ impl RngState {
     pub(crate) fn draw(&mut self, args: &[Value], source: &str, usage: &str) -> WqResult<Value> {
         match args {
             [] => Ok(Value::float(self.next_f64())),
-            [Value::Int(upper)] if *upper > 0 => Ok(Value::Int(self.int_range(0, *upper))),
-            [Value::Float(upper)] if upper.is_finite() && **upper > 0.0 => {
-                Ok(Value::float(self.float_range(0.0, **upper)))
-            }
-            [_] => Err(WqError::new(WqErrorType::Domain)
-                .src(source)
-                .msg("expected positive finite int or float")
-                .at_arg(0)),
-            [Value::Int(lower), Value::Int(upper)] if lower < upper => {
-                Ok(Value::Int(self.int_range(*lower, *upper)))
+            [upper] => {
+                if let Some(upper) = signed_64_bit_int(upper)
+                    && upper > 0
+                {
+                    return Ok(Value::Int(self.int_range(0, upper)));
+                }
+                if let Value::Float(upper) = upper
+                    && upper.is_finite()
+                    && **upper > 0.0
+                {
+                    return Ok(Value::float(self.float_range(0.0, **upper)));
+                }
+                Err(WqError::new(WqErrorType::Domain)
+                    .src(source)
+                    .expected(positive_random_bound_requirement())
+                    .at_arg(0)
+                    .got1(upper))
             }
             [lower, upper] => {
+                if let (Some(lower), Some(upper)) =
+                    (signed_64_bit_int(lower), signed_64_bit_int(upper))
+                    && lower < upper
+                {
+                    return Ok(Value::Int(self.int_range(lower, upper)));
+                }
                 let lower = finite_bound(lower).ok_or_else(|| {
                     WqError::new(WqErrorType::Domain)
                         .src(source)
-                        .msg("expected finite int or float")
+                        .expected(random_bound_requirement())
                         .at_arg(0)
+                        .got1(lower)
                 })?;
                 let upper = finite_bound(upper).ok_or_else(|| {
                     WqError::new(WqErrorType::Domain)
                         .src(source)
-                        .msg("expected finite int or float")
+                        .expected(random_bound_requirement())
                         .at_arg(1)
+                        .got1(upper)
                 })?;
                 if lower < upper {
                     Ok(Value::float(self.float_range(lower, upper)))
                 } else {
                     Err(WqError::new(WqErrorType::Domain)
                         .src(source)
-                        .msg("expected lower < upper")
-                        .attach_note(format!("got {lower} for lower"))
-                        .attach_note(format!("got {upper} for upper")))
+                        .msg("lower bound must be less than upper bound")
+                        .attach_note(format!("got lower bound {lower}"))
+                        .attach_note(format!("got upper bound {upper}")))
                 }
             }
             _ => Err(WqError::new(WqErrorType::Arity)
                 .src(source)
-                .msg(format!("expected 0, 1, or 2 args, got {}", args.len()))
+                .msg(format!("expected 0, 1, or 2 arguments, got {}", args.len()))
                 .attach_note(usage)),
         }
     }
@@ -125,6 +142,35 @@ impl RngState {
     }
 }
 
+fn signed_64_bit_int_requirement() -> Requirement {
+    Requirement::phrase(
+        "int in the signed 64-bit range",
+        "ints in the signed 64-bit range",
+    )
+}
+
+fn positive_random_bound_requirement() -> Requirement {
+    Requirement::one_of([
+        Requirement::positive(signed_64_bit_int_requirement()),
+        Requirement::positive(Requirement::finite(Requirement::FLOAT)),
+    ])
+}
+
+fn random_bound_requirement() -> Requirement {
+    Requirement::one_of([
+        signed_64_bit_int_requirement(),
+        Requirement::finite(Requirement::FLOAT),
+    ])
+}
+
+fn signed_64_bit_int(value: &Value) -> Option<i64> {
+    match value {
+        Value::Int(value) => Some(*value),
+        Value::BigInt(value) => value.to_i64(),
+        _ => None,
+    }
+}
+
 fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
     let mut value = *state;
@@ -134,15 +180,21 @@ fn splitmix64(state: &mut u64) -> u64 {
 }
 
 fn finite_bound(value: &Value) -> Option<f64> {
-    match value {
-        Value::Int(value) => Some(*value as f64),
-        Value::Float(value) if value.is_finite() => Some(**value),
-        _ => None,
+    match signed_64_bit_int(value) {
+        Some(value) => Some(value as f64),
+        None => match value {
+            Value::Float(value) if value.is_finite() => Some(**value),
+            _ => None,
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use num_bigint::BigInt;
+
     use super::*;
 
     #[test]
@@ -190,5 +242,56 @@ mod tests {
             let value = rng.float_range(-f64::MAX, f64::MAX);
             assert!((-f64::MAX..f64::MAX).contains(&value));
         }
+    }
+
+    #[test]
+    fn draw_reports_composed_requirements_and_argument_positions() {
+        let mut rng = RngState::from_seed(0);
+        let error = rng
+            .draw(&[Value::Int(0)], "rng", "rng[]")
+            .expect_err("zero upper bound should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected positive int in the signed 64-bit range or positive finite float")
+        );
+        assert_eq!(error.notes.as_slice(), ["at argument 1", "got 0 (int)"]);
+    }
+
+    #[test]
+    fn draw_reports_the_machine_int_boundary_for_bigints() {
+        let mut rng = RngState::from_seed(0);
+        let fitting = Value::BigInt(Arc::new(BigInt::from(10)));
+        let sampled = rng
+            .draw(&[fitting], "rng", "rng[]")
+            .expect("a bigint in the signed 64-bit range should work");
+        assert!(matches!(sampled, Value::Int(value) if (0..10).contains(&value)));
+
+        let too_large = Value::BigInt(Arc::new(BigInt::from(i64::MAX) + 1));
+        let error = rng
+            .draw(&[too_large], "rng", "rng[]")
+            .expect_err("a bigint outside the signed 64-bit range should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected positive int in the signed 64-bit range or positive finite float")
+        );
+        assert_eq!(
+            error.notes.as_slice(),
+            ["at argument 1", "got 9223372036854775808 (int)",]
+        );
+
+        let too_large = Value::BigInt(Arc::new(BigInt::from(i64::MAX) + 1));
+        let error = rng
+            .draw(&[too_large, Value::Int(0)], "rng", "rng[]")
+            .expect_err("an out-of-range bigint lower bound should fail");
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected int in the signed 64-bit range or finite float")
+        );
+        assert_eq!(
+            error.notes.as_slice(),
+            ["at argument 1", "got 9223372036854775808 (int)",]
+        );
     }
 }

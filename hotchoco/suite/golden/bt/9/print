@@ -1,5 +1,5 @@
 ▍ Error at <TEST_PATH>
-  zero-div: cannot divide by 0
+  zero-div: cannot divide by zero
   - from bfn 'map'
   - at [1]
   * at f, <TEST_PATH>

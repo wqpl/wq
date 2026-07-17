@@ -29,7 +29,7 @@ export type WqSpan = [number, number];
 
 export interface WqDiagnosticDataValue {
     display: string;
-    type_name: string;
+    category: string;
 }
 
 export interface WqStackFrame {
@@ -41,7 +41,7 @@ export interface WqStackFrame {
 }
 
 export interface WqDiagnostic {
-    version: 1;
+    version: 2;
     kind: string;
     message: string;
     rendered: string;
@@ -57,14 +57,14 @@ export interface WqDiagnostic {
 export interface RenderedValue {
     display: string;
     is_cas: boolean;
-    type_name: string;
+    category: string;
     xray: string;
 }
 
 export interface GlobalBinding {
     name: string;
     display: string;
-    type_name: string;
+    category: string;
 }
 
 export interface DocTopicInfo {
@@ -251,7 +251,7 @@ impl Default for WasmFrontend {
 struct RenderedValueData {
     display: String,
     is_cas: bool,
-    type_name: String,
+    category: String,
     xray: String,
 }
 
@@ -531,7 +531,7 @@ fn render_value(value: &Value, config: BoxPrintConfig) -> RenderedValueData {
     RenderedValueData {
         display: format_print_result(value, &config, config.color),
         is_cas: value.is_cas(),
-        type_name: value.type_name().to_string(),
+        category: value.category().to_string(),
         xray: format_xray_info(value, config.color),
     }
 }
@@ -553,15 +553,15 @@ fn format_wasm_error(err: &WqError, color_mode: ColorMode) -> String {
 struct GlobalBindingData {
     name: String,
     display: String,
-    type_name: String,
+    category: String,
 }
 
-const WQ_DIAGNOSTIC_VERSION: u8 = 1;
+const WQ_DIAGNOSTIC_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DiagnosticValueData {
     display: String,
-    type_name: String,
+    category: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -595,7 +595,7 @@ fn global_binding_data(session: &Session) -> Vec<GlobalBindingData> {
         .map(|(name, value)| GlobalBindingData {
             name,
             display: value.to_string(),
-            type_name: value.type_name().to_string(),
+            category: value.category().to_string(),
         })
         .collect::<Vec<_>>();
     bindings.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
@@ -673,7 +673,7 @@ fn diagnostic_data(
                     name.to_string(),
                     DiagnosticValueData {
                         display: value.to_string(),
-                        type_name: value.type_name().to_string(),
+                        category: value.category().to_string(),
                     },
                 )
             })
@@ -752,7 +752,7 @@ fn globals_to_js(bindings: &[GlobalBindingData]) -> Array {
         let object = Object::new();
         set_js_property(&object, "name", &JsValue::from_str(&binding.name));
         set_js_property(&object, "display", &JsValue::from_str(&binding.display));
-        set_js_property(&object, "type_name", &JsValue::from_str(&binding.type_name));
+        set_js_property(&object, "category", &JsValue::from_str(&binding.category));
         result.push(&object);
     }
     result
@@ -762,7 +762,7 @@ fn rendered_value_to_js(value: &RenderedValueData) -> Object {
     let object = Object::new();
     set_js_property(&object, "display", &JsValue::from_str(&value.display));
     set_js_property(&object, "is_cas", &JsValue::from_bool(value.is_cas));
-    set_js_property(&object, "type_name", &JsValue::from_str(&value.type_name));
+    set_js_property(&object, "category", &JsValue::from_str(&value.category));
     set_js_property(&object, "xray", &JsValue::from_str(&value.xray));
     object
 }
@@ -826,7 +826,7 @@ fn diagnostic_to_js(diagnostic: &DiagnosticData) -> Object {
     for (name, value) in &diagnostic.data {
         let item = Object::new();
         set_js_property(&item, "display", &JsValue::from_str(&value.display));
-        set_js_property(&item, "type_name", &JsValue::from_str(&value.type_name));
+        set_js_property(&item, "category", &JsValue::from_str(&value.category));
         set_js_property(&data, name, &item);
     }
     set_js_property(&object, "data", &data);
@@ -1346,7 +1346,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(names, ["a", "z"]);
         assert_eq!(bindings[0].display, "1");
-        assert_eq!(bindings[0].type_name, "int");
+        assert_eq!(bindings[0].category, "int");
     }
 
     #[test]
@@ -1598,7 +1598,7 @@ mod tests {
             .expect_err("assertion should fail");
         let diagnostic = evaluation_failure_diagnostic_data(&err, ColorMode::Never);
 
-        assert_eq!(diagnostic.version, 1);
+        assert_eq!(diagnostic.version, 2);
         assert_eq!(diagnostic.kind, "assert");
         assert_eq!(diagnostic.cause, None);
         assert_eq!(
@@ -1606,7 +1606,7 @@ mod tests {
                 .data
                 .iter()
                 .find(|(name, _)| name == "actual")
-                .map(|(_, value)| (value.display.as_str(), value.type_name.as_str())),
+                .map(|(_, value)| (value.display.as_str(), value.category.as_str())),
             Some(("1", "int"))
         );
         assert_eq!(
@@ -1614,7 +1614,7 @@ mod tests {
                 .data
                 .iter()
                 .find(|(name, _)| name == "expected")
-                .map(|(_, value)| (value.display.as_str(), value.type_name.as_str())),
+                .map(|(_, value)| (value.display.as_str(), value.category.as_str())),
             Some(("2", "int"))
         );
         assert!(diagnostic.stack.iter().any(|frame| frame.function == "f"));
@@ -1627,7 +1627,7 @@ mod tests {
         );
 
         let api = api_diagnostic_data("invalid-option", "bad option");
-        assert_eq!(api.version, 1);
+        assert_eq!(api.version, 2);
         assert!(api.data.is_empty());
         assert!(api.stack.is_empty());
         assert_eq!(api.cause, None);

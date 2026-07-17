@@ -70,6 +70,33 @@ fn cas_var_formats_like_identifier() {
 }
 
 #[test]
+fn expression_argument_errors_name_and_quote_the_cas_construct() {
+    let x = Value::from_cas_var("x");
+    let equation = Value::from_cas_eq(x.clone(), Value::Int(1));
+    let err = cas_binary_expr(CasOp::Add, &equation, &Value::Int(2))
+        .expect_err("an equation is not an operator operand");
+    assert_eq!(
+        err.msg.as_deref(),
+        Some("operator '+' expects an expression rather than an equation")
+    );
+
+    let condition = Value::from_cas_predicate(CasPredicate::Positive(x));
+    let err = cas_call_expr(CasFunction::Sin, &[condition])
+        .expect_err("a condition is not a function argument");
+    assert_eq!(
+        err.msg.as_deref(),
+        Some("function 'sin' expects an expression rather than a condition")
+    );
+
+    let err = cas_symbolic_call_expr("f", &[equation], &[])
+        .expect_err("an equation is not an application argument");
+    assert_eq!(
+        err.msg.as_deref(),
+        Some("application 'f' expects an expression rather than an equation")
+    );
+}
+
+#[test]
 fn canonical_addition_orders_consistently() {
     let lhs = simplify_cas_value(&op(
         CasOp::Add,
@@ -1292,9 +1319,9 @@ fn numeric_rejects_symbolic_application() {
     let expr = Value::from_cas_apply("f", vec![Value::Int(2)]);
     let err = eval_numeric_cas(&expr).expect_err("application should stay symbolic");
     assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("unsupported symbolic application 'f'")),
+        err.msg.as_deref().is_some_and(|msg| {
+            msg.contains("application 'f' is not supported in numeric evaluation")
+        }),
         "unexpected error: {err:?}",
     );
 }

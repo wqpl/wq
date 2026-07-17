@@ -10,12 +10,12 @@ import {
 test("formats structured globals for the panel", () => {
   assert.deepEqual(
     formatGlobalBindings([
-      { name: "answer", display: "42", type_name: "int" },
-      { name: "lines", display: "a\nb", type_name: "list" },
+      { name: "answer", display: "42", category: "int" },
+      { name: "lines", display: "a\nb", category: "list" },
     ]),
     [
-      { name: "answer", value: "42", type: "int" },
-      { name: "lines", value: "a\\nb", type: "list" },
+      { name: "answer", value: "42", category: "int" },
+      { name: "lines", value: "a\\nb", category: "list" },
     ],
   );
   assert.deepEqual(formatGlobalBindings(null), []);
@@ -28,14 +28,14 @@ test("formats empty structured globals", () => {
 
 test("formats structured globals as a presentation table", () => {
   const table = formatGlobalsTable([
-    { name: "a", display: "1", type_name: "int" },
-    { name: "f", display: "{x}", type_name: "function" },
+    { name: "a", display: "1", category: "int" },
+    { name: "f", display: "{x}", category: "function" },
   ]);
 
   assert.equal(
     table,
     [
-      "name  value  type    ",
+      "name  value  category",
       "----  -----  --------",
       "a     1      int     ",
       "f     {x}    function",
@@ -45,7 +45,7 @@ test("formats structured globals as a presentation table", () => {
 
 test("escapes line breaks inside global displays", () => {
   const table = formatGlobalsTable([
-    { name: "s", display: "a\nb", type_name: "string" },
+    { name: "s", display: "a\nb", category: "list" },
   ]);
 
   assert.match(table, /a\\nb/);

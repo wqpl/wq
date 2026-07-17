@@ -1,3 +1,5 @@
+use std::fmt;
+
 use num_traits::{One, Signed, Zero};
 
 use super::limit::limit_cas;
@@ -8,6 +10,31 @@ use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) fn cas_err(msg: impl Into<String>) -> WqError {
     WqError::new(WqErrorType::Domain).msg(msg.into())
+}
+
+pub(crate) fn cas_internal_err(action: &str) -> WqError {
+    WqError::new(WqErrorType::Vm)
+        .src("cas")
+        .msg(format!("internal CAS error while {action}"))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum CasExprContext<'a> {
+    Operator(&'a str),
+    Function(&'a str),
+    Application(&'a str),
+    Builtin(&'a str),
+}
+
+impl fmt::Display for CasExprContext<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Operator(name) => write!(f, "operator '{name}'"),
+            Self::Function(name) => write!(f, "function '{name}'"),
+            Self::Application(name) => write!(f, "application '{name}'"),
+            Self::Builtin(name) => f.write_str(name),
+        }
+    }
 }
 
 pub(crate) fn numeric_is_zero(value: &Value) -> bool {
@@ -50,11 +77,17 @@ pub(super) fn numeric_abs(value: &Value) -> Value {
     }
 }
 
-pub(crate) fn ensure_expr_arg(value: &Value, ctx: &str) -> WqResult<()> {
+pub(crate) fn ensure_expr_arg(value: &Value, ctx: CasExprContext<'_>) -> WqResult<()> {
     if value.is_cas_equation() {
-        Err(cas_err(format!("{ctx} expects an expression, got equation")).got1(value))
+        Err(cas_err(format!(
+            "{ctx} expects an expression rather than an equation"
+        ))
+        .got1(value))
     } else if value.cas_predicate().is_some() {
-        Err(cas_err(format!("{ctx} expects an expression, got condition")).got1(value))
+        Err(cas_err(format!(
+            "{ctx} expects an expression rather than a condition"
+        ))
+        .got1(value))
     } else {
         Ok(())
     }
@@ -97,7 +130,9 @@ impl NumericOp {
 
 pub(crate) fn eval_numeric_binary(op: &str, lhs: &Value, rhs: &Value) -> WqResult<Value> {
     let Some(op) = NumericOp::from_symbol(op) else {
-        return Err(cas_err(format!("unsupported symbolic operator '{op}'")));
+        return Err(cas_err(format!(
+            "operator '{op}' is not supported in symbolic expressions"
+        )));
     };
     eval_numeric_op(op, lhs, rhs)
 }
@@ -315,9 +350,10 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
 
     // Variables are not allowed.
     if expr.cas_var_name().is_some() {
-        return Err(
-            cas_err("cannot evaluate symbolic expression to numeric: contains variable").got1(expr),
-        );
+        return Err(cas_err(
+            "cannot evaluate symbolic expression numerically because it contains a variable",
+        )
+        .got1(expr));
     }
 
     // Operators.
@@ -360,7 +396,7 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
                 Ok(Value::float(b.powf(e)))
             }
             _ => Err(cas_err(format!(
-                "unsupported operator '{}' in numeric evaluation",
+                "operator '{}' is not supported in numeric evaluation",
                 op.symbol()
             ))
             .got1(expr)),
@@ -374,7 +410,7 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
         eval_numeric_call_with_mode(function, vals.as_slice(), NumericCallMode::Evaluate)?
             .ok_or_else(|| {
                 cas_err(format!(
-                    "unsupported function '{}' in numeric evaluation",
+                    "function '{}' is not supported in numeric evaluation",
                     function.name()
                 ))
                 .got1(expr)
@@ -389,7 +425,7 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
         eval_numeric_cas(&value)
     } else if let Some((name, _)) = expr.cas_apply_parts() {
         Err(cas_err(format!(
-            "unsupported symbolic application '{}' in numeric evaluation",
+            "application '{}' is not supported in numeric evaluation",
             name.as_str()
         ))
         .got1(expr))

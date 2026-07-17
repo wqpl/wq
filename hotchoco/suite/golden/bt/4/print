@@ -1,6 +1,6 @@
 ▍ Error at <TEST_PATH>
-  zero-div: cannot divide by 0
-  - from binary operator /
+  zero-div: cannot divide by zero
+  - from binary operator '/'
   * at t, <TEST_PATH>
   |    2    t:{'k:4
   |    3 ->   1/0}

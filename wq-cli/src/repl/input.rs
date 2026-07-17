@@ -11,7 +11,7 @@ use crate::repl::editor::WqReplHighlighter;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WqGlobalHint {
     pub(crate) name: String,
-    pub(crate) type_name: String,
+    pub(crate) category: String,
     pub(crate) excerpt: String,
 }
 

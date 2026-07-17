@@ -551,13 +551,7 @@ fn colorize_heat(text: &str, value: usize, max: usize, color_mode: ColorMode) ->
 }
 
 fn sequence_kind(value: &Value) -> Option<&'static str> {
-    match value {
-        Value::IntList(_) => Some("list<int>"),
-        Value::List(_) => Some("list"),
-        Value::String(_) => Some("string"),
-        Value::Dict(_) => Some("dict"),
-        _ => None,
-    }
+    value.is_container().then_some(value.debug_kind().as_str())
 }
 
 fn instruction_kind(inst: &Instruction) -> &'static str {
@@ -639,7 +633,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
 fn instruction_profile_key(inst: &Instruction) -> String {
     use Instruction as I;
     match inst {
-        I::LoadConst(value) => format!("LoadConst({})", value.type_name_verbose()),
+        I::LoadConst(value) => format!("LoadConst({})", value.debug_kind()),
         I::LoadOwnedConst(slot) => format!("LoadOwnedConst({slot})"),
         I::LoadClosure(payload) => format!(
             "LoadClosure(locals={}, captures={}, inst={})",

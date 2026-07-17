@@ -8,7 +8,7 @@ const UNIQUE_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const COUNTS_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Count distinct characters",
+    title: "Count distinct chars",
     code: "counts \"banana\"|len",
     expectation: ExampleExpectation::ResultContains("3"),
 }];
@@ -92,7 +92,7 @@ const DISJOINT_Q_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const MULTIPLICITY_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Count occurrences in a sequence",
+    title: "Count occurrences in a list",
     code: "multiplicity[1;(1;2;1;3)]",
     expectation: ExampleExpectation::ResultContains("2"),
 }];
@@ -100,7 +100,7 @@ const MULTIPLICITY_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const UNIQUE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Unique,
     summary: "Return unique items in first-seen order.",
-    details: "`unique` views lists as their items, strings as characters, dicts as keys, and atoms as singleton values. It returns the first occurrence of each distinct item.",
+    details: "`unique` views lists as their items, strings as chars, dicts as keys, and atoms as singleton values. It returns the first occurrence of each distinct item.",
     examples: UNIQUE_EXAMPLES,
     related: &["union", "multiplicity"],
 };
@@ -108,7 +108,7 @@ pub(super) const UNIQUE: BuiltinDoc = BuiltinDoc {
 pub(super) const COUNTS: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Counts,
     summary: "Count distinct items in first-seen order.",
-    details: "`counts[xs]` returns a list of `(item;count)` pairs. Lists contribute items, strings contribute characters, dicts contribute keys, and atoms behave as singletons.",
+    details: "`counts[xs]` returns a list of `(item;count)` pairs. Lists contribute items, strings contribute chars, dicts contribute keys, and atoms behave as singletons.",
     examples: COUNTS_EXAMPLES,
     related: &["unique", "multiplicity", "member?"],
 };
@@ -116,7 +116,7 @@ pub(super) const COUNTS: BuiltinDoc = BuiltinDoc {
 pub(super) const UNION: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Union,
     summary: "Return the ordered set union of two values.",
-    details: "`union[xs;ys]` emits unique items seen in `xs` followed by new items from `ys`. Lists contribute items, strings contribute characters, dicts contribute keys, and atoms behave as singletons.",
+    details: "`union[xs;ys]` emits unique items seen in `xs` followed by new items from `ys`. Lists contribute items, strings contribute chars, dicts contribute keys, and atoms behave as singletons.",
     examples: UNION_EXAMPLES,
     related: &["intersect", "symdiff", "unique"],
 };

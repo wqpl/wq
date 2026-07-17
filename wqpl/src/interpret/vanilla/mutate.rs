@@ -8,14 +8,14 @@ use crate::wqerror::WqError;
 pub(super) fn index_load_err(idx_val: &Value, target: &Value) -> WqError {
     index_err("invalid index")
         .attach_note(format!(
-            "index: '{}' ({})",
+            "index: {} ({})",
             idx_val.excerpt(),
-            idx_val.type_name()
+            idx_val.category()
         ))
         .attach_note(format!(
-            "target: '{}' ({})",
+            "target: {} ({})",
             target.excerpt(),
-            target.type_name()
+            target.category()
         ))
 }
 

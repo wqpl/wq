@@ -5,12 +5,12 @@ use rayon::prelude::*;
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::mat::index_path;
 use crate::value::{Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
-/// Transpose a matrix or higher-dimensional array.
-/// - Atoms and 1D vectors: returned as-is
+/// Transpose a matrix or higher-dimensional list.
+/// - Atoms and 1D lists: returned as-is
 /// - 2D matrices: transposed (swap rows and columns)
-/// - Higher-dimensional arrays: transpose last 2 axes
+/// - Higher-dimensional lists: transpose last 2 axes
 pub(crate) fn transpose(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Transpose, [1, 2], &args)?;
     let (v, axes_arg) = match &*args {
@@ -21,8 +21,9 @@ pub(crate) fn transpose(args: BuiltinFnArgs) -> WqResult<Value> {
     let shape = v.shape_uniform().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BE::Transpose)
-            .msg("could not determine shape")
+            .msg("list must have a uniform shape")
             .at_arg(0)
+            .got1(&v)
     })?;
     let rank = shape.len();
     let axes = axes_arg.map(|axes| parse_axes(axes, rank)).transpose()?;
@@ -60,7 +61,7 @@ fn transpose_2d(v: &Value, m: usize, n: usize) -> WqResult<Value> {
                 let elem = index_path(v, &[i, j]).ok_or_else(|| {
                     WqError::new(WqErrorType::Domain)
                         .src(BE::Transpose)
-                        .msg(format!("could not access element at [{}, {}]", i, j))
+                        .msg(format!("could not access element at index path [{i}][{j}]"))
                 })?;
                 col.push(elem);
             }
@@ -70,7 +71,7 @@ fn transpose_2d(v: &Value, m: usize, n: usize) -> WqResult<Value> {
     Ok(Value::List(Arc::new(cols?)))
 }
 
-/// Transpose higher-dimensional arrays (transpose last 2 axes for each batch)
+/// Transpose higher-dimensional lists (transpose last 2 axes for each batch)
 fn transpose_batched(v: &Value, shape: &[usize]) -> WqResult<Value> {
     let rank = shape.len();
     if rank == 2 {
@@ -84,7 +85,9 @@ fn transpose_batched(v: &Value, shape: &[usize]) -> WqResult<Value> {
             let elem = index_path(v, &[i]).ok_or_else(|| {
                 WqError::new(WqErrorType::Domain)
                     .src(BE::Transpose)
-                    .msg(format!("could not access batch element at [{}]", i))
+                    .msg(format!(
+                        "could not access batch element at index path [{i}]"
+                    ))
             })?;
             let transposed = transpose_batched(&elem, &shape[1..])?;
             Ok(transposed)
@@ -97,7 +100,10 @@ fn parse_axes(v: &Value, rank: usize) -> WqResult<Vec<usize>> {
     let Some(axes) = v.exact_int_seq() else {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Transpose)
-            .msg("expected int or list<int> axes")
+            .expected(Requirement::one_of([
+                Requirement::INT,
+                Requirement::list(Requirement::INT),
+            ]))
             .at_arg(1)
             .got1(v));
     };
@@ -106,12 +112,9 @@ fn parse_axes(v: &Value, rank: usize) -> WqResult<Vec<usize>> {
     if raw_axes.len() != rank {
         return Err(WqError::new(WqErrorType::Length)
             .src(BE::Transpose)
-            .msg("axis list length must match array rank")
+            .msg("axis count must match list rank")
             .at_arg(1)
-            .attach_note(format!(
-                "rank is {rank}, axis list length is {}",
-                raw_axes.len()
-            )));
+            .attach_note(format!("list rank is {rank}, got {} axes", raw_axes.len())));
     }
 
     let mut axes = Vec::with_capacity(raw_axes.len());
@@ -119,16 +122,20 @@ fn parse_axes(v: &Value, rank: usize) -> WqResult<Vec<usize>> {
         let axis = usize::try_from(raw_axis).map_err(|_| {
             WqError::new(WqErrorType::Domain)
                 .src(BE::Transpose)
-                .msg("axis must be non-negative")
+                .expected(Requirement::non_negative(Requirement::INT))
                 .at_arg(1)
-                .attach_note(format!("at index {i}"))
+                .got_at_index(&Value::Int(raw_axis), i)
         })?;
         if axis >= rank {
+            let upper = i128::try_from(rank).expect("list rank fits in i128");
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Transpose)
-                .msg("axis out of range")
+                .expected(Requirement::int_range(
+                    Bound::Included(0),
+                    Bound::Excluded(upper),
+                ))
                 .at_arg(1)
-                .attach_note(format!("axis {axis} is not in 0..{rank}")));
+                .got_at_index(&Value::Int(raw_axis), i));
         }
         axes.push(axis);
     }
@@ -147,7 +154,7 @@ fn validate_axes_cover_result(axes: &[usize]) -> WqResult<()> {
         if !present {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Transpose)
-                .msg("axis list must use contiguous result axes")
+                .msg("result axes must be contiguous from 0")
                 .at_arg(1)
                 .attach_note(format!("missing result axis {axis}")));
         }
@@ -187,9 +194,12 @@ fn build_transposed_axes(
     if out_idx.len() == out_shape.len() {
         let src_idx: Vec<usize> = axes.iter().map(|&axis| out_idx[axis]).collect();
         return index_path(v, &src_idx).ok_or_else(|| {
+            let path = src_idx
+                .iter()
+                .fold(String::new(), |path, index| format!("{path}[{index}]"));
             WqError::new(WqErrorType::Domain)
                 .src(BE::Transpose)
-                .msg(format!("could not access element at {src_idx:?}"))
+                .msg(format!("could not access element at index path {path}"))
         });
     }
 
@@ -395,5 +405,23 @@ mod tests {
         let err = transpose(BuiltinFnArgs::from(vec![arr, axes])).expect_err("missing result axis");
 
         assert_eq!(err.err_type, WqErrorType::Domain);
+    }
+
+    #[test]
+    fn transpose_reports_the_axis_range_at_the_failing_index() {
+        let m = mat(&[&[1, 2], &[3, 4]]);
+        let axes = il(&[0, 2]);
+
+        let error = transpose(BuiltinFnArgs::from(vec![m, axes]))
+            .expect_err("out-of-range axis should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected int at least 0 and less than 2")
+        );
+        assert_eq!(
+            error.notes.as_ref(),
+            &["at argument 2", "at index 1", "got 2 (int)"]
+        );
     }
 }

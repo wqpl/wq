@@ -151,12 +151,13 @@ pub fn format_non_cas_result(result: &Value, config: &BoxPrintConfig, color: boo
 
 pub fn format_xray_info(v: &Value, color: bool) -> String {
     let pairs = [
+        ("category", v.category().to_string()),
+        ("kind", v.debug_kind().to_string()),
         (
             "strong",
             v.strong_count()
                 .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
         ),
-        ("type-v", v.type_name_verbose().into()),
         ("len", v.len().to_string()),
         ("depth", v.depth().to_string()),
         ("shape", v.shape().to_string()),
@@ -165,12 +166,7 @@ pub fn format_xray_info(v: &Value, color: bool) -> String {
     ];
 
     let mut out = String::new();
-    let _ = write!(
-        out,
-        "[xray] {}\n{}",
-        v.type_name(),
-        two_col_item_values(&pairs, 4, color)
-    );
+    let _ = write!(out, "[xray]\n{}", two_col_item_values(&pairs, 4, color));
 
     if let Value::Float(f) = v {
         let _ = write!(

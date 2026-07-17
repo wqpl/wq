@@ -289,7 +289,7 @@ impl<'a> Lexer<'a> {
                             start_column,
                             start_byte,
                             self.byte_pos,
-                            "invalid integer literal",
+                            "invalid int literal",
                         ));
                     }
                 }
@@ -387,7 +387,7 @@ impl<'a> Lexer<'a> {
                         start_column,
                         start_byte,
                         self.byte_pos,
-                        "invalid integer literal",
+                        "invalid int literal",
                     )),
                 },
             }
@@ -1100,7 +1100,7 @@ impl<'a> Lexer<'a> {
                                 token_column,
                                 token_byte_start,
                                 self.byte_pos,
-                                "unknown @ sequence '@a'",
+                                "unknown '@' form '@a'",
                             ));
                         }
                         Some('b') => {
@@ -1214,7 +1214,7 @@ impl<'a> Lexer<'a> {
                             )?;
                             return emit(t, self.byte_pos);
                         }
-                        _ => continue, // unknown @ sequence, skip
+                        _ => continue, // Skip unknown '@' form.
                     };
                     return emit(tok, self.byte_pos);
                 }
@@ -1484,6 +1484,24 @@ mod tests {
         Lexer::new(src)
             .tokenize()
             .expect_err("expected lexer error")
+    }
+
+    #[test]
+    fn invalid_int_literal_uses_public_type_term() {
+        let mut lexer = Lexer::new("!");
+        let (line, column, byte) = (lexer.line, lexer.column, lexer.byte_pos);
+        let err = lexer
+            .read_number(line, column, byte)
+            .expect_err("non-numeric input should reach the numeric fallback error");
+
+        assert_eq!(err.msg.as_deref(), Some("invalid int literal"));
+    }
+
+    #[test]
+    fn unknown_at_form_quotes_the_exact_syntax() {
+        let err = lexer_err("@a");
+
+        assert_eq!(err.msg.as_deref(), Some("unknown '@' form '@a'"));
     }
 
     #[test]

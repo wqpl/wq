@@ -7,7 +7,7 @@ use ordered_float::OrderedFloat;
 
 use crate::value::seq::{ExactIntSeq, ListStorageSeq, ValueSeq};
 use crate::value::{IntoWqValue as _, Value, WqResult, expected_string1};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 impl Value {
     pub(crate) fn bulk_index_key(&self) -> Option<()> {
@@ -1065,7 +1065,8 @@ pub(crate) fn insert_in_place(
                                 .collect::<Vec<_>>(),
                             _ => {
                                 return Err(WqError::new(WqErrorType::Domain)
-                                    .msg("expected dict insert value"));
+                                    .expected(Requirement::DICT)
+                                    .got1(xs));
                             }
                         };
                         let ops = entries
@@ -1080,7 +1081,11 @@ pub(crate) fn insert_in_place(
         }
 
         other => Err(WqError::new(WqErrorType::Domain)
-            .msg("expected string, list, or dict")
+            .expected(Requirement::one_of([
+                Requirement::STRING,
+                Requirement::LIST,
+                Requirement::DICT,
+            ]))
             .got1(other)),
     }
 }
@@ -1089,7 +1094,9 @@ pub(crate) fn parse_pop_count(arg: &Value) -> WqResult<usize> {
     match arg {
         Value::Int(n) if *n >= 0 => usize::try_from(*n)
             .map_err(|_| WqError::new(WqErrorType::Domain).msg("count is too large")),
-        _ => Err(WqError::new(WqErrorType::Domain).msg("count must be non-negative int")),
+        _ => Err(WqError::new(WqErrorType::Domain)
+            .expected(Requirement::non_negative(Requirement::INT))
+            .got1(arg)),
     }
 }
 
@@ -1284,13 +1291,15 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
             let mut dedup = keys.clone();
             dedup.sort();
             if dedup.windows(2).any(|pair| pair[0] == pair[1]) {
-                return Err(WqError::new(WqErrorType::Domain).msg("duplicate remove keys"));
+                return Err(
+                    WqError::new(WqErrorType::Domain).msg("dict remove keys must be unique")
+                );
             }
             let mut removed = Vec::with_capacity(keys.len());
             for key in keys {
                 let value = Arc::make_mut(map)
                     .shift_remove(&key)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                    .ok_or_else(|| missing_dict_key_or_position(idx))?;
                 removed.push(value);
             }
             if is_multi {
@@ -1328,7 +1337,7 @@ fn list_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<Value>> {
             Ok(items.to_values_vec())
         } else {
             Err(WqError::new(WqErrorType::Domain)
-                .msg("dsts and xs must have matching lengths for pairwise insert"))
+                .msg("destinations and inserted values must have matching lengths for pairwise insertion"))
         }
     } else {
         Ok(vec![xs.clone(); len])
@@ -1411,7 +1420,7 @@ fn string_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<String>> {
                 Ok(chars)
             } else {
                 Err(WqError::new(WqErrorType::Domain)
-                    .msg("dsts and xs must have matching lengths for pairwise insert"))
+                    .msg("destinations and inserted values must have matching lengths for pairwise insertion"))
             }
         }
     }
@@ -1446,8 +1455,9 @@ fn dict_insert_entries(xs: &Value, len: usize) -> WqResult<Vec<(Arc<str>, Value)
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect()),
-        _ => Err(WqError::new(WqErrorType::Domain)
-            .msg("dsts and xs must have matching lengths for pairwise insert")),
+        _ => Err(WqError::new(WqErrorType::Domain).msg(
+            "destinations and inserted values must have matching lengths for pairwise insertion",
+        )),
     }
 }
 
@@ -1460,14 +1470,16 @@ fn dict_insert_destinations(dsts: &Value, len: usize) -> WqResult<Vec<(usize, Ar
         Value::Dict(entries) => entries
             .iter()
             .map(|(key, idx)| {
-                let raw = int_arg_to_i64(idx)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid insert index"))?;
-                let idx = normalize_insert_idx(raw, len)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid insert index"))?;
+                let raw = int_arg_to_i64(idx).ok_or_else(|| insert_index_out_of_range(idx))?;
+                let idx =
+                    normalize_insert_idx(raw, len).ok_or_else(|| insert_index_out_of_range(idx))?;
                 Ok((idx, key.clone()))
             })
             .collect(),
-        _ => Err(WqError::new(WqErrorType::Domain).msg("expected dict<tag,int> destination")),
+        _ => Err(WqError::new(WqErrorType::Domain)
+            .expected(Requirement::dict(Requirement::TAG, Requirement::INT))
+            .attach_note("for pairwise insertion destinations")
+            .got1(dsts)),
     }
 }
 
@@ -1490,37 +1502,37 @@ fn dict_remove_keys(
             if map.contains_key(key.as_ref()) {
                 Ok((vec![key.clone()], false))
             } else {
-                Err(WqError::new(WqErrorType::Domain).msg("invalid remove key"))
+                Err(missing_dict_key_or_position(idx))
             }
         }
         Value::Int(i) => {
             let pos = normalize_remove_idx(*i, map.len())
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                .ok_or_else(|| missing_dict_key_or_position(idx))?;
             let (key, _) = map
                 .get_index(pos)
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                .ok_or_else(|| missing_dict_key_or_position(idx))?;
             Ok((vec![key.clone()], false))
         }
         Value::BigInt(b) => {
             let pos = normalize_remove_idx(
                 b.to_i64()
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?,
+                    .ok_or_else(|| missing_dict_key_or_position(idx))?,
                 map.len(),
             )
-            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+            .ok_or_else(|| missing_dict_key_or_position(idx))?;
             let (key, _) = map
                 .get_index(pos)
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                .ok_or_else(|| missing_dict_key_or_position(idx))?;
             Ok((vec![key.clone()], false))
         }
         Value::IntList(idxs) => {
             let mut keys = Vec::with_capacity(idxs.len());
             for &idx in idxs.iter() {
                 let pos = normalize_remove_idx(idx, map.len())
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                    .ok_or_else(|| missing_dict_key_or_position(&Value::Int(idx)))?;
                 let (key, _) = map
                     .get_index(pos)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                    .ok_or_else(|| missing_dict_key_or_position(&Value::Int(idx)))?;
                 keys.push(key.clone());
             }
             Ok((keys, true))
@@ -1529,10 +1541,10 @@ fn dict_remove_keys(
             let mut keys = Vec::with_capacity(idxs.len());
             for idx in idxs.iter() {
                 let pos = normalize_remove_idx(idx, map.len())
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                    .ok_or_else(|| missing_dict_key_or_position(&Value::Int(idx)))?;
                 let (key, _) = map
                     .get_index(pos)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                    .ok_or_else(|| missing_dict_key_or_position(&Value::Int(idx)))?;
                 keys.push(key.clone());
             }
             Ok((keys, true))
@@ -1543,44 +1555,48 @@ fn dict_remove_keys(
                 match item {
                     Value::Tag(key) => {
                         if !map.contains_key(key.as_ref()) {
-                            return Err(WqError::new(WqErrorType::Domain).msg("invalid remove key"));
+                            return Err(missing_dict_key_or_position(item));
                         }
                         keys.push(key.clone());
                     }
                     Value::Int(i) => {
-                        let pos = normalize_remove_idx(*i, map.len()).ok_or_else(|| {
-                            WqError::new(WqErrorType::Domain).msg("invalid remove key")
-                        })?;
-                        let (key, _) = map.get_index(pos).ok_or_else(|| {
-                            WqError::new(WqErrorType::Domain).msg("invalid remove key")
-                        })?;
+                        let pos = normalize_remove_idx(*i, map.len())
+                            .ok_or_else(|| missing_dict_key_or_position(item))?;
+                        let (key, _) = map
+                            .get_index(pos)
+                            .ok_or_else(|| missing_dict_key_or_position(item))?;
                         keys.push(key.clone());
                     }
                     Value::BigInt(b) => {
                         let pos = normalize_remove_idx(
-                            b.to_i64().ok_or_else(|| {
-                                WqError::new(WqErrorType::Domain).msg("invalid remove key")
-                            })?,
+                            b.to_i64()
+                                .ok_or_else(|| missing_dict_key_or_position(item))?,
                             map.len(),
                         )
-                        .ok_or_else(|| {
-                            WqError::new(WqErrorType::Domain).msg("invalid remove key")
-                        })?;
-                        let (key, _) = map.get_index(pos).ok_or_else(|| {
-                            WqError::new(WqErrorType::Domain).msg("invalid remove key")
-                        })?;
+                        .ok_or_else(|| missing_dict_key_or_position(item))?;
+                        let (key, _) = map
+                            .get_index(pos)
+                            .ok_or_else(|| missing_dict_key_or_position(item))?;
                         keys.push(key.clone());
                     }
                     _ => {
-                        return Err(
-                            WqError::new(WqErrorType::Domain).msg("expected tag or int dict key")
-                        );
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .expected(Requirement::one_of([Requirement::TAG, Requirement::INT]))
+                            .attach_note("for a dict key")
+                            .got1(item));
                     }
                 }
             }
             Ok((keys, true))
         }
-        _ => Err(WqError::new(WqErrorType::Domain).msg("expected tag, int, or list key")),
+        _ => Err(WqError::new(WqErrorType::Domain)
+            .expected(Requirement::one_of([
+                Requirement::TAG,
+                Requirement::INT,
+                Requirement::list(Requirement::one_of([Requirement::TAG, Requirement::INT])),
+            ]))
+            .attach_note("for a dict key")
+            .got1(idx)),
     }
 }
 
@@ -1610,13 +1626,25 @@ fn int_arg_to_i64(value: &Value) -> Option<i64> {
     }
 }
 
+fn missing_dict_key_or_position(value: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .msg("dict key or position does not exist")
+        .got1(value)
+}
+
+fn insert_index_out_of_range(value: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .msg("insert index is out of range")
+        .got1(value)
+}
+
 fn parse_remove_positions(idx: &Value, len: usize) -> WqResult<(Vec<usize>, bool)> {
     parse_exact_int_positions(
         idx,
         len,
         normalize_remove_idx,
-        "invalid remove index",
-        "expected int or list<int> index",
+        "remove index is out of range",
+        Requirement::one_of([Requirement::INT, Requirement::list(Requirement::INT)]),
     )
 }
 
@@ -1624,7 +1652,7 @@ fn ensure_unique_positions(positions: &[usize], what: &str) -> WqResult<()> {
     let mut sorted = positions.to_vec();
     sorted.sort_unstable();
     if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(WqError::new(WqErrorType::Domain).msg(format!("duplicate {what}")));
+        return Err(WqError::new(WqErrorType::Domain).msg(format!("{what} must be unique")));
     }
     Ok(())
 }
@@ -1636,8 +1664,8 @@ fn parse_insert_positions(dsts: Option<&Value>, len: usize) -> WqResult<(Vec<usi
             dsts,
             len,
             normalize_insert_idx,
-            "invalid insert index",
-            "expected int or list<int> destination",
+            "insert index is out of range",
+            Requirement::one_of([Requirement::INT, Requirement::list(Requirement::INT)]),
         ),
     }
 }
@@ -1647,15 +1675,15 @@ fn parse_exact_int_positions(
     len: usize,
     normalize: fn(i64, usize) -> Option<usize>,
     invalid_msg: &'static str,
-    expected_msg: &'static str,
+    expected: Requirement,
 ) -> WqResult<(Vec<usize>, bool)> {
     let Some(items) = value.exact_int_seq() else {
-        let msg = if matches!(value, Value::List(_)) {
-            invalid_msg
+        let error = if matches!(value, Value::List(_)) {
+            WqError::new(WqErrorType::Domain).msg(invalid_msg)
         } else {
-            expected_msg
+            WqError::new(WqErrorType::Domain).expected(expected)
         };
-        return Err(WqError::new(WqErrorType::Domain).msg(msg));
+        return Err(error.got1(value));
     };
 
     let mut out = Vec::with_capacity(items.len());
@@ -1727,6 +1755,53 @@ mod tests {
         map.insert("a".into(), Value::Int(1));
         map.insert("b".into(), Value::Int(2));
         Value::Dict(Arc::new(map))
+    }
+
+    #[test]
+    fn pop_count_reports_a_non_negative_int_requirement() {
+        let error = parse_pop_count(&Value::Int(-1)).expect_err("negative count should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected non-negative int"));
+        assert_eq!(error.notes.as_slice(), ["got -1 (int)"]);
+    }
+
+    #[test]
+    fn insert_positions_use_prose_list_requirements() {
+        let error = parse_insert_positions(Some(&Value::Bool(true)), 3)
+            .expect_err("bool destination should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected int or list of ints"));
+        assert_eq!(error.notes.as_slice(), ["got T (bool)"]);
+    }
+
+    #[test]
+    fn dict_insert_destinations_describe_key_and_value_requirements() {
+        let error = dict_insert_destinations(&Value::Bool(true), 3)
+            .expect_err("non-dict destinations should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected dict with tag keys and int values")
+        );
+        assert_eq!(
+            error.notes.as_slice(),
+            ["for pairwise insertion destinations", "got T (bool)"]
+        );
+    }
+
+    #[test]
+    fn missing_dict_keys_report_the_rejected_value() {
+        let Value::Dict(map) = sample_dict() else {
+            unreachable!("sample_dict returns a dict")
+        };
+        let missing = Value::Tag("missing".into());
+        let error = dict_remove_keys(&missing, &map).expect_err("missing key should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("dict key or position does not exist")
+        );
+        assert_eq!(error.notes.as_slice(), ["got `missing (tag)"]);
     }
 
     #[test]

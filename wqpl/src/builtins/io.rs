@@ -11,9 +11,9 @@ use crate::builtins::{
 };
 use crate::value::stream::{BufReadSeek, StreamHandle, WriteSeek};
 use crate::value::{
-    Excerpt, IntoWqValue, Value, WqResult, expected_bytes1, expected_string1, into_wq_string,
+    IntoWqValue, Value, WqResult, expected_bytes1, expected_string1, into_wq_string,
 };
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 #[derive(Clone, Copy, Debug, Default)]
 struct OpenFlags {
@@ -75,11 +75,11 @@ fn openflags_from_named(args: &BuiltinFnArgs) -> WqResult<OpenFlags> {
         match args.named(name) {
             None => Ok(false),
             Some(v) if let Some(b) = v.try_to_rust_bool() => Ok(b),
-            Some(other) => Err(WqError::new(WqErrorType::Domain).src(BE::Open).msg(format!(
-                "named arg '{}' must be a bool, got {}",
-                name,
-                other.excerpt()
-            ))),
+            Some(other) => Err(WqError::new(WqErrorType::Domain)
+                .src(BE::Open)
+                .expected(Requirement::BOOL)
+                .at_named_arg(name)
+                .got1(other)),
         }
     }
 
@@ -157,11 +157,11 @@ pub(super) fn fsize(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn fwrite(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fwrite, [2], &args)?;
     let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(BE::Fwrite, 0, "stream", &args[0]));
+        return Err(type_mismatch(BE::Fwrite, 0, Requirement::STREAM, &args[0]));
     };
     let mut handle = rc.lock().unwrap();
     let Some(w) = handle.writer.as_mut() else {
-        return Err(stream_not_writeable(BE::Fwrite));
+        return Err(stream_not_writable(BE::Fwrite));
     };
     let bytes = args[1]
         .try_to_rust_vec_u8()
@@ -174,11 +174,11 @@ pub(super) fn fwrite(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn fwritet(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fwritet, [2], &args)?;
     let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(BE::Fwritet, 0, "stream", &args[0]));
+        return Err(type_mismatch(BE::Fwritet, 0, Requirement::STREAM, &args[0]));
     };
     let mut handle = rc.lock().unwrap();
     let Some(w) = handle.writer.as_mut() else {
-        return Err(stream_not_writeable(BE::Fwritet));
+        return Err(stream_not_writable(BE::Fwritet));
     };
     let s = args[1]
         .try_to_rust_string()
@@ -191,7 +191,7 @@ pub(super) fn fwritet(args: BuiltinFnArgs) -> WqResult<Value> {
 
 fn fread_impl(src: BE, stream: &Value, length: Option<&Value>) -> WqResult<Option<Vec<u8>>> {
     let Value::Stream(rc) = stream else {
-        return Err(type_mismatch(src, 0, "stream", stream));
+        return Err(type_mismatch(src, 0, Requirement::STREAM, stream));
     };
     let mut handle = rc.lock().unwrap();
     let Some(reader) = handle.reader.as_mut() else {
@@ -200,10 +200,17 @@ fn fread_impl(src: BE, stream: &Value, length: Option<&Value>) -> WqResult<Optio
     // length-mode
     if let Some(length) = length {
         let n = match length {
-            Value::Int(n) if *n >= 0 => {
-                usize::try_from(*n).map_err(|_| type_mismatch(src, 1, "positive int", length))?
+            Value::Int(n) if *n >= 0 => usize::try_from(*n).map_err(|_| {
+                type_mismatch(src, 1, Requirement::non_negative(Requirement::INT), length)
+            })?,
+            other => {
+                return Err(type_mismatch(
+                    src,
+                    1,
+                    Requirement::non_negative(Requirement::INT),
+                    other,
+                ));
             }
-            other => return Err(type_mismatch(src, 1, "positive int", other)),
         };
         let mut tmp = vec![0u8; n];
         let read = reader.read(&mut tmp).map_err(|e| io_err(e, src))?;
@@ -278,7 +285,12 @@ pub(super) fn freadt(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn freadtln(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Freadtln, [1], &args)?;
     let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(BE::Freadtln, 0, "stream", &args[0]));
+        return Err(type_mismatch(
+            BE::Freadtln,
+            0,
+            Requirement::STREAM,
+            &args[0],
+        ));
     };
     let mut handle = rc.lock().unwrap();
     let Some(reader) = handle.reader.as_mut() else {
@@ -293,7 +305,12 @@ pub(super) fn freadtln(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn freadtlns(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Freadtlns, [1], &args)?;
     let Value::Stream(rc) = &args[0] else {
-        return Err(type_mismatch(BE::Freadtlns, 0, "stream", &args[0]));
+        return Err(type_mismatch(
+            BE::Freadtlns,
+            0,
+            Requirement::STREAM,
+            &args[0],
+        ));
     };
     let mut handle = rc.lock().unwrap();
     let Some(reader) = handle.reader.as_mut() else {
@@ -312,7 +329,7 @@ pub(super) fn fseek(args: BuiltinFnArgs) -> WqResult<Value> {
     let offset = if let Value::Int(n) = *offset_arg {
         n
     } else {
-        return Err(type_mismatch(BE::Fseek, 1, "int", &args[1]));
+        return Err(type_mismatch(BE::Fseek, 1, Requirement::INT, &args[1]));
     };
     let whence = if args.len() == 3 {
         let whence_arg = &args[2];
@@ -323,9 +340,13 @@ pub(super) fn fseek(args: BuiltinFnArgs) -> WqResult<Value> {
         } else {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Fseek)
-                .msg("expected valid whence")
+                .expected(Requirement::one_of([
+                    Requirement::literal("0"),
+                    Requirement::literal("1"),
+                    Requirement::literal("2"),
+                ]))
                 .at_arg(2)
-                .attach_note("fseek whence: 0=start, 1=current, 2=end")
+                .attach_note("0 means start; 1 means current position; 2 means end")
                 .got1(whence_arg));
         }
     } else {
@@ -362,7 +383,7 @@ pub(super) fn fseek(args: BuiltinFnArgs) -> WqResult<Value> {
             Err(stream_not_seekable(BE::Fseek))
         }
     } else {
-        Err(type_mismatch(BE::Fseek, 0, "stream", &args[0]))
+        Err(type_mismatch(BE::Fseek, 0, Requirement::STREAM, &args[0]))
     }
 }
 
@@ -382,7 +403,7 @@ pub(super) fn ftell(args: BuiltinFnArgs) -> WqResult<Value> {
         }
         Err(stream_not_seekable(BE::Ftell))
     } else {
-        Err(type_mismatch(BE::Ftell, 0, "stream", &args[0]))
+        Err(type_mismatch(BE::Ftell, 0, Requirement::STREAM, &args[0]))
     }
 }
 
@@ -394,7 +415,7 @@ pub(super) fn fclose(args: BuiltinFnArgs) -> WqResult<Value> {
         handle.writer = None;
         Ok(Value::unit())
     } else {
-        Err(type_mismatch(BE::Fclose, 0, "stream", &args[0]))
+        Err(type_mismatch(BE::Fclose, 0, Requirement::STREAM, &args[0]))
     }
 }
 
@@ -408,10 +429,10 @@ fn stream_not_readable(src: BE) -> WqError {
         .msg("this stream is not readable")
 }
 
-fn stream_not_writeable(src: BE) -> WqError {
+fn stream_not_writable(src: BE) -> WqError {
     WqError::new(WqErrorType::Io)
         .src(src)
-        .msg("this stream is not writeable")
+        .msg("this stream is not writable")
 }
 
 fn stream_not_seekable(src: BE) -> WqError {
@@ -461,6 +482,26 @@ mod tests {
             Value::Bool(true)
         );
         fs::remove_dir_all(&path).unwrap();
+    }
+
+    #[test]
+    fn fseek_reports_allowed_whence_values() {
+        let error = fseek(BuiltinFnArgs::from(smallvec::smallvec![
+            Value::unit(),
+            Value::Int(0),
+            Value::Int(3),
+        ]))
+        .expect_err("an unsupported whence should fail before stream access");
+
+        assert_eq!(error.msg.as_deref(), Some("expected 0, 1, or 2"));
+        assert_eq!(
+            error.notes.as_slice(),
+            [
+                "at argument 3",
+                "0 means start; 1 means current position; 2 means end",
+                "got 3 (int)"
+            ]
+        );
     }
 
     #[test]

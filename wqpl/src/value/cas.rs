@@ -457,8 +457,11 @@ mod cas_tests {
     }
 
     #[test]
-    fn cas_type_name() {
-        assert_eq!(Value::from_cas_var("x").type_name(), "cas");
+    fn cas_category() {
+        assert_eq!(
+            Value::from_cas_var("x").category(),
+            crate::value::ValueCategory::Cas
+        );
     }
 
     #[test]

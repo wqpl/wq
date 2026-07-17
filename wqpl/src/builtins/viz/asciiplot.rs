@@ -3,21 +3,24 @@ use std::cmp::{max, min};
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 
-use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_named_args};
+use crate::builtins::{
+    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, at_least_arity_error, check_named_args,
+};
 use crate::cas::{infer_single_cas_var, substitute_cas};
 use crate::style::{AnsiColor, ColorMode as StyleColorMode, TextStyle, paint};
 use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult};
 use crate::vm::pure::PureCallback;
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
+
+const EXPECTED_SERIES_ARGUMENT: &str = "expected each argument to be a numeric list, a list of numeric (x;y) points, a callable, a CAS expression, table-shaped data, or a series config dict";
+const SERIES_ARGUMENT_EXAMPLES: &str =
+    "e.g. (1;2;3), ((1;2);(2;4)), {x*x}, @s x^2, or (`x:(0;1);`y:(2;3))";
 
 pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_named_args(&args, BE::Asciiplot, super::super::ASCIIPLOT_NAMED_ARGS)?;
     if args.is_empty() {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BE::Asciiplot)
-            .msg("expected 1 or more args")
-            .attach_note(BE::Asciiplot.usage()));
+        return Err(at_least_arity_error(BE::Asciiplot, 1, 0));
     }
     let mut opts = PlotOptions::default();
     let explicit_size = opts.apply_from_named(&args)?;
@@ -35,8 +38,7 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
         configs.extend(parse_series_arg(&arg, &opts)?);
     }
     if configs.is_empty() {
-        return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2-element numeric lists)").attach_note(
-                "e.g. (1;2;3), ((1;2);(2;4))"));
+        return Err(expected_series_arg_error());
     }
     let mut all_series: Vec<PlotSeries> = Vec::with_capacity(configs.len());
     for config in &configs {
@@ -187,17 +189,9 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
             } else if map.contains_key("fn") {
                 Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Asciiplot)
-                    .msg("series config `fn` must be a callable function or CAS expression"))
+                    .msg("series config 'fn' must be a callable or CAS expression"))
             } else {
-                Err(WqError::new(WqErrorType::Domain)
-                    .src(BE::Asciiplot)
-                    .msg(
-                        "expected each arg to be point data, a function, a CAS expression, \
-                         table-shaped data, or a series config dict with `fn`",
-                    )
-                    .attach_note(
-                        "e.g. (1;2;3), ((1;2);(2;4)), {x*x}, @s x^2, or (`x:(0;1);`y:(2;3))",
-                    ))
+                Err(expected_series_arg_error())
             }
         }
         v if v.is_callable() => Ok(vec![SeriesConfig {
@@ -222,7 +216,7 @@ fn parse_series_config_dict(
     {
         return Ok(Some(parse_series_config_data(
             value,
-            "series config `data` must be a numeric y-list, explicit ((x;y);...) points, callable, CAS, or table-shaped data",
+            "series config 'data' must be a numeric list, a list of numeric (x;y) points, a callable, a CAS expression, or table-shaped data",
             &attrs,
             opts,
         )?));
@@ -243,7 +237,7 @@ fn parse_series_config_dict(
         return Ok(Some(vec![attrs.into_config(
             parse_callable_or_cas_series_config_data(
                 value,
-                "series config `fn`, `cas`, or `expr` must be callable or CAS",
+                "series config 'fn', 'cas', or 'expr' must be a callable or CAS expression",
             )?,
         )]));
     }
@@ -260,9 +254,9 @@ fn parse_series_config_dict(
         && let Some(y_values) = map.get("y")
     {
         let Some(series) = parse_raw_series_data(y_values) else {
-            return Err(WqError::new(WqErrorType::Domain)
-                .src(BE::Asciiplot)
-                .msg("series config `y` must be a numeric y-list"));
+            return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg(
+                "series config 'y' must be a numeric list or a list of numeric (x;y) points",
+            ));
         };
         return Ok(Some(vec![attrs.into_config(SeriesData::Raw(series))]));
     }
@@ -329,7 +323,7 @@ fn parse_callable_or_cas_series_config_data(
 fn parse_raw_series_config_data(value: &Value) -> WqResult<SeriesData> {
     let Some(series) = parse_raw_series_data(value) else {
         return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg(
-            "series config point data must be a numeric y-list or explicit ((x;y);...) points",
+            "series config point data must be a numeric list or a list of numeric (x;y) points",
         ));
     };
     Ok(SeriesData::Raw(series))
@@ -355,17 +349,17 @@ fn parse_xy_series_data(x_value: &Value, y_value: &Value) -> WqResult<SampledSer
     let Some(xs) = numeric_sequence(x_value) else {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Asciiplot)
-            .msg("series config `x` must be a numeric list"));
+            .msg("series config 'x' must be a numeric list"));
     };
     let Some(ys) = numeric_sequence(y_value) else {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Asciiplot)
-            .msg("series config `y` must be a numeric list"));
+            .msg("series config 'y' must be a numeric list"));
     };
     if xs.is_empty() || xs.len() != ys.len() {
         return Err(WqError::new(WqErrorType::Length)
             .src(BE::Asciiplot)
-            .msg("series config `x` and `y` must have the same non-zero length"));
+            .msg("series config 'x' and 'y' must have the same non-zero length"));
     }
 
     Ok(SampledSeries::from_points(xs.into_iter().zip(ys).collect()))
@@ -494,7 +488,7 @@ fn table_series_configs(table: TableData, opts: &PlotOptions) -> WqResult<Vec<Se
     {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Asciiplot)
-            .msg(format!("table x column `{name}` was not found")));
+            .msg(format!("table x column '{name}' was not found")));
     }
 
     let y_columns = if let Some(columns) = &opts.table_y {
@@ -502,7 +496,7 @@ fn table_series_configs(table: TableData, opts: &PlotOptions) -> WqResult<Vec<Se
             if !table.columns.contains_key(name) {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Asciiplot)
-                    .msg(format!("table y column `{name}` was not found")));
+                    .msg(format!("table y column '{name}' was not found")));
             }
         }
         columns.clone()
@@ -540,7 +534,7 @@ fn table_series_configs(table: TableData, opts: &PlotOptions) -> WqResult<Vec<Se
         if points.is_empty() {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Asciiplot)
-                .msg(format!("table y column `{y_name}` has no numeric points")));
+                .msg(format!("table y column '{y_name}' has no numeric points")));
         }
 
         configs.push(SeriesConfig {
@@ -567,10 +561,8 @@ fn table_cell_as_f64(table: &TableData, name: &str, idx: usize) -> Option<f64> {
 fn expected_series_arg_error() -> WqError {
     WqError::new(WqErrorType::Domain)
         .src(BE::Asciiplot)
-        .msg(
-            "expected each arg to be point data, a function, a symbolic CAS expression, or table-shaped data",
-        )
-        .attach_note("e.g. (1;2;3), ((1;2);(2;4)), {x*x}, @s x^2, or (`x:(0;1);`y:(2;3))")
+        .msg(EXPECTED_SERIES_ARGUMENT)
+        .attach_note(SERIES_ARGUMENT_EXAMPLES)
 }
 
 fn sample_callable_series(
@@ -950,22 +942,19 @@ fn parse_column_names(value: &Value) -> Option<Vec<String>> {
 }
 
 fn plot_size_from_i64(n: i64, min_value: usize, option: &str, value: &Value) -> WqResult<usize> {
-    let n = usize::try_from(n).map_err(|_| {
-        WqError::new(WqErrorType::Domain)
-            .src(BE::Asciiplot)
-            .msg(format!("{option} must be a non-negative integer"))
-            .got1(value)
-    })?;
+    let n = usize::try_from(n)
+        .map_err(|_| plot_size_error(plot_int_size_requirement(), option, value))?;
     ensure_plot_size_fits(n, option, value)?;
     Ok(n.max(min_value))
 }
 
 fn plot_size_from_f64(n: f64, min_value: usize, option: &str, value: &Value) -> WqResult<usize> {
     if !n.is_finite() || n < 0.0 {
-        return Err(WqError::new(WqErrorType::Domain)
-            .src(BE::Asciiplot)
-            .msg(format!("{option} must be a non-negative finite number"))
-            .got1(value));
+        return Err(plot_size_error(
+            plot_float_size_requirement(),
+            option,
+            value,
+        ));
     }
     let n = n
         .max(min_value as f64)
@@ -984,10 +973,37 @@ fn ensure_plot_size_fits(n: usize, option: &str, value: &Value) -> WqResult<()> 
 }
 
 fn plot_size_too_large(option: &str, value: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
+    let requirement = if matches!(value, Value::Float(_)) {
+        plot_float_size_requirement()
+    } else {
+        plot_int_size_requirement()
+    };
+    plot_size_error(requirement, option, value)
+}
+
+fn plot_int_size_requirement() -> Requirement {
+    Requirement::int_range(Bound::Included(0), Bound::Included(isize::MAX as i128))
+}
+
+fn plot_float_size_requirement() -> Requirement {
+    Requirement::phrase(
+        format!("finite number from 0 through {}", isize::MAX),
+        format!("finite numbers from 0 through {}", isize::MAX),
+    )
+}
+
+fn plot_size_error(requirement: Requirement, option: &str, value: &Value) -> WqError {
+    let (name, component) = option
+        .split_once(' ')
+        .map_or((option, None), |(name, component)| (name, Some(component)));
+    let mut error = WqError::new(WqErrorType::Domain)
         .src(BE::Asciiplot)
-        .msg(format!("{option} is too large"))
-        .got1(value)
+        .expected(requirement)
+        .at_named_arg(name);
+    if let Some(component) = component {
+        error = error.attach_note(format!("at '{component}' component"));
+    }
+    error.got1(value)
 }
 
 fn plot_size_to_isize(n: usize) -> isize {
@@ -1096,8 +1112,8 @@ impl PlotOptions {
         if let Some(size) = args.named("size")
             && let Some((a, b)) = pair_as_f64(size)
         {
-            self.width = plot_size_from_f64(a, 10, "size width", size)?;
-            self.height = plot_size_from_f64(b, 5, "size height", size)?;
+            self.width = plot_size_from_f64(a, 10, "size width", &Value::float(a))?;
+            self.height = plot_size_from_f64(b, 5, "size height", &Value::float(b))?;
             explicit_size = true;
         }
         if let Some(width) = args.named("width")
@@ -1171,8 +1187,8 @@ impl PlotOptions {
                 self.grid = GridMode::Density(n, n);
             } else if let Some((a, b)) = pair_as_f64(v) {
                 self.grid = GridMode::Density(
-                    plot_size_from_f64(a, 1, "grid width", v)?,
-                    plot_size_from_f64(b, 1, "grid height", v)?,
+                    plot_size_from_f64(a, 1, "grid width", &Value::float(a))?,
+                    plot_size_from_f64(b, 1, "grid height", &Value::float(b))?,
                 );
             }
         }
@@ -2262,6 +2278,19 @@ mod tests {
     }
 
     #[test]
+    fn asciiplot_reports_the_actual_minimum_arity() {
+        let mut vm = Vm::new(Vec::new());
+        let error = asciiplot(&mut vm, BuiltinFnArgs::with_named(smallvec![], Vec::new()))
+            .expect_err("asciiplot without series should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected at least 1 argument, got 0")
+        );
+        assert_eq!(error.notes.as_slice(), [BE::Asciiplot.usage()]);
+    }
+
+    #[test]
     fn asciiplot_uses_the_session_stdout_color_mode() {
         assert!(!render_with_session_color(StyleColorMode::Never).contains("\x1b["));
         assert!(render_with_session_color(StyleColorMode::Always).contains("\x1b["));
@@ -2307,6 +2336,40 @@ mod tests {
     }
 
     #[test]
+    fn invalid_series_arguments_share_one_requirement() {
+        let expected = "expected each argument to be a numeric list, a list of numeric (x;y) points, a callable, a CAS expression, table-shaped data, or a series config dict";
+        let opts = PlotOptions::default();
+        let invalid_values = [
+            Value::Bool(true),
+            Value::Dict(Arc::new(IndexMap::from([(
+                "unknown".into(),
+                Value::Int(1),
+            )]))),
+        ];
+
+        for value in invalid_values {
+            let error = parse_series_arg(&value, &opts)
+                .err()
+                .expect("invalid series argument should fail");
+            assert_eq!(error.msg.as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn series_data_errors_use_numeric_list_terminology() {
+        let error = parse_raw_series_config_data(&Value::Tag("bad".into()))
+            .err()
+            .expect("invalid point data should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some(
+                "series config point data must be a numeric list or a list of numeric (x;y) points"
+            )
+        );
+    }
+
+    #[test]
     fn raw_series_accepts_virtual_ranges_and_packed_point_pairs() {
         let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(2, 2, 3)));
         let series = parse_raw_series_data(&range).expect("range is a numeric series");
@@ -2339,10 +2402,13 @@ mod tests {
             ))
             .expect_err("negative width should fail");
 
-        assert!(
-            err.to_string()
-                .contains("width must be a non-negative integer"),
-            "unexpected error: {err}"
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(format!("expected int from 0 through {}", isize::MAX).as_str())
+        );
+        assert_eq!(
+            err.notes.as_slice(),
+            ["at named argument 'width'", "got -1 (int)"]
         );
     }
 
@@ -2356,10 +2422,13 @@ mod tests {
             ))
             .expect_err("negative samples should fail");
 
-        assert!(
-            err.to_string()
-                .contains("samples must be a non-negative integer"),
-            "unexpected error: {err}"
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(format!("expected int from 0 through {}", isize::MAX).as_str())
+        );
+        assert_eq!(
+            err.notes.as_slice(),
+            ["at named argument 'samples'", "got -1 (int)"]
         );
     }
 
@@ -2374,10 +2443,17 @@ mod tests {
             ))
             .expect_err("negative size width should fail");
 
-        assert!(
-            err.to_string()
-                .contains("size width must be a non-negative finite number"),
-            "unexpected error: {err}"
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(format!("expected finite number from 0 through {}", isize::MAX).as_str())
+        );
+        assert_eq!(
+            err.notes.as_slice(),
+            [
+                "at named argument 'size'",
+                "at 'width' component",
+                "got -1.0 (float)",
+            ]
         );
     }
 
@@ -2392,10 +2468,17 @@ mod tests {
             ))
             .expect_err("negative grid width should fail");
 
-        assert!(
-            err.to_string()
-                .contains("grid width must be a non-negative finite number"),
-            "unexpected error: {err}"
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(format!("expected finite number from 0 through {}", isize::MAX).as_str())
+        );
+        assert_eq!(
+            err.notes.as_slice(),
+            [
+                "at named argument 'grid'",
+                "at 'width' component",
+                "got -1.0 (float)",
+            ]
         );
     }
 

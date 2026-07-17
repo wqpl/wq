@@ -34,7 +34,7 @@ fn predicate(
         return Err(WqError::new(WqErrorType::Domain)
             .src(builtin)
             .msg(format!(
-                "{} expects a numeric or symbolic expression",
+                "'{}' expects a numeric or symbolic expression",
                 builtin.name()
             ))
             .got1(expr));
@@ -132,7 +132,7 @@ pub(super) fn substitute(args: BuiltinFnArgs) -> WqResult<Value> {
             other => {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BuiltinEnum::Substitute)
-                    .msg("substitute expects an equation or a list of equations")
+                    .msg("'substitute' expects an equation or a list of equations")
                     .got1(&other));
             }
         };
@@ -141,7 +141,7 @@ pub(super) fn substitute(args: BuiltinFnArgs) -> WqResult<Value> {
             let Some((lhs, rhs)) = item.cas_eq_parts() else {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BuiltinEnum::Substitute)
-                    .msg("substitute expects a list of equations")
+                    .msg("'substitute' expects a list of equations")
                     .got1(item));
             };
             result = substitute_cas(&result, lhs, rhs)?;
@@ -190,7 +190,7 @@ fn required_limit_var(value: Value) -> WqResult<Value> {
     } else {
         Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Limit)
-            .msg("limit target must be a symbolic variable")
+            .msg("'limit' target must be a symbolic variable")
             .got1(&value))
     }
 }
@@ -199,7 +199,7 @@ fn required_limit_direction(value: &Value) -> WqResult<crate::cas::limit::LimitD
     parse_limit_direction(value).ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Limit)
-            .msg("limit direction must be @s+ or @s-")
+            .msg("'limit' direction must be '@s+' or '@s-'")
             .got1(value)
     })
 }
@@ -214,7 +214,7 @@ pub(super) fn limit(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> Wq
     if argc < 2 {
         return Err(WqError::new(WqErrorType::Arity)
             .src(BuiltinEnum::Limit)
-            .msg("limit expects at least 2 args: expr, point"));
+            .msg("'limit' expects at least 2 arguments: 'limit[expr;point]'"));
     }
     let mut iter = args.into_iter();
     let mut result = iter.next().unwrap();
@@ -229,7 +229,9 @@ pub(super) fn limit(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> Wq
     if !n.is_multiple_of(2) {
         return Err(WqError::new(WqErrorType::Arity)
             .src(BuiltinEnum::Limit)
-            .msg("limit expects expr;point or expr followed by var;point pairs"));
+            .msg(
+                "'limit' expects 'limit[expr;point]' or 'limit[expr;var;point]', optionally followed by additional 'var;point' pairs",
+            ));
     }
 
     let n_pairs = n / 2;
@@ -273,7 +275,9 @@ fn parse_solve_domain(value: &Value) -> WqResult<SolveDomain> {
         Value::String(name) => name.as_str(),
         _ => {
             return Err(WqError::new(WqErrorType::Domain)
-                .msg("solve domain must be `complex or `real")
+                .msg(
+                    "'solve' domain must be the tag `complex or `real, or the string \"complex\" or \"real\"",
+                )
                 .got1(value));
         }
     };
@@ -281,7 +285,9 @@ fn parse_solve_domain(value: &Value) -> WqResult<SolveDomain> {
         "complex" => Ok(SolveDomain::Complex),
         "real" => Ok(SolveDomain::Real),
         _ => Err(WqError::new(WqErrorType::Domain)
-            .msg("solve domain must be `complex or `real")
+            .msg(
+                "'solve' domain must be the tag `complex or `real, or the string \"complex\" or \"real\"",
+            )
             .got1(value)),
     }
 }
@@ -331,20 +337,20 @@ pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
     let mut a = args[1].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Brent)
-            .msg("brent expects a real lower bound")
+            .msg("'brent' expects a real lower bound")
             .at_arg(1)
     })?;
     let mut b = args[2].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Brent)
-            .msg("brent expects a real upper bound")
+            .msg("'brent' expects a real upper bound")
             .at_arg(2)
     })?;
     let tol = if args.len() >= 4 {
         args[3].as_f64().ok_or_else(|| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Brent)
-                .msg("brent expects a real tolerance")
+                .msg("'brent' expects a real tolerance")
                 .at_arg(3)
         })?
     } else {
@@ -354,13 +360,13 @@ pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
         usize::try_from(args[4].as_i64().ok_or_else(|| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Brent)
-                .msg("brent expects an integer iteration limit")
+                .msg("'brent' expects an int iteration limit")
                 .at_arg(4)
         })?)
         .map_err(|_| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Brent)
-                .msg("brent expects a non-negative iteration limit")
+                .msg("'brent' expects a non-negative iteration limit")
                 .at_arg(4)
         })?
     } else {
@@ -370,17 +376,17 @@ pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
     if !a.is_finite() || !b.is_finite() || a >= b {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Brent)
-            .msg("brent expects finite bounds with lower < upper"));
+            .msg("'brent' expects finite bounds with lower < upper"));
     }
     if !tol.is_finite() || tol <= 0.0 {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Brent)
-            .msg("brent expects a positive finite tolerance"));
+            .msg("'brent' expects a positive finite tolerance"));
     }
     if max_iter == 0 {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Brent)
-            .msg("brent expects a positive iteration limit"));
+            .msg("'brent' expects a positive iteration limit"));
     }
 
     let mut fa = eval_root_objective(&expr, &var, a, BuiltinEnum::Brent)?;
@@ -394,7 +400,7 @@ pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
     if fa.signum() == fb.signum() {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Brent)
-            .msg("brent requires the interval to bracket a root"));
+            .msg("'brent' requires the interval to bracket a root"));
     }
 
     let mut c = a;
@@ -464,7 +470,7 @@ pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
 
     Err(WqError::new(WqErrorType::Domain)
         .src(BuiltinEnum::Brent)
-        .msg("brent did not converge within the iteration limit"))
+        .msg("'brent' did not converge within the iteration limit"))
 }
 
 pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -476,14 +482,14 @@ pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
     let mut x = args[1].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Newton)
-            .msg("newton expects a real initial guess")
+            .msg("'newton' expects a real initial guess")
             .at_arg(1)
     })?;
     let tol = if args.len() >= 3 {
         args[2].as_f64().ok_or_else(|| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Newton)
-                .msg("newton expects a real tolerance")
+                .msg("'newton' expects a real tolerance")
                 .at_arg(2)
         })?
     } else {
@@ -493,13 +499,13 @@ pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
         usize::try_from(args[3].as_i64().ok_or_else(|| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Newton)
-                .msg("newton expects an integer iteration limit")
+                .msg("'newton' expects an int iteration limit")
                 .at_arg(3)
         })?)
         .map_err(|_| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Newton)
-                .msg("newton expects a non-negative iteration limit")
+                .msg("'newton' expects a non-negative iteration limit")
                 .at_arg(3)
         })?
     } else {
@@ -509,17 +515,17 @@ pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
     if !x.is_finite() {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Newton)
-            .msg("newton expects a finite initial guess"));
+            .msg("'newton' expects a finite initial guess"));
     }
     if !tol.is_finite() || tol <= 0.0 {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Newton)
-            .msg("newton expects a positive finite tolerance"));
+            .msg("'newton' expects a positive finite tolerance"));
     }
     if max_iter == 0 {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Newton)
-            .msg("newton expects a positive iteration limit"));
+            .msg("'newton' expects a positive iteration limit"));
     }
 
     for _ in 0..max_iter {
@@ -532,14 +538,14 @@ pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
         if dfx == 0.0 {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Newton)
-                .msg("newton encountered a zero derivative"));
+                .msg("'newton' encountered a zero derivative"));
         }
 
         let next = x - fx / dfx;
         if !next.is_finite() {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Newton)
-                .msg("newton produced a non-finite iterate"));
+                .msg("'newton' produced a non-finite iterate"));
         }
         if (next - x).abs() <= tol {
             return Ok(Value::float(next));
@@ -549,12 +555,12 @@ pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
 
     Err(WqError::new(WqErrorType::Domain)
         .src(BuiltinEnum::Newton)
-        .msg("newton did not converge within the iteration limit"))
+        .msg("'newton' did not converge within the iteration limit"))
 }
 
 pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Factor, [1, 2, 3], &args)?;
-    // Parse args: factor[expr] | factor[expr; var] |
+    // Parse arguments: factor[expr] | factor[expr; var] |
     //             factor[expr; complex] | factor[expr; complex; var]
     let (complex, var) = if args.len() == 1 {
         (
@@ -572,15 +578,17 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
         } else {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Factor)
-                .msg("factor_poly second arg must be a variable or `true` (complex)")
+                .msg(
+                    "'factor' second argument must be a symbolic variable or 'T' for complex factorization",
+                )
                 .got1(&args[1]));
         }
     } else {
-        // args.len() == 3: factor_poly[expr; true; var]
+        // args.len() == 3: factor[expr; T; var]
         if !matches!(&args[1], Value::Bool(true)) {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Factor)
-                .msg("factor_poly with 3 args requires second arg to be `true` (complex)")
+                .msg("'factor' with 3 arguments requires 'T' as the second argument")
                 .got1(&args[1]));
         }
         match args[2].cas_var_name() {
@@ -588,7 +596,7 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
             None => {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BuiltinEnum::Factor)
-                    .msg("factor_poly expects a variable as third argument")
+                    .msg("'factor' expects a symbolic variable as the third argument")
                     .got1(&args[2]));
             }
         }
@@ -767,7 +775,7 @@ fn factor_poly_complex_coeff(value: &Value) -> WqResult<num_complex::Complex64> 
     let numeric = eval_numeric_cas(value)?;
     numeric.as_complex64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
-            .msg("factor_poly complex factorization expects numeric coefficients")
+            .msg("'factor' complex factorization expects numeric coefficients")
             .got1(value)
     })
 }
@@ -786,7 +794,7 @@ fn factor_quadratic_complex(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
     let c = factor_poly_complex_coeff(&c)?;
     if a.norm() <= 1e-12 {
         return Err(WqError::new(WqErrorType::Domain)
-            .msg("factor_poly quadratic factorization requires a non-zero leading coefficient"));
+            .msg("'factor' quadratic factorization requires a non-zero leading coefficient"));
     }
 
     let sqrt_d = (b * b - 4.0 * a * c).sqrt();
@@ -857,7 +865,71 @@ mod tests {
                 .expect("complex string"),
             SolveDomain::Complex
         );
-        assert!(parse_solve_domain(&Value::Tag("integer".into())).is_err());
+        let err = parse_solve_domain(&Value::Tag("integer".into()))
+            .expect_err("unsupported solve domain should fail");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(
+                "'solve' domain must be the tag `complex or `real, or the string \"complex\" or \"real\""
+            )
+        );
+    }
+
+    #[test]
+    fn limit_direction_error_quotes_symbolic_forms() {
+        let err = required_limit_direction(&Value::from_cas_var("x"))
+            .expect_err("ordinary symbolic variable is not a direction");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'limit' direction must be '@s+' or '@s-'")
+        );
+    }
+
+    #[test]
+    fn factor_errors_use_public_builtin_and_argument_terms() {
+        let err = factor_poly(vec![Value::from_cas_var("x"), Value::Int(0)].into())
+            .expect_err("invalid second argument should fail");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(
+                "'factor' second argument must be a symbolic variable or 'T' for complex factorization"
+            )
+        );
+
+        let err = factor_poly(
+            vec![
+                Value::from_cas_var("x"),
+                Value::Bool(false),
+                Value::from_cas_var("x"),
+            ]
+            .into(),
+        )
+        .expect_err("three-argument form requires T");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'factor' with 3 arguments requires 'T' as the second argument")
+        );
+    }
+
+    #[test]
+    fn root_solver_iteration_limit_uses_public_int_term() {
+        let err = brent(
+            vec![
+                Value::from_cas_var("x"),
+                Value::Int(-1),
+                Value::Int(1),
+                Value::float(1e-12),
+                Value::String("ten".to_string().into()),
+            ]
+            .into(),
+        )
+        .expect_err("string iteration limit should fail");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'brent' expects an int iteration limit")
+        );
     }
 
     #[test]

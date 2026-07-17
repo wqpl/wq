@@ -1,5 +1,5 @@
 (`raw:("-m";"nope";"needle";"a.txt"))
-error: invalid value 'nope' for '--max-count': expected valid int literal
+error: invalid value "nope" for '--max-count': could not parse int literal
 
 Usage: rgrep [OPTIONS] <PATTERN> <PATHS>...
 

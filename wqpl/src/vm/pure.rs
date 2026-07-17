@@ -282,15 +282,11 @@ fn pure_index_err(target: &Value, args: &[Value]) -> WqError {
     WqError::new(WqErrorType::Index)
         .src("pure callback")
         .msg("invalid index")
+        .attach_note(format!("index: {} ({})", index.excerpt(), index.category()))
         .attach_note(format!(
-            "index: '{}' ({})",
-            index.excerpt(),
-            index.type_name()
-        ))
-        .attach_note(format!(
-            "target: '{}' ({})",
+            "target: {} ({})",
             target.excerpt(),
-            target.type_name()
+            target.category()
         ))
 }
 

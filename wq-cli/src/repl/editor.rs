@@ -670,11 +670,11 @@ impl Completer for WqReplHighlighter {
                 .iter()
                 .filter(|hint| hint.name.starts_with(prefix))
             {
-                let description = match (hint.type_name.is_empty(), hint.excerpt.is_empty()) {
+                let description = match (hint.category.is_empty(), hint.excerpt.is_empty()) {
                     (true, true) => None,
                     (true, false) => Some(hint.excerpt.clone()),
-                    (false, true) => Some(format!(":{}", hint.type_name)),
-                    (false, false) => Some(format!(":{} {}", hint.type_name, hint.excerpt)),
+                    (false, true) => Some(format!(":{}", hint.category)),
+                    (false, false) => Some(format!(":{} {}", hint.category, hint.excerpt)),
                 };
                 let candidate = description.map_or_else(
                     || Pair::new(hint.name.clone(), hint.name.clone()),
@@ -759,7 +759,7 @@ impl Hinter for WqReplHighlighter {
         for hint in &self.global_hints {
             merged.push((
                 hint.name.clone(),
-                Some(format!("  :{} {}", hint.type_name, hint.excerpt)),
+                Some(format!("  :{} {}", hint.category, hint.excerpt)),
             ));
         }
         merged.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1011,7 +1011,7 @@ mod tests {
         h.set_builtin_hints(vec!["sum".to_string()], vec!["sum[xs*]".to_string()]);
         h.set_global_hints(vec![WqGlobalHint {
             name: "score".to_string(),
-            type_name: "num".to_string(),
+            category: "int".to_string(),
             excerpt: "score:42".to_string(),
         }]);
         let history = DefaultHistory::new();
@@ -1030,7 +1030,7 @@ mod tests {
         assert_eq!(sum.kind.as_deref(), Some("builtin"));
         assert_eq!(sum.description.as_deref(), Some("sum[xs*]"));
         assert_eq!(score.kind.as_deref(), Some("global"));
-        assert_eq!(score.description.as_deref(), Some(":num score:42"));
+        assert_eq!(score.description.as_deref(), Some(":int score:42"));
     }
 
     #[test]
@@ -1193,7 +1193,7 @@ mod tests {
         let mut h = WqReplHighlighter::new();
         h.set_global_hints(vec![WqGlobalHint {
             name: "count".to_string(),
-            type_name: "fn".to_string(),
+            category: "function".to_string(),
             excerpt: "3".to_string(),
         }]);
         h.set_wqdb_function_hints(vec!["worker".to_string()]);

@@ -6,6 +6,10 @@ use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::{Excerpt as _, Value};
 use crate::wqdb::data::{CrashFrame, CrashSnapshot, DebugInfo};
 
+mod requirement;
+
+pub(crate) use requirement::{Bound, Requirement};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceCtx {
     pub text: String,
@@ -64,6 +68,10 @@ impl WqError {
         self
     }
 
+    pub(crate) fn expected(self, requirement: Requirement) -> Self {
+        self.msg(format!("expected {requirement}"))
+    }
+
     pub(crate) fn span(mut self, span: Option<(usize, usize)>) -> Self {
         self.span = span;
         self
@@ -102,27 +110,29 @@ impl WqError {
     }
 
     pub(crate) fn got1(mut self, v: &Value) -> Self {
-        self = self.attach_note(format!("got '{}' ({})", v.excerpt(), v.type_name()));
+        self = self.attach_note(format!("got {} ({})", v.excerpt(), v.category()));
         self
     }
 
     pub(crate) fn got2(mut self, lhs: &Value, rhs: &Value) -> Self {
-        self = self.attach_note(format!("got lhs '{}' ({})", lhs.excerpt(), lhs.type_name()));
-        self = self.attach_note(format!("got rhs '{}' ({})", rhs.excerpt(), rhs.type_name()));
+        self = self.attach_note(format!("got lhs {} ({})", lhs.excerpt(), lhs.category()));
+        self = self.attach_note(format!("got rhs {} ({})", rhs.excerpt(), rhs.category()));
         self
     }
 
-    pub(crate) fn unexpected_element(mut self, v: &Value, i: usize) -> Self {
-        self = self.attach_note(format!(
-            "unexpected element '{}' ({}) at [{i}]",
-            v.excerpt(),
-            v.type_name()
-        ));
+    pub(crate) fn got_at_index(mut self, v: &Value, index: usize) -> Self {
+        self = self.attach_note(format!("at index {index}"));
+        self = self.attach_note(format!("got {} ({})", v.excerpt(), v.category()));
         self
     }
 
     pub(crate) fn at_arg(mut self, pos: usize) -> Self {
-        self = self.attach_note(format!("at arg[{}]", pos));
+        self = self.attach_note(format!("at argument {}", pos.saturating_add(1)));
+        self
+    }
+
+    pub(crate) fn at_named_arg(mut self, name: &str) -> Self {
+        self.notes.insert(0, format!("at named argument '{name}'"));
         self
     }
 

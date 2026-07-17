@@ -485,7 +485,7 @@ fn prepare_table(table: &TableData, opts: &TableFormatOptions) -> Result<Prepare
         let mut indices = Vec::with_capacity(columns.len());
         for name in columns {
             let Some(idx) = table.headers.iter().position(|header| header == name) else {
-                return Err(format!("table column `{name}` was not found"));
+                return Err(format!("table column '{name}' was not found"));
             };
             indices.push(idx);
         }

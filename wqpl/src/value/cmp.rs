@@ -4,18 +4,17 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::ast::BinaryOperator;
-use crate::value::{Excerpt, Value, WqResult, eval_binary};
+use crate::value::{Value, WqResult, eval_binary};
 use crate::wqerror::{WqError, WqErrorType};
 
 fn cmp_err(a: &Value, b: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
         .msg(format!(
             "cannot compare {} and {}",
-            a.type_name(),
-            b.type_name()
+            a.category(),
+            b.category()
         ))
-        .attach_note(format!("lhs value excerpt is {}", a.excerpt()))
-        .attach_note(format!("rhs value excerpt is {}", b.excerpt()))
+        .got2(a, b)
 }
 
 #[inline]
@@ -340,6 +339,19 @@ mod tests {
         assert_eq!(
             result,
             Value::List(Arc::new(vec![Value::Bool(true), Value::Bool(true)]))
+        );
+    }
+
+    #[test]
+    fn comparison_errors_use_public_categories_and_standard_value_notes() {
+        let error = Value::Bool(true)
+            .lt(&Value::Int(1))
+            .expect_err("bool and int should not be ordered");
+
+        assert_eq!(error.msg.as_deref(), Some("cannot compare bool and int"));
+        assert_eq!(
+            error.notes.as_slice(),
+            ["got lhs T (bool)", "got rhs 1 (int)"]
         );
     }
 }

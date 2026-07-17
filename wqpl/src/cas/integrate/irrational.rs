@@ -30,6 +30,8 @@ thread_local! {
     static SQRT_REDUCTION_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 const MAX_SQRT_REDUCTION_DEPTH: usize = 5;
+const UNSUPPORTED_IRRATIONAL_MESSAGE: &str =
+    "symbolic integration could not reduce this irrational expression";
 
 struct ResetDepthOnDrop;
 impl Drop for ResetDepthOnDrop {
@@ -45,7 +47,18 @@ pub(super) fn integrate_irrational(
     debug: CasDebug<'_>,
 ) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
-    try_irrational(&simplified, var, debug)
+    match try_irrational(&simplified, var, debug) {
+        Err(err) if is_unsupported_irrational_error(&err) => Ok(None),
+        result => result,
+    }
+}
+
+fn unsupported_irrational_error() -> crate::wqerror::WqError {
+    crate::cas::cas_err(UNSUPPORTED_IRRATIONAL_MESSAGE)
+}
+
+fn is_unsupported_irrational_error(err: &crate::wqerror::WqError) -> bool {
+    err.msg.as_deref() == Some(UNSUPPORTED_IRRATIONAL_MESSAGE)
 }
 
 fn try_irrational(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Option<Value>> {
@@ -642,8 +655,7 @@ fn euler_integrate_core(
     let integrand_t = cancel_rational_gcd(&integrand_t, "--cas-euler-t")?;
 
     let integrated = super::rational::integrate_by_rational(&integrand_t, "--cas-euler-t", debug)?;
-    let integrated = integrated
-        .ok_or_else(|| crate::cas::cas_err("Euler substitution produced non-rational integrand"))?;
+    let integrated = integrated.ok_or_else(unsupported_irrational_error)?;
 
     simplify_cas_value(&substitute_expr(&integrated, "--cas-euler-t", t_back)?)
 }
@@ -841,8 +853,7 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
         if numeric_is_negative(k) {
             // sqrt(x^2 - d^2) where d^2 = -k
             let d_sq = numeric_mul(k, &Value::Int(-1))?;
-            sqrt_value(&d_sq)
-                .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
+            sqrt_value(&d_sq).ok_or_else(unsupported_irrational_error)?;
             // x/2*sqrt(x^2-d^2) - d^2/2*ln|x + sqrt(x^2-d^2)|
             let x = Value::from_cas_var(var);
             let sqrt_expr = Value::from_cas_function(
@@ -864,8 +875,7 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
             return simplify_cas_value(&cas_sub(first, second)?);
         } else {
             // sqrt(x^2 + d^2) where d^2 = k
-            let d = sqrt_value(k)
-                .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
+            let d = sqrt_value(k).ok_or_else(unsupported_irrational_error)?;
             // x/2*sqrt(x^2+d^2) + d^2/2*arcsinh(x/d)
             let x = Value::from_cas_var(var);
             let sqrt_expr = Value::from_cas_function(
@@ -916,7 +926,7 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
         simplify_cas_value(&cas_mul(vec![sqrt_a, inner])?)
     } else {
         // k = 0: sqrt(x^2) = |x|, already handled by simpler rules
-        Err(crate::cas::cas_err("degenerate quadratic under sqrt"))
+        Err(unsupported_irrational_error())
     }
 }
 
@@ -929,14 +939,12 @@ fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value>
         if numeric_is_negative(k) {
             // 1/sqrt(x^2 - d^2) -> arccosh(x/d)
             let d_sq = numeric_mul(k, &Value::Int(-1))?;
-            let d = sqrt_value(&d_sq)
-                .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
+            let d = sqrt_value(&d_sq).ok_or_else(unsupported_irrational_error)?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
             return Ok(Value::from_cas_function(CasFunction::ArcCosh, vec![arg]));
         } else {
             // 1/sqrt(x^2 + d^2) -> arcsinh(x/d)
-            let d = sqrt_value(k)
-                .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
+            let d = sqrt_value(k).ok_or_else(unsupported_irrational_error)?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
             return Ok(Value::from_cas_function(CasFunction::ArcSinh, vec![arg]));
         }
@@ -948,8 +956,7 @@ fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value>
         let neg_a = numeric_mul(a, &Value::Int(-1))?;
         if numeric_is_one(&neg_a) && !numeric_is_negative(k) {
             // 1/sqrt(k - x^2) -> arcsin(x/sqrt(k))  if k > 0
-            let d = sqrt_value(k)
-                .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
+            let d = sqrt_value(k).ok_or_else(unsupported_irrational_error)?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
             return Ok(Value::from_cas_function(CasFunction::ArcSin, vec![arg]));
         }
@@ -971,7 +978,7 @@ fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value>
         )?);
     }
 
-    Err(crate::cas::cas_err("unsupported irrational form"))
+    Err(unsupported_irrational_error())
 }
 
 /// Integrate P(x) * sqrt(quadratic)^(+/-1/2), where P is a polynomial.
@@ -981,8 +988,7 @@ fn integrate_poly_times_root(
     is_sqrt: bool,
     var: &str,
 ) -> WqResult<Value> {
-    let coeffs = poly_from_expr(poly_expr, var)
-        .map_err(|_| crate::cas::cas_err("expected polynomial factor in irrational integrand"))?;
+    let coeffs = poly_from_expr(poly_expr, var).map_err(|_| unsupported_irrational_error())?;
     let deg = poly_degree(&coeffs);
 
     if deg == 0 {
@@ -1031,10 +1037,7 @@ fn integrate_poly_times_root(
         };
     }
 
-    Err(crate::cas::cas_err(format!(
-        "irrational integral with degree-{} polynomial factor not yet supported",
-        deg
-    )))
+    Err(unsupported_irrational_error())
 }
 
 /// int P(x)*(a*x+b)^(+/-1/2) dx via substitution u = a*x+b, direct power rule.
@@ -1050,8 +1053,7 @@ fn integrate_poly_sqrt_linear(
     is_sqrt: bool,
     var: &str,
 ) -> WqResult<Value> {
-    let coeffs = poly_from_expr(poly_expr, var)
-        .map_err(|_| crate::cas::cas_err("expected polynomial factor in irrational integrand"))?;
+    let coeffs = poly_from_expr(poly_expr, var).map_err(|_| unsupported_irrational_error())?;
     let deg = poly_degree(&coeffs);
     let u_var_val = Value::from_cas_var("--cas-lin-u");
 

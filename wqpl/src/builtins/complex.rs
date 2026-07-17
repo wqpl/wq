@@ -3,21 +3,23 @@ use num_complex::Complex64;
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::value::bc::Bc1Stop;
 use crate::value::{Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 pub(super) fn complex(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Complex, [2], &args)?;
     let re = args[0].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Complex)
-            .msg("expected real")
+            .expected(Requirement::REAL_NUMBER)
             .at_arg(0)
+            .got1(&args[0])
     })?;
     let im = args[1].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Complex)
-            .msg("expected real")
+            .expected(Requirement::REAL_NUMBER)
             .at_arg(1)
+            .got1(&args[1])
     })?;
     Ok(Value::from_complex64(Complex64::new(re, im)))
 }
@@ -35,7 +37,10 @@ pub(super) fn real(args: BuiltinFnArgs) -> WqResult<Value> {
                 Ok(v.clone())
             } else {
                 Err(WqError::new(WqErrorType::Domain)
-                    .msg("expected real or complex")
+                    .expected(Requirement::one_of([
+                        Requirement::REAL_NUMBER,
+                        Requirement::COMPLEX,
+                    ]))
                     .got1(v))
             }
         })
@@ -54,7 +59,10 @@ pub(super) fn imag(args: BuiltinFnArgs) -> WqResult<Value> {
                 Ok(Value::Int(0))
             } else {
                 Err(WqError::new(WqErrorType::Domain)
-                    .msg("expected real or complex")
+                    .expected(Requirement::one_of([
+                        Requirement::REAL_NUMBER,
+                        Requirement::COMPLEX,
+                    ]))
                     .got1(v))
             }
         })
@@ -73,9 +81,34 @@ pub(super) fn conj(args: BuiltinFnArgs) -> WqResult<Value> {
                 Ok(v.clone())
             } else {
                 Err(WqError::new(WqErrorType::Domain)
-                    .msg("expected real or complex")
+                    .expected(Requirement::one_of([
+                        Requirement::REAL_NUMBER,
+                        Requirement::COMPLEX,
+                    ]))
                     .got1(v))
             }
         })
         .map_err(|e| e.into_wqerror().src(BuiltinEnum::Conj))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn complex_reports_real_number_arguments_consistently() {
+        let error = complex(BuiltinFnArgs::from(vec![
+            Value::String(Arc::new("one".to_string())),
+            Value::Int(0),
+        ]))
+        .expect_err("string real component should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected real number"));
+        assert_eq!(
+            error.notes.as_ref(),
+            &["at argument 1", "got \"one\" (list)"]
+        );
+    }
 }

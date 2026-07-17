@@ -2,7 +2,7 @@ use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
 const RAND_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Use a one-value integer range",
+    title: "Use a one-value int range",
     code: "rand[1]=0",
     expectation: ExampleExpectation::ResultContains("T"),
 }];

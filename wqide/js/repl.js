@@ -40,7 +40,7 @@ let history = [];
 let histIndex = -1;
 let pendingBuffer = "";
 let timeMode = false;
-let showType = false;
+let showCategory = false;
 let oneshotTime = false;
 let oneshotDebug = null;
 let oneshotWqdb = false;
@@ -468,9 +468,9 @@ function renderGlobalBindings(globals) {
     nameCode.textContent = binding.name;
     name.append(nameCode);
 
-    const type = document.createElement("dd");
-    type.className = "global-binding-type";
-    type.textContent = binding.type;
+    const category = document.createElement("dd");
+    category.className = "global-binding-category";
+    category.textContent = binding.category;
 
     const value = document.createElement("dd");
     value.className = "global-binding-value";
@@ -478,7 +478,7 @@ function renderGlobalBindings(globals) {
     valueCode.textContent = binding.value;
     value.append(valueCode);
 
-    heading.append(name, type);
+    heading.append(name, category);
     item.append(heading, value);
     list.append(item);
   }
@@ -596,7 +596,7 @@ function resetSession() {
   // Keep history across resets
   pendingBuffer = "";
   timeMode = false;
-  showType = false;
+  showCategory = false;
   oneshotTime = false;
   oneshotDebug = null;
   oneshotWqdb = false;
@@ -639,7 +639,7 @@ function replHelpText() {
     "\\time, \\t, \\time., \\time?",
     "\\wqdb, \\w, \\wqdb., \\wqdb?",
     "\\debug, \\d, \\d <spec>, \\d.<spec>",
-    "\\type, \\type?",
+    "\\category, \\category? (aliases: \\type, \\type?)",
     "\\help [topic], \\h [topic]",
   ];
   return commands.join("\n");
@@ -754,10 +754,12 @@ function parseReplCommand(input) {
       return { kind: "debug-show" };
     case "\\d":
       return { kind: "debug-toggle" };
+    case "\\category":
     case "\\type":
-      return { kind: "type" };
+      return { kind: "category" };
+    case "\\category?":
     case "\\type?":
-      return { kind: "type-query" };
+      return { kind: "category-query" };
     case "\\help":
     case "\\h":
       return { kind: "help" };
@@ -951,12 +953,12 @@ async function handleReplCommand(code) {
         applyDebugSpec(command.arg);
         commandLine("debug flags", formatDebugSpec(getDebugFlags()));
         return true;
-      case "type":
-        showType = !showType;
-        commandLine("type", boolWord(showType));
+      case "category":
+        showCategory = !showCategory;
+        commandLine("category", boolWord(showCategory));
         return true;
-      case "type-query":
-        statusLine("type", boolWord(showType));
+      case "category-query":
+        statusLine("category", boolWord(showCategory));
         return true;
       case "help":
         append(`${replHelpText()}\n`, "info");
@@ -1040,13 +1042,13 @@ async function doEval({ recordHistory = true } = {}) {
         const casSpan = document.createElement("span");
         casSpan.innerHTML = frontend.highlight_wq(alignTurnBody(result.display));
         content.appendChild(casSpan);
-        if (showType && result.type_name) {
-          content.appendChild(document.createTextNode(`\n${result.type_name}`));
+        if (showCategory && result.category) {
+          content.appendChild(document.createTextNode(`\n${result.category}`));
         }
       } else {
         const valueText =
           alignTurnBody(String(result.display)) +
-          (showType && result.type_name ? `\n${result.type_name}` : "") +
+          (showCategory && result.category ? `\n${result.category}` : "") +
           "\n";
         createTurn(
           "output",

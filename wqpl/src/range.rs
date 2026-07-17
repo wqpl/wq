@@ -3,8 +3,8 @@ use std::sync::Arc;
 use ordered_float::OrderedFloat;
 
 use crate::value::seq::IntRangeData;
-use crate::value::{Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::value::{Excerpt, Value, WqResult};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 const SURROGATE_START: u32 = 0xD800;
 const SURROGATE_END: u32 = 0xDFFF;
@@ -33,7 +33,8 @@ pub(crate) fn make_range(
             make_range_char(*s, *e, *st, inclusive)
         }
         (Value::Char(_), Value::Char(_), Some(other)) => Err(WqError::new(WqErrorType::Domain)
-            .msg("range step for chars must be an integer")
+            .expected(Requirement::INT)
+            .attach_note("for a char range step")
             .got1(other)),
         (Value::Char(_), _, _) | (_, Value::Char(_), _) => Err(char_range_kind_err(start, end)),
         _ => make_range_float(start, end, step, inclusive),
@@ -62,7 +63,13 @@ pub(crate) fn make_range_from_next(
         (Value::Char(_), _, _) | (_, Value::Char(_), _) | (_, _, Value::Char(_)) => {
             Err(WqError::new(WqErrorType::Domain)
                 .msg("char range start, next, and end must all be chars")
-                .got2(start, end))
+                .attach_note(format!(
+                    "got start {} ({})",
+                    start.excerpt(),
+                    start.category()
+                ))
+                .attach_note(format!("got next {} ({})", next.excerpt(), next.category()))
+                .attach_note(format!("got end {} ({})", end.excerpt(), end.category())))
         }
         _ => make_range_float_from_next(start, next, end, inclusive),
     }
@@ -74,7 +81,7 @@ fn default_int_step(start: i64, end: i64) -> i64 {
 
 fn validate_step_int(start: i64, end: i64, step: i64) -> WqResult<()> {
     if step == 0 {
-        return Err(WqError::new(WqErrorType::Domain).msg("range step cannot be 0"));
+        return Err(WqError::new(WqErrorType::Domain).msg("range step cannot be zero"));
     }
     if start != end && ((end > start && step < 0) || (end < start && step > 0)) {
         return Err(WqError::new(WqErrorType::Domain).msg("range step points away from end"));
@@ -132,7 +139,7 @@ fn make_range_int(start: i64, end: i64, step: i64, inclusive: bool) -> WqResult<
 
 fn char_range_kind_err(start: &Value, end: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg("range char endpoints must both be chars")
+        .msg("char range endpoints must both be chars")
         .got2(start, end)
 }
 
@@ -156,18 +163,19 @@ fn char_scalar_index(c: char) -> i64 {
 
 fn char_from_scalar_index(index: i64) -> WqResult<char> {
     if !(0..=MAX_SCALAR_INDEX).contains(&index) {
-        return Err(
-            WqError::new(WqErrorType::Domain).msg("char range is outside Unicode scalar values")
-        );
+        return Err(WqError::new(WqErrorType::Domain)
+            .msg("char range extends beyond valid Unicode scalar values"));
     }
     let mut code = u32::try_from(index).map_err(|_| {
-        WqError::new(WqErrorType::Domain).msg("char range is outside Unicode scalar values")
+        WqError::new(WqErrorType::Domain)
+            .msg("char range extends beyond valid Unicode scalar values")
     })?;
     if code >= SURROGATE_START {
         code += SURROGATE_LEN;
     }
     char::from_u32(code).ok_or_else(|| {
-        WqError::new(WqErrorType::Domain).msg("char range is outside Unicode scalar values")
+        WqError::new(WqErrorType::Domain)
+            .msg("char range extends beyond valid Unicode scalar values")
     })
 }
 
@@ -204,13 +212,21 @@ fn numeric_as_f64(value: &Value, label: &str) -> WqResult<f64> {
         Value::Float(f) => **f,
         _ => {
             return Err(WqError::new(WqErrorType::Domain)
-                .msg(format!("expected number for range {label}"))
+                .expected(Requirement::one_of([
+                    Requirement::finite(Requirement::INT),
+                    Requirement::finite(Requirement::FLOAT),
+                ]))
+                .attach_note(format!("for range {label}"))
                 .got1(value));
         }
     };
     if !f.is_finite() {
         return Err(WqError::new(WqErrorType::Domain)
-            .msg(format!("range {label} must be finite"))
+            .expected(Requirement::one_of([
+                Requirement::finite(Requirement::INT),
+                Requirement::finite(Requirement::FLOAT),
+            ]))
+            .attach_note(format!("for range {label}"))
             .got1(value));
     }
     Ok(f)
@@ -222,7 +238,7 @@ fn default_float_step(start: f64, end: f64) -> f64 {
 
 fn validate_step_float(start: f64, end: f64, step: f64) -> WqResult<()> {
     if step == 0.0 {
-        return Err(WqError::new(WqErrorType::Domain).msg("range step cannot be 0"));
+        return Err(WqError::new(WqErrorType::Domain).msg("range step cannot be zero"));
     }
     if !step.is_finite() {
         return Err(WqError::new(WqErrorType::Domain).msg("range step must be finite"));
@@ -409,6 +425,35 @@ mod tests {
         )
         .expect("valid char range");
         assert_eq!(value, Value::String(Arc::new("aceg".to_string())));
+    }
+
+    #[test]
+    fn char_range_reports_an_int_step_requirement() {
+        let error = make_range(
+            &Value::Char('a'),
+            &Value::Char('h'),
+            Some(&Value::float(2.0)),
+            false,
+        )
+        .expect_err("float step should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected int"));
+        assert_eq!(
+            error.notes.as_slice(),
+            ["for a char range step", "got 2.0 (float)"]
+        );
+    }
+
+    #[test]
+    fn numeric_range_reports_the_exact_supported_types() {
+        let error = make_range(&Value::Bool(true), &Value::Int(3), None, false)
+            .expect_err("bool start should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected finite int or finite float")
+        );
+        assert_eq!(error.notes.as_slice(), ["for range start", "got T (bool)"]);
     }
 
     #[test]

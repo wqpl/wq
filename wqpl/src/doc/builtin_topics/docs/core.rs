@@ -15,20 +15,20 @@ const BFN_EXAMPLES: &[DocExample] = &[
 ];
 
 const CHR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Convert code points to text",
+    title: "Convert Unicode scalar values to a string",
     code: "chr (65;66;67)",
     expectation: ExampleExpectation::ResultContains("\"ABC\""),
 }];
 
 const ORD_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Convert text to code points",
+    title: "Convert a string to Unicode scalar values",
     code: "ord \"ABC\"",
     expectation: ExampleExpectation::ResultContains("(65;66;67)"),
 }];
 
 const INT_EXAMPLES: &[DocExample] = &[
     DocExample {
-        title: "Parse text in a base",
+        title: "Parse a string in a base",
         code: "int[\"ff\";16]",
         expectation: ExampleExpectation::ResultContains("255"),
     },
@@ -145,7 +145,7 @@ const EXEC_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::NoRun("spawns a host process"),
     },
     DocExample {
-        title: "Send text to stdin",
+        title: "Send a string to stdin",
         code: "exec[\"cat\";`stdin:\"hello\"]",
         expectation: ExampleExpectation::NoRun("spawns a host process"),
     },
@@ -182,24 +182,24 @@ pub(super) const BFN: BuiltinDoc = BuiltinDoc {
 
 pub(super) const CHR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Chr,
-    summary: "Convert integer code points to characters.",
-    details: "`chr` accepts an int, bigint, or lists of them. Lists of integer code points are packed into strings, and invalid Unicode code points raise a domain error.",
+    summary: "Convert Unicode scalar values to chars.",
+    details: "`chr` accepts an int or list of ints. Each int must identify a Unicode scalar. Lists are packed into strings, and invalid scalar values raise a domain error.",
     examples: CHR_EXAMPLES,
     related: &["ord", "str"],
 };
 
 pub(super) const ORD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Ord,
-    summary: "Convert characters or strings to Unicode code points.",
-    details: "`ord` is the inverse of `chr` for valid Unicode code points. A char returns one int; a string returns a list of code points.",
+    summary: "Convert chars or strings to Unicode scalar values.",
+    details: "`ord` is the inverse of `chr` for valid Unicode scalars. A char returns one int; a string returns a list of ints.",
     examples: ORD_EXAMPLES,
     related: &["chr", "graphemes"],
 };
 
 pub(super) const INT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Int,
-    summary: "Convert a value to an integer.",
-    details: "`int` leaves integer values unchanged, converts `F` to `0` and `T` to `1`, and parses text input. When a base is supplied, it must be in `2..=36`; matching `0b`, `0o`, and `0x` prefixes are accepted, and underscores in digits are ignored.",
+    summary: "Convert a value to an int.",
+    details: "`int` leaves ints unchanged, converts `F` to `0` and `T` to `1`, and parses string input. When a base is supplied, it must be in `2..=36`; matching `0b`, `0o`, and `0x` prefixes are accepted, and underscores in digits are ignored.",
     examples: INT_EXAMPLES,
     related: &["bool", "float", "bin", "oct", "hex"],
 };
@@ -207,31 +207,31 @@ pub(super) const INT: BuiltinDoc = BuiltinDoc {
 pub(super) const FLOAT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Float,
     summary: "Convert a value to a float.",
-    details: "`float` converts numeric values directly and parses text input with Rust-style floating-point syntax. Empty text converts to unit.",
+    details: "`float` converts numeric values directly and parses string input with Rust-style floating-point syntax. An empty string converts to unit.",
     examples: FLOAT_EXAMPLES,
     related: &["int", "fraction"],
 };
 
 pub(super) const BIN: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Bin,
-    summary: "Format integers in binary.",
-    details: "`bin` returns a string representation of an int or bigint. The optional boolean argument controls whether the `0b` prefix is included.",
+    summary: "Format ints in binary.",
+    details: "`bin` returns a string representation of an int. The optional bool argument controls whether the `0b` prefix is included.",
     examples: BIN_EXAMPLES,
     related: &["int", "oct", "hex"],
 };
 
 pub(super) const OCT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Oct,
-    summary: "Format integers in octal.",
-    details: "`oct` returns a string representation of an int or bigint. The optional boolean argument controls whether the `0o` prefix is included.",
+    summary: "Format ints in octal.",
+    details: "`oct` returns a string representation of an int. The optional bool argument controls whether the `0o` prefix is included.",
     examples: OCT_EXAMPLES,
     related: &["int", "bin", "hex"],
 };
 
 pub(super) const HEX: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Hex,
-    summary: "Format integers in hexadecimal.",
-    details: "`hex` returns a lowercase string representation of an int or bigint. The optional boolean argument controls whether the `0x` prefix is included.",
+    summary: "Format ints in hexadecimal.",
+    details: "`hex` returns a lowercase string representation of an int. The optional bool argument controls whether the `0x` prefix is included.",
     examples: HEX_EXAMPLES,
     related: &["int", "bin", "oct"],
 };
@@ -246,8 +246,8 @@ pub(super) const HASH: BuiltinDoc = BuiltinDoc {
 
 pub(super) const ASSERT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Assert,
-    summary: "Require a boolean condition to be true.",
-    details: "`assert[condition]` returns `T` when its boolean condition is true and raises an assert error otherwise. The optional message replaces the default failure message. The optional named `context` value is preserved in the error's structured `data` dict. Assertion data includes `check:`truth and the failed `condition`, so `@t` callers can inspect it without parsing display text.",
+    summary: "Require a bool condition to be true.",
+    details: "`assert[condition]` returns `T` when its bool condition is true and raises an assert error otherwise. The optional message replaces the default failure message. The optional named `context` value is preserved in the error's structured `data` dict. Assertion data includes `check:`truth and the failed `condition`, so `@t` callers can inspect it without parsing the displayed message.",
     examples: ASSERT_EXAMPLES,
     related: &["assert_eq", "@t", "raise"],
 };
@@ -263,7 +263,7 @@ pub(super) const ASSERT_EQ: BuiltinDoc = BuiltinDoc {
 pub(super) const RAISE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Raise,
     summary: "Raise a runtime error.",
-    details: "`raise` converts its message to text and stops evaluation with a raise error. It is commonly used for explicit validation failures inside functions.",
+    details: "`raise` converts its message to a string and stops evaluation with a raise error. It is commonly used for explicit validation failures inside functions.",
     examples: RAISE_EXAMPLES,
     related: &["@t", "@r"],
 };
@@ -309,7 +309,7 @@ pub(super) const CLIARGS: BuiltinDoc = BuiltinDoc {
 pub(super) const ECHO: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Echo,
     summary: "Print values to stdout and return unit.",
-    details: "Use `echo` for line-oriented output. Strings are printed as text, other values use their display form, and the optional `sep` named argument joins multiple values on one line.",
+    details: "Use `echo` for line-oriented output. Strings are printed without quotes, other values use their display form, and the optional `sep` named argument joins multiple values on one line.",
     examples: ECHO_EXAMPLES,
     related: &["print", "str", "pipes"],
 };
@@ -317,7 +317,7 @@ pub(super) const ECHO: BuiltinDoc = BuiltinDoc {
 pub(super) const PRINT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Print,
     summary: "Print values to stdout without adding newlines.",
-    details: "`print` is the no-newline companion to `echo`. It prints strings as text and otherwise prints each value's display form.",
+    details: "`print` is the no-newline companion to `echo`. It prints strings without quotes and otherwise prints each value's display form.",
     examples: PRINT_EXAMPLES,
     related: &["echo", "str"],
 };
@@ -350,7 +350,7 @@ Named options:
 - `stdin`: string written to the child process's standard input.
 - `cwd`: string path used as the child process's working directory; it must exist and be a directory.
 - `env`: dict of environment variables to add or override, with tag keys and string values.
-- `timeout`: non-negative integer number of seconds; when it expires, `exec` kills the child and raises an exec error.
+- `timeout`: non-negative int in seconds; when it expires, `exec` kills the child and raises an exec error.
 - `check`: bool that defaults to true; with `check:true`, a non-zero exit raises an exec error, while `check:false` returns the structured result so code can inspect `code`, `success`, and captured output.
 
 When checking is enabled, failures include the exit code plus stderr and stdout excerpts when available.",
@@ -361,7 +361,7 @@ When checking is enabled, failures include the exit code plus stderr and stdout 
 pub(super) const LEN: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Len,
     summary: "Return the length of a value.",
-    details: "For containers, `len` returns the number of top-level items; for strings, this is the number of characters. Atoms have length 1 and unit has length 0.",
+    details: "For containers, `len` returns the number of top-level items; for strings, this is the number of Unicode scalars. Atoms have length 1 and unit has length 0.",
     examples: LEN_EXAMPLES,
     related: &["shape", "#"],
 };

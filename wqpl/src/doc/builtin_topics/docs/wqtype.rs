@@ -1,14 +1,26 @@
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
-const TYPE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Inspect a value category",
-    code: "type (1;2)",
-    expectation: ExampleExpectation::ResultContains("\"list\""),
-}];
+const TYPE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Inspect a value category",
+        code: "type (1;2)",
+        expectation: ExampleExpectation::ResultContains("\"list\""),
+    },
+    DocExample {
+        title: "Hide int storage width",
+        code: "type 9223372036854775808",
+        expectation: ExampleExpectation::ResultContains("\"int\""),
+    },
+    DocExample {
+        title: "Treat strings as list values",
+        code: "type \"wq\"",
+        expectation: ExampleExpectation::ResultContains("\"list\""),
+    },
+];
 
 const TAG_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Convert text to a tag",
+    title: "Convert a string to a tag",
     code: "tag \"ready?\"",
     expectation: ExampleExpectation::ResultContains("`ready?"),
 }];
@@ -20,7 +32,7 @@ const BOOL_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const CHAR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Convert one character of text",
+    title: "Convert a string containing one Unicode scalar",
     code: "char \"x\"",
     expectation: ExampleExpectation::ResultContains("\"x\""),
 }];
@@ -51,15 +63,15 @@ const DICT_EXAMPLES: &[DocExample] = &[DocExample {
 
 pub(super) const TYPE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Type,
-    summary: "Return the runtime type name for a value.",
-    details: "`type[x]` returns the type of `x` as a string. Use predicates such as `atom?` and `unit?` when the question is structural rather than nominal.",
+    summary: "Return the public value category for a value.",
+    details: "`type[x]` returns the stable public category of `x` as a string. It does not expose storage width or list representation: all ints report `\"int\"`, and all lists report `\"list\"`. Strings also report `\"list\"` because they belong to the public list category. Use predicates such as `atom?` and `unit?` for structural questions.",
     examples: TYPE_EXAMPLES,
     related: &["atom?", "unit?", "shape"],
 };
 
 pub(super) const TAG: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Tag,
-    summary: "Convert text to a tag.",
+    summary: "Convert a string to a tag.",
     details: "`tag[x]` converts string to a tag name and leaves tags unchanged. Tag names must be non-empty and contain only alphanumeric characters, `_`, or `?`; invalid names raise a domain error.",
     examples: TAG_EXAMPLES,
     related: &["type", "dict", "str"],
@@ -75,8 +87,8 @@ pub(super) const BOOL: BuiltinDoc = BuiltinDoc {
 
 pub(super) const CHAR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Char,
-    summary: "Convert a value to one character.",
-    details: "`char[x]` leaves chars unchanged. String input must contain exactly one Unicode code point. Other values are first displayed as string, and that string must also be exactly one character.",
+    summary: "Convert a value to one Unicode scalar.",
+    details: "`char[x]` leaves char atoms unchanged. String input must contain exactly one Unicode scalar. Other values are first displayed as a string, and that string must also contain exactly one Unicode scalar.",
     examples: CHAR_EXAMPLES,
     related: &["chr", "ord", "str"],
 };

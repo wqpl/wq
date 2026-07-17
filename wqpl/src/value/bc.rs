@@ -56,7 +56,9 @@ impl BcError {
         match self {
             BcError::Length { path, left, right } => {
                 let e = WqError::new(WqErrorType::Length)
-                    .msg(format!("length mismatch: left {}, right {}", left, right));
+                    .msg("list lengths do not match")
+                    .attach_note(format!("left length is {left}"))
+                    .attach_note(format!("right length is {right}"));
                 if path.is_empty() {
                     return e;
                 }
@@ -69,7 +71,9 @@ impl BcError {
             }
             BcError::Key { path, left, right } => {
                 let e = WqError::new(WqErrorType::Length)
-                    .msg(format!("key mismatch: left {}, right {}", left, right));
+                    .msg("dict keys do not match")
+                    .attach_note(format!("left key is `{left}"))
+                    .attach_note(format!("right key is `{right}"));
                 if path.is_empty() {
                     return e;
                 }
@@ -982,6 +986,33 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    #[test]
+    fn broadcast_mismatches_use_structured_plain_language_notes() {
+        let length = BcError::Length {
+            path: Vec::new(),
+            left: 2,
+            right: 3,
+        }
+        .into_wqerror();
+        assert_eq!(length.msg.as_deref(), Some("list lengths do not match"));
+        assert_eq!(
+            length.notes.as_slice(),
+            ["left length is 2", "right length is 3"]
+        );
+
+        let keys = BcError::Key {
+            path: Vec::new(),
+            left: "alpha".to_string(),
+            right: "beta".to_string(),
+        }
+        .into_wqerror();
+        assert_eq!(keys.msg.as_deref(), Some("dict keys do not match"));
+        assert_eq!(
+            keys.notes.as_slice(),
+            ["left key is `alpha", "right key is `beta"]
+        );
+    }
 
     #[test]
     fn bool_list_broadcasts_as_bool_atoms() {

@@ -38,7 +38,7 @@ const OP_MOD_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const OP_FLOORDIV_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Floor-divide integers",
+    title: "Floor-divide ints",
     code: "/%[7;2]",
     expectation: ExampleExpectation::ResultContains("3"),
 }];
@@ -162,7 +162,7 @@ pub(super) const OP_MUL: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_DIV: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpDiv,
     summary: "Divide values with the `/` operator.",
-    details: "`/[xs;ys+]` folds division left to right. Integer division through `/` produces floating results; use `/.` for exact rational division when possible.",
+    details: "`/[xs;ys+]` folds division left to right. Int division through `/` produces floating results; use `/.` for exact rational division when possible.",
     examples: OP_DIV_EXAMPLES,
     related: &["/.", "/%", "%"],
 };
@@ -170,7 +170,7 @@ pub(super) const OP_DIV: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_DIV_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpDivDot,
     summary: "Divide values exactly with the `/.` operator.",
-    details: "`/.[xs;ys+]` folds exact division left to right, preserving fraction-like results when possible instead of immediately converting integer division to float. Use it inside exact exponent literals such as `1/.3`.",
+    details: "`/.[xs;ys+]` folds exact division left to right, preserving fraction-like results when possible instead of immediately converting int division to float. Use it inside exact exponent literals such as `1/.3`.",
     examples: OP_DIV_DOT_EXAMPLES,
     related: &["/", "fraction", "^."],
 };
@@ -178,7 +178,7 @@ pub(super) const OP_DIV_DOT: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_MOD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpMod,
     summary: "Return remainders with the `%` operator.",
-    details: "`%[xs;ys+]` folds modulo left to right. Integer and compatible nested inputs use the same remainder behavior as infix `%`.",
+    details: "`%[xs;ys+]` folds modulo left to right. Int and compatible nested inputs use the same remainder behavior as infix `%`.",
     examples: OP_MOD_EXAMPLES,
     related: &["/%", "/", "int"],
 };
@@ -186,7 +186,7 @@ pub(super) const OP_MOD: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_FLOORDIV: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpFloorDiv,
     summary: "Floor-divide values with the `/%` operator.",
-    details: "`/%[xs;ys+]` folds floor division left to right. For integers, the quotient rounds toward negative infinity rather than toward zero.",
+    details: "`/%[xs;ys+]` folds floor division left to right. For ints, the quotient rounds toward negative infinity rather than toward zero.",
     examples: OP_FLOORDIV_EXAMPLES,
     related: &["%", "/", "floor"],
 };
@@ -194,7 +194,7 @@ pub(super) const OP_FLOORDIV: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_POWER: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpPower,
     summary: "Raise values to powers with the `^` operator.",
-    details: "`^[xs;ys+]` folds exponentiation left to right. Integer positive powers stay exact when possible; negative or fractional numeric exponents follow the classic runtime power operation and may produce floats or complex values.",
+    details: "`^[xs;ys+]` folds exponentiation left to right. Positive int powers stay exact when possible; negative or fractional numeric exponents follow the classic runtime power operation and may produce floats or complex values.",
     examples: OP_POWER_EXAMPLES,
     related: &["^.", "sqrt", "exp"],
 };
@@ -202,7 +202,7 @@ pub(super) const OP_POWER: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_POWER_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpPowerDot,
     summary: "Raise values to exact powers with the `^.` operator.",
-    details: "`^.[xs;ys+]` folds exact exponentiation left to right. Negative integer exponents and exact fractional exponents with rational results can produce exact fraction-like results. Use `/.` to write exact rational exponents, for example `1/.3`; `1/3` is already a float.",
+    details: "`^.[xs;ys+]` folds exact exponentiation left to right. Negative int exponents and exact fractional exponents with rational results can produce exact fraction-like results. Use `/.` to write exact rational exponents, for example `1/.3`; `1/3` is already a float.",
     examples: OP_POWER_DOT_EXAMPLES,
     related: &["^", "/.", "fraction"],
 };
@@ -234,7 +234,7 @@ pub(super) const OP_EQUAL_DOT: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_TILDE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpTilde,
     summary: "Compare whole values with `~`, or invert one value.",
-    details: "`~[xs;ys+]` checks structural inequality across a comparison chain. `~[x]` is unary bitwise not for integers and boolean not for bools.",
+    details: "`~[xs;ys+]` checks structural inequality across a comparison chain. `~[x]` is unary bitwise not for ints and logical not for bools.",
     examples: OP_TILDE_EXAMPLES,
     related: &["~.", "=", "not"],
 };

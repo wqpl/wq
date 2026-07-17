@@ -79,7 +79,7 @@ pub(super) fn integrate_liouville(
     match try_liouville_poly_poly(&f_expr, &g_expr, var) {
         Ok(Some(result)) => return Ok(Some(result)),
         Ok(None) => {}
-        Err(err) if is_inconsistent_liouville_ansatz(&err, "Liouville:") => {
+        Err(err) if is_inconsistent_liouville_ansatz(&err) => {
             return Err(unsupported_symbolic_integral_error(&simplified, var));
         }
         Err(err) => return Err(err),
@@ -89,7 +89,7 @@ pub(super) fn integrate_liouville(
     match try_liouville_rational(&f_expr, &g_expr, var) {
         Ok(Some(result)) => return Ok(Some(result)),
         Ok(None) => {}
-        Err(err) if is_inconsistent_liouville_ansatz(&err, "Liouville:") => {
+        Err(err) if is_inconsistent_liouville_ansatz(&err) => {
             return Err(unsupported_symbolic_integral_error(&simplified, var));
         }
         Err(err) => return Err(err),
@@ -104,7 +104,7 @@ pub(super) fn integrate_liouville(
         match try_liouville_rational_general(&f_expr, &g_coeffs, var) {
             Ok(Some(result)) => return Ok(Some(result)),
             Ok(None) => {}
-            Err(err) if is_inconsistent_liouville_ansatz(&err, "Liouville gen:") => {
+            Err(err) if is_inconsistent_liouville_ansatz(&err) => {
                 return Err(unsupported_symbolic_integral_error(&simplified, var));
             }
             Err(err) => return Err(err),
@@ -260,10 +260,7 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
             let computed = numeric_add(&r_prime, &g_dot_r)?;
             let diff = numeric_sub(&p_t, &computed)?;
             if !numeric_is_zero(&diff) {
-                return Err(crate::cas::cas_err(format!(
-                    "Liouville: inconsistent at degree {} (P={}, computed={})",
-                    t, p_t, computed,
-                )));
+                return Err(inconsistent_liouville_ansatz_error());
             }
         }
     }
@@ -517,10 +514,7 @@ fn solve_poly_ode_general(
             let h_d = h.get(d).cloned().unwrap_or(Value::Int(0));
             let diff = numeric_sub(&h_d, &lhs)?;
             if !numeric_is_zero(&diff) {
-                return Err(crate::cas::cas_err(format!(
-                    "Liouville gen: inconsistent at degree {} (H={}, computed={})",
-                    d, h_d, lhs,
-                )));
+                return Err(inconsistent_liouville_ansatz_error());
             }
         }
     }
@@ -617,10 +611,15 @@ fn try_liouville_rational_general_inner(
     Ok(Some(result))
 }
 
-fn is_inconsistent_liouville_ansatz(err: &crate::wqerror::WqError, prefix: &str) -> bool {
-    err.msg
-        .as_deref()
-        .is_some_and(|msg| msg.starts_with(prefix) && msg.contains("inconsistent"))
+const INCONSISTENT_ANSATZ_MESSAGE: &str =
+    "symbolic integration could not solve this exponential expression";
+
+fn inconsistent_liouville_ansatz_error() -> crate::wqerror::WqError {
+    crate::cas::cas_err(INCONSISTENT_ANSATZ_MESSAGE)
+}
+
+fn is_inconsistent_liouville_ansatz(err: &crate::wqerror::WqError) -> bool {
+    err.msg.as_deref() == Some(INCONSISTENT_ANSATZ_MESSAGE)
 }
 
 /// Handle int C/x * e^(a*x^n) dx = (C/n)*Ei(a*x^n) via substitution u = a*x^n.
@@ -925,12 +924,9 @@ mod tests {
     fn test_solve_inconsistent_system() {
         let p = vec![Value::Int(1), Value::Int(1), Value::Int(1), Value::Int(1)];
         let g = vec![Value::Int(0), Value::Int(0), Value::Int(1)];
-        assert!(
-            solve_liouville_coeffs(&p, &g, 1)
-                .unwrap_err()
-                .to_string()
-                .contains("inconsistent")
-        );
+        let err = solve_liouville_coeffs(&p, &g, 1)
+            .expect_err("inconsistent coefficient system should fail");
+        assert_eq!(err.msg.as_deref(), Some(INCONSISTENT_ANSATZ_MESSAGE));
     }
 
     #[test]

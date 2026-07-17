@@ -29,7 +29,7 @@ const UNIFORM_Q_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const SHAPE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Shape,
     summary: "Describe the size outline of a value.",
-    details: "`shape[xs]` answers: if you look from the outside inward, how many items are at each regular layer? A plain atom has no container layer, so its shape is `()`. A string has shape `(characters)`, a flat list has shape `(items)`, and `((1;2);(3;4))` has shape `(2;2)` because there are two outer items and each has two inner items. Dicts use their values in key order. When nested children do not all have the same shape, the value is ragged; `shape` then returns only the outer length, and `uniform?` tells you that the full outline is not regular.",
+    details: "`shape[xs]` answers: if you look from the outside inward, how many items are at each regular layer? A plain atom has no container layer, so its shape is `()`. A string has one axis whose length is its Unicode scalar count, a flat list has one axis whose length is its item count, and `((1;2);(3;4))` has shape `(2;2)` because there are two outer items and each has two inner items. Dicts use their values in key order. When nested children do not all have the same shape, the value is ragged; `shape` then returns only the outer length, and `uniform?` tells you that the full outline is not regular.",
     examples: SHAPE_EXAMPLES,
     related: &["uniform?", "depth", "len", "reshape"],
 };

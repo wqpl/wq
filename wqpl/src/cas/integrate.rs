@@ -1646,6 +1646,24 @@ mod tests {
     }
 
     #[test]
+    fn integrate_unhandled_radical_reports_public_reason() {
+        let x = Value::from_cas_var("x");
+        let base = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(5)).expect("x^5"),
+            x.clone(),
+            Value::Int(1),
+        ])
+        .expect("x^5+x+1");
+        let expr = cas_pow(
+            base,
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .expect("square root");
+
+        assert_unsupported_reason_contains(integrate_cas(&expr, &x), "contains a radical");
+    }
+
+    #[test]
     fn integrate_erf() {
         let expr = call(CasFunction::Erf, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();

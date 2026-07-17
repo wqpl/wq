@@ -661,7 +661,7 @@ fn exact_interval(interval: (f64, f64)) -> WqResult<(BigRational, BigRational)> 
     let (lo, hi) = interval;
     if !lo.is_finite() || !hi.is_finite() || lo >= hi {
         return Err(algebraic_err(
-            "algebraic root interval must be finite with lo < hi",
+            "algebraic root interval must be finite with its lower bound less than its upper bound",
         ));
     }
 
@@ -742,7 +742,7 @@ fn validate_coeff_in_base(field: &AlgebraicField, coeff: &Value) -> WqResult<()>
             "algebraic coefficient belongs to a different base field",
         )),
         _ => Err(algebraic_err(
-            "algebraic coefficient must be an exact value in the base field",
+            "algebraic coefficient must be an exact number in the base field",
         )),
     }
 }
@@ -1267,7 +1267,7 @@ pub(crate) fn algebraic_pow(a: &AlgebraicData, n: i64) -> WqResult<Value> {
             unreachable!()
         };
         let positive_n = n.checked_neg().ok_or_else(|| {
-            WqError::new(WqErrorType::Domain).msg("algebraic exponent is too small")
+            WqError::new(WqErrorType::Domain).msg("exponent is too small for an algebraic power")
         })?;
         return algebraic_pow(inv_a, positive_n);
     }
@@ -1310,7 +1310,7 @@ pub(crate) fn algebraic_rational_pow(
 ) -> WqResult<Value> {
     if denom.is_one() {
         let n = i64::try_from(numer).map_err(|_| {
-            WqError::new(WqErrorType::Domain).msg("exponent too large for algebraic pow")
+            WqError::new(WqErrorType::Domain).msg("exponent is too large for an algebraic power")
         })?;
         return algebraic_pow(a, n);
     }
@@ -1321,7 +1321,7 @@ pub(crate) fn algebraic_rational_pow(
     let is_pure = deg >= 1 && poly[1..deg].iter().all(|c| c.is_zero());
     if !is_pure {
         return Err(algebraic_err(
-            "algebraic_rational_pow: field is not pure-power",
+            "exact algebraic power requires a pure-power field",
         ));
     }
 
@@ -1335,7 +1335,7 @@ pub(crate) fn algebraic_rational_pow(
 
     if non_zero.len() != 1 {
         return Err(algebraic_err(
-            "algebraic_rational_pow: not a single-term algebraic",
+            "exact algebraic power requires a single-term algebraic value",
         ));
     }
 
@@ -1348,7 +1348,7 @@ pub(crate) fn algebraic_rational_pow(
     let (alpha_quot, alpha_rem) = euclidean_div_rem(&k_num, denom);
     if !alpha_rem.is_zero() {
         return Err(algebraic_err(
-            "algebraic_rational_pow: exponent would require field extension",
+            "exact algebraic power would require a field extension",
         ));
     }
 
@@ -1361,9 +1361,7 @@ pub(crate) fn algebraic_rational_pow(
     let c0 = &poly[0];
     let c_deg = &poly[deg];
     if c_deg.is_zero() {
-        return Err(algebraic_err(
-            "algebraic_rational_pow: field constant is zero",
-        ));
+        return Err(algebraic_err("algebraic field relation is invalid"));
     }
     let (const_num, const_den) = if c_deg.is_negative() {
         (c0.clone(), -c_deg)
@@ -1381,7 +1379,7 @@ pub(crate) fn algebraic_rational_pow(
     let const_factor = rational_integer_pow(&const_num, &const_den, &q);
 
     let final_coeff = crate::cas::numeric_mul(&c_pow, &const_factor)
-        .map_err(|_| algebraic_err("algebraic_rational_pow: failed to multiply coefficients"))?;
+        .map_err(|_| algebraic_err("could not multiply algebraic power coefficients"))?;
 
     let r_usize = usize::try_from(&r).unwrap_or(0);
 
@@ -1452,12 +1450,12 @@ fn rational_pow(value: &Value, numer: &BigInt, denom: &BigInt) -> WqResult<Value
     // Fractional exponent: numer/denom
     let denom_u32 = denom
         .to_u32()
-        .ok_or_else(|| algebraic_err("rational_pow: denominator too large"))?;
+        .ok_or_else(|| algebraic_err("fractional exponent denominator is too large"))?;
 
     // Extract rational parts of the value
     let (base_n, base_d) = value
         .rational_parts()
-        .ok_or_else(|| algebraic_err("rational_pow: non-rational coefficient"))?;
+        .ok_or_else(|| algebraic_err("algebraic coefficient must be rational"))?;
 
     // Check if base_n and base_d are perfect denom-th powers
     let root_n = nth_root_bigint(&base_n, denom_u32);
@@ -1527,7 +1525,7 @@ fn rational_pow(value: &Value, numer: &BigInt, denom: &BigInt) -> WqResult<Value
                 }
             } else {
                 Err(algebraic_err(
-                    "rational_pow: non-square-root fractional exponents not implemented",
+                    "exact algebraic powers currently support only square-root fractional exponents",
                 ))
             }
         }
@@ -1666,6 +1664,17 @@ mod tests {
             BigInt::from(0),  // x coefficient
             BigInt::from(1),  // x^2 coefficient (monic)
         ])
+    }
+
+    #[test]
+    fn unsupported_exact_power_does_not_leak_helper_names() {
+        let error = rational_pow(&Value::Int(2), &BigInt::one(), &BigInt::from(3))
+            .expect_err("cube-root fallback should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("exact algebraic powers currently support only square-root fractional exponents")
+        );
     }
 
     fn make_sqrt2() -> AlgebraicData {
@@ -1975,9 +1984,9 @@ mod tests {
     }
 
     #[test]
-    fn value_algebraic_type_name() {
+    fn value_algebraic_category() {
         let v = Value::Algebraic(Arc::new(make_sqrt2()));
-        assert_eq!(v.type_name(), "algebraic");
+        assert_eq!(v.category(), crate::value::ValueCategory::Algebraic);
     }
 
     #[test]

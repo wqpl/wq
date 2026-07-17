@@ -262,27 +262,33 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
     let b_bidx = map_bc_index(ctx.b_batch, ctx.out_batch_dims, out_batch_idx);
 
     // Pre-resolve batch prefix once to avoid per-element index_path traversal.
-    let a_base = index_path(ctx.a, &a_bidx)
-        .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid index while reading A"))?;
-    let b_base = index_path(ctx.b, &b_bidx)
-        .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid index while reading B"))?;
+    let a_base = index_path(ctx.a, &a_bidx).ok_or_else(|| {
+        WqError::new(WqErrorType::Domain).msg("invalid index while reading the left operand")
+    })?;
+    let b_base = index_path(ctx.b, &b_bidx).ok_or_else(|| {
+        WqError::new(WqErrorType::Domain).msg("invalid index while reading the right operand")
+    })?;
 
-    let a_seq = NumericSeq::from_value(&a_base)
-        .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A must be a sequence for matmul"))?;
-    let b_seq = NumericSeq::from_value(&b_base)
-        .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("B must be a sequence for matmul"))?;
+    let a_seq = NumericSeq::from_value(&a_base).ok_or_else(|| {
+        WqError::new(WqErrorType::Domain)
+            .msg("left operand must be a list for matrix multiplication")
+    })?;
+    let b_seq = NumericSeq::from_value(&b_base).ok_or_else(|| {
+        WqError::new(WqErrorType::Domain)
+            .msg("right operand must be a list for matrix multiplication")
+    })?;
 
     match (ctx.a_rank >= 2, ctx.b_rank >= 2) {
         (false, false) => {
             // dot product -> atom
             let mut acc: Option<Value> = None;
             for kk in 0..ctx.k {
-                let av = a_seq
-                    .get(kk)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A index out of range"))?;
-                let bv = b_seq
-                    .get(kk)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("B index out of range"))?;
+                let av = a_seq.get(kk).ok_or_else(|| {
+                    WqError::new(WqErrorType::Domain).msg("left operand index is out of range")
+                })?;
+                let bv = b_seq.get(kk).ok_or_else(|| {
+                    WqError::new(WqErrorType::Domain).msg("right operand index is out of range")
+                })?;
                 let prod = av.multiply(&bv)?;
                 acc = Some(match acc {
                     None => prod,
@@ -303,7 +309,9 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
 
                 _ => None,
             }
-            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A rows must be sequences"))?;
+            .ok_or_else(|| {
+                WqError::new(WqErrorType::Domain).msg("left operand rows must be lists")
+            })?;
 
             let result: Vec<Value> = (0..m)
                 .into_par_iter()
@@ -312,10 +320,12 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
                     let mut acc: Option<Value> = None;
                     for kk in 0..ctx.k {
                         let av = a_row.get(kk).ok_or_else(|| {
-                            WqError::new(WqErrorType::Domain).msg("A index out of range")
+                            WqError::new(WqErrorType::Domain)
+                                .msg("left operand index is out of range")
                         })?;
                         let bv = b_seq.get(kk).ok_or_else(|| {
-                            WqError::new(WqErrorType::Domain).msg("B index out of range")
+                            WqError::new(WqErrorType::Domain)
+                                .msg("right operand index is out of range")
                         })?;
                         let prod = av.multiply(&bv)?;
                         acc = Some(match acc {
@@ -341,16 +351,18 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
 
                 _ => None,
             }
-            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("B rows must be sequences"))?;
+            .ok_or_else(|| {
+                WqError::new(WqErrorType::Domain).msg("right operand rows must be lists")
+            })?;
 
             let mut acc: Vec<Option<Value>> = (0..n).map(|_| None).collect();
             for (kk, b_row) in b_rows.iter().enumerate().take(ctx.k) {
-                let av = a_seq
-                    .get(kk)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A index out of range"))?;
+                let av = a_seq.get(kk).ok_or_else(|| {
+                    WqError::new(WqErrorType::Domain).msg("left operand index is out of range")
+                })?;
                 for (j, acc_j) in acc.iter_mut().enumerate().take(n) {
                     let bv = b_row.get(j).ok_or_else(|| {
-                        WqError::new(WqErrorType::Domain).msg("B index out of range")
+                        WqError::new(WqErrorType::Domain).msg("right operand index is out of range")
                     })?;
                     let prod = av.clone().multiply(&bv)?;
                     *acc_j = Some(match acc_j.take() {
@@ -380,7 +392,9 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
 
                 _ => None,
             }
-            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A rows must be sequences"))?;
+            .ok_or_else(|| {
+                WqError::new(WqErrorType::Domain).msg("left operand rows must be lists")
+            })?;
             let b_rows: Vec<NumericSeq> = match &b_base {
                 Value::List(items) => items
                     .iter()
@@ -389,7 +403,9 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
 
                 _ => None,
             }
-            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("B rows must be sequences"))?;
+            .ok_or_else(|| {
+                WqError::new(WqErrorType::Domain).msg("right operand rows must be lists")
+            })?;
 
             let out_rows: WqResult<Vec<Value>> = (0..m)
                 .into_par_iter()
@@ -398,11 +414,13 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
                     let mut acc: Vec<Option<Value>> = (0..n).map(|_| None).collect();
                     for (kk, b_row) in b_rows.iter().enumerate().take(ctx.k) {
                         let av = a_row.get(kk).ok_or_else(|| {
-                            WqError::new(WqErrorType::Domain).msg("A index out of range")
+                            WqError::new(WqErrorType::Domain)
+                                .msg("left operand index is out of range")
                         })?;
                         for (j, acc_j) in acc.iter_mut().enumerate().take(n) {
                             let bv = b_row.get(j).ok_or_else(|| {
-                                WqError::new(WqErrorType::Domain).msg("B index out of range")
+                                WqError::new(WqErrorType::Domain)
+                                    .msg("right operand index is out of range")
                             })?;
                             let prod = av.clone().multiply(&bv)?;
                             *acc_j = Some(match acc_j.take() {
@@ -654,15 +672,15 @@ impl Value {
         // Reject non-uniform shapes
         if !self.is_uniform() || !other.is_uniform() {
             return Err(WqError::new(WqErrorType::Domain)
-                .msg("left operand must be uniform")
+                .msg("matrix multiplication operands must have uniform shapes")
                 .got2(self, other));
         }
 
         let a_shape = self.shape_uniform().ok_or_else(|| {
-            WqError::new(WqErrorType::Domain).msg("could not determine left shape")
+            WqError::new(WqErrorType::Domain).msg("could not determine left operand shape")
         })?;
         let b_shape = other.shape_uniform().ok_or_else(|| {
-            WqError::new(WqErrorType::Domain).msg("could not determine right shape")
+            WqError::new(WqErrorType::Domain).msg("could not determine right operand shape")
         })?;
 
         let a_rank = a_shape.len();
@@ -695,17 +713,22 @@ impl Value {
 
         if k_a != k_b {
             return Err(WqError::new(WqErrorType::Length)
-                .msg("inner dimensions must match (K)")
-                .attach_note(format!("left K={}, right K={}", k_a, k_b)));
+                .msg("inner dimensions must match")
+                .attach_note(format!("left inner dimension is {k_a}"))
+                .attach_note(format!("right inner dimension is {k_b}")));
         }
         let k = k_a;
 
         let out_batch = broadcast_shapes(a_batch, b_batch).ok_or_else(|| {
             WqError::new(WqErrorType::Length)
-                .msg("batch dimensions are not broadcast-compatible")
+                .msg("batch dimensions are incompatible for broadcasting")
                 .attach_note(format!(
-                    "left batch={:?}, right batch={:?}",
-                    a_batch, b_batch
+                    "left batch dimensions: {}",
+                    format_dimensions(a_batch)
+                ))
+                .attach_note(format!(
+                    "right batch dimensions: {}",
+                    format_dimensions(b_batch)
                 ))
         })?;
 
@@ -758,6 +781,18 @@ impl Value {
             n_opt,
         };
         build_batched(&ctx, &[])
+    }
+}
+
+fn format_dimensions(dimensions: &[usize]) -> String {
+    if dimensions.is_empty() {
+        "none".to_string()
+    } else {
+        dimensions
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(" × ")
     }
 }
 
@@ -857,5 +892,32 @@ mod tests {
         let exp1 = mat(&[&[111, 122], &[151, 166]]);
         let expect = Value::List(Arc::new(vec![exp0, exp1]));
         assert_eq!(res, expect);
+    }
+
+    #[test]
+    fn mm_dimension_error_uses_user_facing_dimension_names() {
+        let left = mat(&[&[1, 2], &[3, 4]]);
+        let right = il(&[1, 2, 3]);
+
+        let error = left
+            .mm(&right)
+            .expect_err("incompatible inner dimensions should fail");
+        assert_eq!(error.msg.as_deref(), Some("inner dimensions must match"));
+        assert_eq!(
+            error.notes.as_slice(),
+            ["left inner dimension is 2", "right inner dimension is 3"]
+        );
+    }
+
+    #[test]
+    fn mm_ragged_error_does_not_name_only_one_operand() {
+        let left = Value::List(Arc::new(vec![il(&[1]), il(&[2, 3])]));
+        let right = il(&[1, 2]);
+
+        let error = left.mm(&right).expect_err("ragged operand should fail");
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("matrix multiplication operands must have uniform shapes")
+        );
     }
 }

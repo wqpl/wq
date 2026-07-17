@@ -1,7 +1,7 @@
 use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity_named};
 use crate::value::display::{TableFormatOptions, TableStyle, format_table_value_with_options};
-use crate::value::{Value, WqResult, expected_string1};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::value::{Value, WqResult};
+use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
 pub(crate) fn show_table(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity_named(
@@ -24,7 +24,9 @@ pub(crate) fn show_table(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> Wq
         })?;
         return Ok(Value::unit());
     }
-    Err(WqError::new(WqErrorType::Domain).src(BE::Showtable).msg("invalid table, expected (a dict), (a list of dicts), (a dict of lists), or (a dict of dicts)"))
+    Err(WqError::new(WqErrorType::Domain)
+        .src(BE::Showtable)
+        .msg("expected a dict, a list of dicts, a dict of lists, or a dict of dicts"))
 }
 
 fn parse_table_options(args: &BuiltinFnArgs) -> WqResult<TableFormatOptions> {
@@ -50,7 +52,13 @@ fn parse_table_options(args: &BuiltinFnArgs) -> WqResult<TableFormatOptions> {
             _ => {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Showtable)
-                    .msg("style must be \"plain\" or \"markdown\""));
+                    .expected(Requirement::one_of([
+                        Requirement::string_literal("plain"),
+                        Requirement::string_literal("markdown"),
+                        Requirement::string_literal("md"),
+                    ]))
+                    .at_named_arg("style")
+                    .got1(value));
             }
         };
     }
@@ -71,7 +79,12 @@ fn parse_column_names(value: &Value) -> WqResult<Vec<String>> {
     if names.is_empty() || names.iter().any(|name| name.is_empty()) {
         Err(WqError::new(WqErrorType::Domain)
             .src(BE::Showtable)
-            .msg("cols must name at least one column"))
+            .expected(Requirement::phrase(
+                "at least one non-empty column name",
+                "non-empty column names",
+            ))
+            .at_named_arg("cols")
+            .got1(value))
     } else {
         Ok(names)
     }
@@ -81,29 +94,40 @@ fn parse_text(value: &Value, option: &str) -> WqResult<String> {
     match value {
         Value::Tag(sym) => Ok(sym.to_string()),
         _ => value.try_to_rust_string().ok_or_else(|| {
-            expected_string1(value)
+            WqError::new(WqErrorType::Domain)
                 .src(BE::Showtable)
-                .msg(format!("{option} must be a string, char, or tag"))
+                .expected(Requirement::one_of([
+                    Requirement::STRING,
+                    Requirement::CHAR,
+                    Requirement::TAG,
+                ]))
+                .at_named_arg(option)
+                .got1(value)
         }),
     }
 }
 
 fn parse_nonnegative_usize(value: &Value, option: &str) -> WqResult<usize> {
-    let Some(number) = value.as_i64() else {
-        return Err(WqError::new(WqErrorType::Domain)
+    let error = || {
+        let max = i128::try_from(usize::MAX)
+            .expect("usize fits in i128")
+            .min(i128::from(i64::MAX));
+        WqError::new(WqErrorType::Domain)
             .src(BE::Showtable)
-            .msg(format!("{option} must be a nonnegative integer")));
+            .expected(Requirement::int_range(
+                Bound::Included(0),
+                Bound::Included(max),
+            ))
+            .at_named_arg(option)
+            .got1(value)
+    };
+    let Some(number) = value.as_i64() else {
+        return Err(error());
     };
     if number < 0 {
-        Err(WqError::new(WqErrorType::Domain)
-            .src(BE::Showtable)
-            .msg(format!("{option} must be a nonnegative integer")))
+        Err(error())
     } else {
-        usize::try_from(number).map_err(|_| {
-            WqError::new(WqErrorType::Domain)
-                .src(BE::Showtable)
-                .msg(format!("{option} is too large"))
-        })
+        usize::try_from(number).map_err(|_| error())
     }
 }
 
@@ -115,6 +139,47 @@ mod tests {
 
     use super::*;
     use crate::value::display::format_table_value;
+    use crate::vm::Vm;
+
+    #[test]
+    fn diagnostics_use_canonical_table_and_option_wording() {
+        let mut vm = Vm::new(Vec::new());
+        let table_error = show_table(&mut vm, BuiltinFnArgs::from(Value::Int(1)))
+            .expect_err("an int is not table-shaped");
+        assert_eq!(
+            table_error.msg.as_deref(),
+            Some("expected a dict, a list of dicts, a dict of lists, or a dict of dicts")
+        );
+
+        let limit_error = parse_nonnegative_usize(&Value::Int(-1), "limit")
+            .expect_err("negative limit should fail");
+        assert_eq!(
+            limit_error.msg.as_deref(),
+            Some(if usize::BITS >= 64 {
+                "expected int from 0 through 9223372036854775807"
+            } else {
+                "expected int from 0 through 4294967295"
+            })
+        );
+        assert_eq!(
+            limit_error.notes.as_ref(),
+            &["at named argument 'limit'", "got -1 (int)"]
+        );
+
+        let style_error = parse_table_options(&BuiltinFnArgs::with_named(
+            smallvec::smallvec![],
+            vec![(Arc::from("style"), Value::String(Arc::new("csv".into())))],
+        ))
+        .expect_err("unknown style should fail");
+        assert_eq!(
+            style_error.msg.as_deref(),
+            Some("expected \"plain\", \"markdown\", or \"md\"")
+        );
+        assert_eq!(
+            style_error.notes.as_ref(),
+            &["at named argument 'style'", "got \"csv\" (list)"]
+        );
+    }
 
     #[test]
     fn formats_dict_of_atoms_as_single_row_table() {
@@ -284,7 +349,7 @@ mod tests {
 
         assert_eq!(
             format_table_value_with_options(&value, &opts).unwrap_err(),
-            "table column `age` was not found"
+            "table column 'age' was not found"
         );
     }
 

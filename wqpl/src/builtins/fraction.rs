@@ -3,8 +3,8 @@ use num_rational::Ratio;
 use num_traits::{FromPrimitive, Num, One, Signed, Zero};
 
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
-use crate::value::{Excerpt, Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::value::{Value, WqResult};
+use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
 const FRACTIONL_DENOM_LIMIT: i64 = 1_000_000;
 
@@ -17,7 +17,9 @@ pub(super) fn fraction(args: BuiltinFnArgs) -> WqResult<Value> {
                 if *d == 0 {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BuiltinEnum::Fraction)
-                        .msg("denominator cannot be zero"));
+                        .msg("denominator cannot be zero")
+                        .at_arg(1)
+                        .got1(b));
                 }
                 Ok(Value::from_fraction_parts(
                     BigInt::from(*n),
@@ -28,7 +30,9 @@ pub(super) fn fraction(args: BuiltinFnArgs) -> WqResult<Value> {
                 if *d == 0 {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BuiltinEnum::Fraction)
-                        .msg("denominator cannot be zero"));
+                        .msg("denominator cannot be zero")
+                        .at_arg(1)
+                        .got1(b));
                 }
                 Ok(Value::raw_from_fraction_parts_ref(
                     n.as_ref(),
@@ -39,7 +43,9 @@ pub(super) fn fraction(args: BuiltinFnArgs) -> WqResult<Value> {
                 if d.is_zero() {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BuiltinEnum::Fraction)
-                        .msg("denominator cannot be zero"));
+                        .msg("denominator cannot be zero")
+                        .at_arg(1)
+                        .got1(b));
                 }
                 Ok(Value::raw_from_fraction_parts_ref(
                     &BigInt::from(*n),
@@ -50,7 +56,9 @@ pub(super) fn fraction(args: BuiltinFnArgs) -> WqResult<Value> {
                 if d.is_zero() {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BuiltinEnum::Fraction)
-                        .msg("denominator cannot be zero"));
+                        .msg("denominator cannot be zero")
+                        .at_arg(1)
+                        .got1(b));
                 }
                 Ok(Value::raw_from_fraction_parts_ref(n.as_ref(), d.as_ref()))
             }
@@ -135,23 +143,32 @@ fn limit_denominator(numer: BigInt, denom: BigInt, max_denom: &BigInt) -> (BigIn
 }
 
 fn parse_denominator_limit(arg: &Value, builtin: BuiltinEnum) -> WqResult<BigInt> {
+    let requirement = || Requirement::int_range(Bound::Excluded(0), Bound::Unbounded);
     match arg {
         Value::Int(n) if *n > 0 => Ok(BigInt::from(*n)),
         Value::BigInt(n) if n.is_positive() => Ok((**n).clone()),
         Value::Int(_) | Value::BigInt(_) => Err(WqError::new(WqErrorType::Domain)
             .src(builtin)
-            .msg("expected positive int or bigint for denominator limit")
-            .at_arg(0)),
+            .expected(requirement())
+            .at_arg(1)
+            .got1(arg)),
         _ => Err(WqError::new(WqErrorType::Domain)
             .src(builtin)
-            .msg("expected positive int or bigint for denominator limit")
-            .at_arg(0)
+            .expected(requirement())
+            .at_arg(1)
             .got1(arg)),
     }
 }
 
 fn fraction_impl(value: &Value, builtin: BuiltinEnum, limit: Option<&BigInt>) -> WqResult<Value> {
     let (numer, denom) = exact_fraction_from_value(value, builtin)?;
+    if denom.is_zero() {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(builtin)
+            .msg("denominator cannot be zero")
+            .at_arg(0)
+            .attach_note("at index 1"));
+    }
     let (numer, denom) = match limit {
         Some(max_denom) => limit_denominator(numer, denom, max_denom),
         None => (numer, denom),
@@ -172,11 +189,14 @@ fn exact_fraction_from_value(value: &Value, builtin: BuiltinEnum) -> WqResult<(B
     match value {
         Value::Float(f) if f.is_finite() => Ok(exact_fraction_from_f64(**f)),
         Value::Float(_) => Err(WqError::new(WqErrorType::Domain)
-            .msg(format!("{} is not defined for given value", builtin.name()))
-            .attach_note("builtin fraction functions require finite numbers")
-            .attach_note(format!("got {}", value.excerpt()))),
-        Value::String(s) => parse_fraction_string(s, builtin),
-        Value::Char(c) => parse_fraction_string(&c.to_string(), builtin),
+            .src(builtin)
+            .expected(Requirement::finite(Requirement::FLOAT))
+            .at_arg(0)
+            .got1(value)),
+        Value::String(s) => parse_fraction_string(s, builtin).map_err(|error| error.at_arg(0)),
+        Value::Char(c) => {
+            parse_fraction_string(&c.to_string(), builtin).map_err(|error| error.at_arg(0))
+        }
         Value::IntList(_) | Value::IntRange(_) if value.len() == 2 => {
             let items = value
                 .packed_int_seq()
@@ -190,13 +210,28 @@ fn exact_fraction_from_value(value: &Value, builtin: BuiltinEnum) -> WqResult<(B
             (Value::Int(n), Value::BigInt(d)) => Ok((BigInt::from(*n), (**d).clone())),
             (Value::BigInt(n), Value::BigInt(d)) => Ok(((**n).clone(), (**d).clone())),
             _ => Err(WqError::new(WqErrorType::Domain)
-                .msg("expected int, bigint, float, string or fraction")
+                .src(builtin)
+                .expected(Requirement::phrase("pair of ints", "pairs of ints"))
+                .at_arg(0)
                 .got1(value)),
         },
         _ => Err(WqError::new(WqErrorType::Domain)
-            .msg("expected int, bigint, float, string or fraction")
+            .src(builtin)
+            .expected(fraction_input_requirement())
+            .at_arg(0)
             .got1(value)),
     }
+}
+
+fn fraction_input_requirement() -> Requirement {
+    Requirement::one_of([
+        Requirement::INT,
+        Requirement::FLOAT,
+        Requirement::FRACTION,
+        Requirement::STRING,
+        Requirement::CHAR,
+        Requirement::phrase("pair of ints", "pairs of ints"),
+    ])
 }
 
 /// Parse an integer literal using the same semantics as the lexer:
@@ -271,12 +306,12 @@ fn parse_fraction_string(s: &str, builtin: BuiltinEnum) -> WqResult<(BigInt, Big
         } else {
             Err(WqError::new(WqErrorType::Domain)
                 .src(builtin)
-                .msg("builtin fraction functions require finite numbers"))
+                .msg("fraction string must represent a finite number"))
         }
     } else {
         Err(WqError::new(WqErrorType::Domain)
             .src(builtin)
-            .msg("expected fraction string like \"1/2\" or numeric literal"))
+            .msg("expected a fraction string such as \"1/2\" or a numeric literal"))
     }
 }
 
@@ -347,6 +382,18 @@ mod tests {
     }
 
     #[test]
+    fn fraction_reports_the_denominator_limit_at_the_second_argument() {
+        let error = fraction(BuiltinFnArgs::from(smallvec![
+            Value::float(0.5),
+            Value::Int(0),
+        ]))
+        .expect_err("zero denominator limit should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected int greater than 0"));
+        assert_eq!(error.notes.as_ref(), &["at argument 2", "got 0 (int)"]);
+    }
+
+    #[test]
     fn fraction_from_two_ints() {
         let result =
             fraction(BuiltinFnArgs::from(smallvec![Value::Int(1), Value::Int(2)])).unwrap();
@@ -354,6 +401,16 @@ mod tests {
             result,
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
         );
+    }
+
+    #[test]
+    fn fraction_rejects_a_zero_denominator_in_a_pair() {
+        let pair = Value::IntList(Arc::new(vec![1, 0]));
+        let error =
+            fraction(BuiltinFnArgs::from(pair)).expect_err("zero denominator in pair should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("denominator cannot be zero"));
+        assert_eq!(error.notes.as_ref(), &["at argument 1", "at index 1"]);
     }
 
     #[test]

@@ -118,7 +118,7 @@ pub(super) const REVERSE: BuiltinDoc = BuiltinDoc {
 pub(super) const SORT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Sort,
     summary: "Sort a list or dict.",
-    details: "`sort` sorts lists of ints numerically and strings by character. General lists and dicts sort by string form when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
+    details: "`sort` sorts lists of ints numerically and strings by Unicode scalar. General lists and dicts sort by string form when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
     examples: SORT_EXAMPLES,
     related: &["min", "max", "reverse"],
 };

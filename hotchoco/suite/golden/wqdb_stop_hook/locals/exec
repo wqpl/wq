@@ -2,6 +2,6 @@
 stop hook #1 added
 stop hook #2 added
 breakpoint set at <script> pc=4
-name  value  type
+name  value  kind
 ----  -----  ----
-x     2      int 
+x     2      int

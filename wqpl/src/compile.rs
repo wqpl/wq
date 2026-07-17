@@ -544,9 +544,14 @@ impl Compiler {
             BuiltinDepthSugar::Append { non_depth_argc } => {
                 let expected = usize::from(non_depth_argc);
                 if args.len() != expected {
+                    let argument = if expected == 1 {
+                        "argument"
+                    } else {
+                        "arguments"
+                    };
                     return Err(self.syntax_err_at(
                         span,
-                        format!("{name}@{depth} expects {expected} non-depth arguments"),
+                        format!("'{name}@{depth}' expects {expected} {argument}"),
                     ));
                 }
                 args.push(depth_arg());
@@ -571,9 +576,7 @@ impl Compiler {
                     }
                     _ => Err(self.syntax_err_at(
                         span,
-                        format!(
-                            "{name}@{depth} expects {required} or {optional} non-depth arguments"
-                        ),
+                        format!("'{name}@{depth}' expects {required} or {optional} arguments"),
                     )),
                 }
             }
@@ -1265,9 +1268,9 @@ impl Compiler {
                 self.fill_span_range(start, end, *span);
             }
             AstNode::Pipe { .. } => {
-                return Err(
-                    self.syntax_err_here("Pipe node should have been resolved before compilation")
-                );
+                return Err(self.internal_err_here(
+                    "internal compiler error while compiling an unresolved pipe",
+                ));
             }
             AstNode::PipeTap {
                 input,
@@ -1515,7 +1518,11 @@ impl Compiler {
                             }
                         }
                     }
-                    _ => return Err(self.syntax_err_here("Invalid index assignment target")),
+                    _ => {
+                        return Err(self.internal_err_here(
+                            "internal compiler error while compiling an index assignment",
+                        ));
+                    }
                 }
             }
             AstNode::Function {
@@ -1748,21 +1755,15 @@ impl Compiler {
             }
             AstNode::NLoop { count, body, .. } => {
                 let count_span = Self::last_expr_span(count);
-                // Reject non-integer literal counts at compile time
+                // Reject non-int literal counts at compile time
                 if let AstNode::Literal(value, _) = &**count
                     && !matches!(value, Value::Int(_) | Value::BigInt(_))
                 {
-                    return Err(self.syntax_err_at(
-                        count_span,
-                        format!("n-loop count must be an integer, got {}", value.type_name()),
-                    ));
+                    return Err(self
+                        .syntax_err_at(count_span, "expected int")
+                        .attach_note("for an n-loop count")
+                        .got1(value));
                 }
-                // if matches!(&**count, AstNode::Block(stmts) | AstNode::BlockExpr(stmts) if
-                // stmts.is_empty()) {
-                //     return Err(self.syntax_err_here(
-                //         "n-loop count must be an integer, got unit"
-                //     ));
-                // }
                 let body_spans = self.take_stmt_spans_for(body);
                 // Unroll constant loops only when there is no control flow in body
                 if let AstNode::Literal(Value::Int(n), _) = &**count
@@ -2033,9 +2034,14 @@ impl Compiler {
         self.current_stmt_span = None;
     }
 
-    fn syntax_err_at(&self, span: Option<(usize, usize)>, msg: impl Into<String>) -> WqError {
+    fn error_at(
+        &self,
+        err_type: WqErrorType,
+        span: Option<(usize, usize)>,
+        msg: impl Into<String>,
+    ) -> WqError {
         let msg = msg.into();
-        let mut e = WqError::new(WqErrorType::Syntax).src("compiler").msg(msg);
+        let mut e = WqError::new(err_type).src("compiler").msg(msg);
 
         if let (Some(src), Some((byte_start, byte_end))) = (
             self.src_text.as_ref(),
@@ -2052,8 +2058,16 @@ impl Compiler {
         e
     }
 
+    fn syntax_err_at(&self, span: Option<(usize, usize)>, msg: impl Into<String>) -> WqError {
+        self.error_at(WqErrorType::Syntax, span, msg)
+    }
+
     fn syntax_err_here(&self, msg: impl Into<String>) -> WqError {
         self.syntax_err_at(None, msg)
+    }
+
+    fn internal_err_here(&self, msg: impl Into<String>) -> WqError {
+        self.error_at(WqErrorType::Vm, None, msg)
     }
 
     fn local_slot(&mut self, name: &str) -> WqResult<u16> {
@@ -3525,6 +3539,63 @@ mod tests {
         compiler.set_source(src.to_string());
         compiler.set_stmt_spans(parser.stmt_spans_top().to_vec());
         compiler.compile(&ast).expect_err("expected compile error")
+    }
+
+    #[test]
+    fn unresolved_pipe_is_an_internal_compiler_error() {
+        let node = AstNode::Pipe {
+            input: Box::new(AstNode::Literal(Value::Int(1), None)),
+            effect: Box::new(AstNode::Variable("echo".to_string(), None)),
+            kind: crate::ast::PipeKind::Pipe,
+            span: None,
+        };
+        let err = Compiler::new()
+            .compile(&node)
+            .expect_err("unresolved pipe should fail compilation");
+
+        assert_eq!(err.err_type, WqErrorType::Vm);
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("internal compiler error while compiling an unresolved pipe")
+        );
+    }
+
+    #[test]
+    fn invalid_index_assignment_target_is_an_internal_compiler_error() {
+        let node = AstNode::IndexAssign {
+            object: Box::new(AstNode::Literal(Value::Int(1), None)),
+            index: Box::new(AstNode::Literal(Value::Int(0), None)),
+            op: None,
+            value: Box::new(AstNode::Literal(Value::Int(2), None)),
+            span: None,
+        };
+        let err = Compiler::new()
+            .compile(&node)
+            .expect_err("invalid index assignment target should fail compilation");
+
+        assert_eq!(err.err_type, WqErrorType::Vm);
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("internal compiler error while compiling an index assignment")
+        );
+    }
+
+    #[test]
+    fn depth_arity_error_quotes_the_source_form() {
+        let err = compile_source_err("zip@1[(1;2)]");
+
+        assert_eq!(err.msg.as_deref(), Some("'zip@1' expects 2 arguments"));
+    }
+
+    #[test]
+    fn n_loop_count_uses_public_int_term() {
+        let err = compile_source_err("N[1.5;1]");
+
+        assert_eq!(err.msg.as_deref(), Some("expected int"));
+        assert_eq!(
+            err.notes.as_slice(),
+            ["for an n-loop count", "got 1.5 (float)"]
+        );
     }
 
     fn builtin_id(name: &str) -> u16 {

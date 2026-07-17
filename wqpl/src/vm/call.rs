@@ -17,6 +17,7 @@ use crate::vm::{
 };
 use crate::wqdb::build::mark_stmt_heuristic;
 use crate::wqdb::data::ChunkId;
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 const DEFAULT_OPERAND_STACK_CAPACITY: usize = 256;
 
@@ -37,6 +38,13 @@ fn nested_interpreter_type_name(kind: crate::interpret::InterpreterKind) -> &'st
             std::any::type_name::<crate::interpret::profiler::ProfilerInterpreter>()
         }
     }
+}
+
+fn expected_callable(value: &Value) -> WqError {
+    WqError::new(WqErrorType::NotBound)
+        .src("vm")
+        .expected(Requirement::CALLABLE)
+        .got1(value)
 }
 
 fn interpret_nested_with_kind(
@@ -112,10 +120,7 @@ impl Vm {
                 }
                 res
             }
-            other => Err(not_bound_err(format!(
-                "expected callable, got {}",
-                other.type_name()
-            ))),
+            other => Err(expected_callable(other)),
         }
     }
 
@@ -156,7 +161,7 @@ impl Vm {
             return Ok(None);
         };
         let named_params = callee_named.ok_or_else(|| {
-            arity_err_vm("cannot pass named arguments to a non-function value".to_string())
+            arity_err_vm("cannot pass named arguments to a non-callable value".to_string())
         })?;
 
         if let Some(idx) = cache_idx
@@ -199,10 +204,7 @@ impl Vm {
         args: crate::builtins::BuiltinFnArgs,
     ) -> WqResult<Value> {
         if !expr.is_cas_expr() {
-            return Err(not_bound_err(format!(
-                "expected callable, got {}",
-                expr.type_name()
-            )));
+            return Err(expected_callable(expr));
         }
 
         let result = if args.has_named() {
@@ -234,7 +236,7 @@ impl Vm {
                 "cannot pass named arguments to a composed function",
             ));
         }
-        ensure_stack_len(&self.stack, argc, || "composed function args".into())?;
+        ensure_stack_len(&self.stack, argc, || "composed function arguments".into())?;
         let base = self.stack.len() - argc;
         let args: Sv4 = self.stack.drain(base..).collect();
         self.call_function_composition(data, crate::builtins::BuiltinFnArgs::from(args))
@@ -336,7 +338,7 @@ impl Vm {
             None
         };
 
-        // --- Pre-validate arity and named args before swapping execution state ---
+        // Pre-validate arity and named arguments before swapping execution state.
         let named_meta = self.pending_named_meta.take();
         let callee_named = callee
             .as_user_function()
@@ -351,7 +353,7 @@ impl Vm {
         )?;
 
         // Stack and metadata checks must happen before state swap
-        ensure_stack_len(&self.stack, argc, || "call args".into())?;
+        ensure_stack_len(&self.stack, argc, || "call arguments".into())?;
 
         let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
         let saved_pc = self.pc;
@@ -396,7 +398,7 @@ impl Vm {
             &mut frame,
             argc,
             named_layout.as_deref(),
-            "stack underflow while moving args",
+            "stack underflow while moving arguments",
         )?;
         self.locals.push(frame);
         self.captures.push(captured);
@@ -493,10 +495,7 @@ impl Vm {
                 CallSpec::from_user_callable(func, argc, callee_name)
                     .expect("matched user function"),
             ),
-            other => Err(not_bound_err(format!(
-                "expected callable, got {}",
-                other.type_name()
-            ))),
+            other => Err(expected_callable(other)),
         }
     }
 
@@ -506,10 +505,7 @@ impl Vm {
             Value::CompiledFunction(_) | Value::Closure(_) => self.prepare_tail(
                 CallSpec::from_user_callable(func, argc, None).expect("matched user function"),
             ),
-            other => Err(not_bound_err(format!(
-                "expected func, got {}",
-                other.type_name()
-            ))),
+            other => Err(expected_callable(other)),
         }
     }
 
@@ -560,7 +556,7 @@ impl Vm {
             callee_named.as_ref(),
         )?;
 
-        ensure_stack_len(&self.stack, argc, || "tail-call args".into())?;
+        ensure_stack_len(&self.stack, argc, || "tail-call arguments".into())?;
 
         let mut frame = std::mem::take(
             self.locals
@@ -575,7 +571,7 @@ impl Vm {
             &mut frame,
             argc,
             named_layout.as_deref(),
-            "stack underflow while moving tail-call args",
+            "stack underflow while moving tail-call arguments",
         )?;
         self.stack.clear();
         *self
@@ -636,9 +632,7 @@ impl Vm {
             } else {
                 Err(
                     not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
-                        format!(
-                            "a builtin named '{name}' exists but is disabled in the current preset"
-                        ),
+                        format!("builtin '{name}' exists but is disabled in the current preset"),
                     ),
                 )
             }
@@ -677,9 +671,7 @@ impl Vm {
             } else {
                 Err(
                     not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
-                        format!(
-                            "a builtin named '{name}' exists but is disabled in the current preset"
-                        ),
+                        format!("builtin '{name}' exists but is disabled in the current preset"),
                     ),
                 )
             }
@@ -698,7 +690,7 @@ impl Vm {
 
     fn take_builtin_args_from_stack(&mut self, argc: usize) -> WqResult<TakenBuiltinArgs> {
         let named_meta = self.pending_named_meta.take();
-        ensure_stack_len(&self.stack, argc, || "builtin args".into())?;
+        ensure_stack_len(&self.stack, argc, || "builtin arguments".into())?;
         let base = self.stack.len() - argc;
         let had_named_meta = named_meta.is_some();
         let args = if let Some(meta) = named_meta {
@@ -987,19 +979,19 @@ fn validate_positional_call_shape(
     if let Some(expected) = params_len {
         if argc != expected {
             return Err(arity_err_vm(format!(
-                "function expects {} arg(s), got {}",
-                expected, argc
+                "expected {expected} {}, got {argc}",
+                argument_word(expected)
             )));
         }
     } else if argc > 3 {
-        return Err(arity_err_vm(
-            "implicit function expects up to 3 args".to_string(),
-        ));
+        return Err(arity_err_vm(format!(
+            "expected at most 3 arguments, got {argc}"
+        )));
     }
 
     if usize::from(local_count) < argc {
         return Err(vm_err(format!(
-            "function local count {local_count} is smaller than arg count {argc}"
+            "function local count {local_count} is smaller than argument count {argc}"
         )));
     }
     Ok(())
@@ -1020,7 +1012,8 @@ fn build_named_arg_layout(
         && pos_count != expected
     {
         return Err(arity_err_vm(format!(
-            "function expects {expected} positional arg(s), got {pos_count}"
+            "expected {expected} positional {}, got {pos_count}",
+            argument_word(expected)
         )));
     }
     let described_argc = pos_count
@@ -1028,12 +1021,12 @@ fn build_named_arg_layout(
         .ok_or_else(|| arity_err_vm("call has too many arguments".to_string()))?;
     if described_argc != argc {
         return Err(vm_err(format!(
-            "named call metadata describes {described_argc} args, but call has {argc}"
+            "named call metadata describes {described_argc} arguments, but the call has {argc}"
         )));
     }
     if usize::from(local_count) < argc {
         return Err(vm_err(format!(
-            "function local count {local_count} is smaller than arg count {argc}"
+            "function local count {local_count} is smaller than argument count {argc}"
         )));
     }
 
@@ -1098,7 +1091,7 @@ fn build_named_arg_layout(
     }
     if next_positional_slot != pos_count {
         return Err(vm_err(format!(
-            "named call metadata describes {pos_count} positional args, found {next_positional_slot}"
+            "named call metadata describes {pos_count} positional arguments, found {next_positional_slot}"
         )));
     }
 
@@ -1129,6 +1122,10 @@ fn build_named_arg_layout(
         mask_slot,
         mask,
     })
+}
+
+const fn argument_word(count: usize) -> &'static str {
+    if count == 1 { "argument" } else { "arguments" }
 }
 
 fn fill_call_frame_from_stack(
@@ -1395,6 +1392,24 @@ mod tests {
 
         assert_eq!(err.err_type, crate::wqerror::WqErrorType::Arity);
         assert_eq!(err.msg.as_deref(), Some("duplicate named argument 'x'"));
+    }
+
+    #[test]
+    fn positional_call_arity_uses_normal_grammar() {
+        let singular =
+            validate_positional_call_shape(2, Some(1), 2).expect_err("wrong arity should fail");
+        assert_eq!(singular.msg.as_deref(), Some("expected 1 argument, got 2"));
+
+        let plural =
+            validate_positional_call_shape(1, Some(2), 2).expect_err("wrong arity should fail");
+        assert_eq!(plural.msg.as_deref(), Some("expected 2 arguments, got 1"));
+
+        let implicit = validate_positional_call_shape(4, None, 4)
+            .expect_err("implicit function arity should fail");
+        assert_eq!(
+            implicit.msg.as_deref(),
+            Some("expected at most 3 arguments, got 4")
+        );
     }
 
     #[test]

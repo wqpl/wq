@@ -7,13 +7,14 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::rewrite::{is_provably_positive, push_flattened};
 use super::{
-    CasDebug, cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
-    eval_exact_numeric_div, eval_numeric_binary_gcd, eval_numeric_call, eval_numeric_cas,
-    expand_expr, extract_algebraic_content, extract_linear_coefficients, factor_expr, numeric_add,
-    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_pow, poly_add,
-    poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_to_expr,
-    poly_trim, resolve_cas_root, sort_canonical, split_off_results, square_free_factor,
-    try_cancel_affine_over_factor, try_eval_with_const_resolve, try_exact_polynomial_division,
+    CasDebug, CasExprContext, cas_err, cas_internal_err, cas_product, collect_single_poly_var,
+    contains_cas_var, ensure_expr_arg, eval_exact_numeric_div, eval_numeric_binary_gcd,
+    eval_numeric_call, eval_numeric_cas, expand_expr, extract_algebraic_content,
+    extract_linear_coefficients, factor_expr, numeric_add, numeric_is_negative, numeric_is_one,
+    numeric_is_zero, numeric_mul, numeric_pow, poly_add, poly_degree, poly_divide, poly_from_expr,
+    poly_gcd, poly_is_zero, poly_mul, poly_to_expr, poly_trim, resolve_cas_root, sort_canonical,
+    split_off_results, square_free_factor, try_cancel_affine_over_factor,
+    try_eval_with_const_resolve, try_exact_polynomial_division,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp, CasSymbol};
@@ -879,7 +880,7 @@ fn poly_from_expr_relaxed_constants(expr: &Value, var: &str) -> WqResult<Vec<Val
             return Ok(vec![Value::Int(0), Value::Int(1)]);
         }
         return Err(cas_err(format!(
-            "solve currently supports a single variable '{var}' only"
+            "'solve' currently supports a single variable '{var}' only"
         )));
     }
     if !expr.is_cas_expr() {
@@ -907,7 +908,7 @@ fn poly_from_expr_relaxed_constants(expr: &Value, var: &str) -> WqResult<Vec<Val
             (CasOp::Power, [base, exp]) => {
                 if base.cas_var_name() == Some(var) {
                     let n = exp.exact_int().and_then(|n| n.to_usize()).ok_or_else(|| {
-                        cas_err("solve currently supports non-negative integer powers only")
+                        cas_err("'solve' currently supports non-negative integer powers only")
                     })?;
                     let mut coeffs = vec![Value::Int(0); n + 1];
                     coeffs[n] = Value::Int(1);
@@ -915,29 +916,29 @@ fn poly_from_expr_relaxed_constants(expr: &Value, var: &str) -> WqResult<Vec<Val
                 } else if !contains_any_symbolic_var(base) {
                     let Some(n) = exp.exact_int() else {
                         return Err(cas_err(
-                            "solve currently supports polynomial expressions with exact numeric coefficients",
+                            "'solve' currently supports polynomial expressions with exact numeric coefficients",
                         ));
                     };
                     if n.is_negative() || contains_negative_power_expr(base) {
                         return Err(cas_err(
-                            "solve currently supports polynomial expressions with exact numeric coefficients",
+                            "'solve' currently supports polynomial expressions with exact numeric coefficients",
                         ));
                     }
                     Ok(vec![normalize_relaxed_poly_coeff(expr)?])
                 } else {
                     Err(cas_err(
-                        "solve currently supports polynomial expressions with exact numeric coefficients",
+                        "'solve' currently supports polynomial expressions with exact numeric coefficients",
                     ))
                 }
             }
             _ => Err(cas_err(
-                "solve currently supports polynomial expressions with exact numeric coefficients",
+                "'solve' currently supports polynomial expressions with exact numeric coefficients",
             )),
         };
     }
     if expr.cas_op_parts().is_some() {
         return Err(cas_err(
-            "solve currently supports polynomial expressions with exact numeric coefficients",
+            "'solve' currently supports polynomial expressions with exact numeric coefficients",
         ));
     }
     Err(cas_err("solve expected a symbolic polynomial expression").got1(expr))
@@ -2247,34 +2248,34 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
             SimplifyFrame::Pow => {
                 let exp = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing exponent for ^"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 let base = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing base for ^"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(cas_pow(base, exp)?);
             }
             SimplifyFrame::Div => {
                 let rhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing rhs for /"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 let lhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing lhs for /"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(cas_div(lhs, rhs)?);
             }
             SimplifyFrame::Neg => {
                 let arg = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing arg for unary -"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(cas_neg(arg)?);
             }
             SimplifyFrame::Sub => {
                 let rhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing rhs for -"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 let lhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing lhs for -"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(cas_sub(lhs, rhs)?);
             }
             SimplifyFrame::Function { function, n } => {
@@ -2342,25 +2343,25 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
             SimplifyFrame::NamedArg { name } => {
                 let value = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing named argument value"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(Value::from_cas_named_arg(name.as_str(), value));
             }
             SimplifyFrame::Limit { var, direction } => {
                 let point = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing point for limit"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 let inner = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing expression for limit"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(Value::from_cas_limit(inner, var, point, direction));
             }
             SimplifyFrame::Eq => {
                 let rhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing rhs for eq"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 let lhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("simplify: missing lhs for eq"))?;
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(Value::from_cas_eq(lhs, rhs));
             }
         }
@@ -2368,7 +2369,7 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
 
     let result = results
         .pop()
-        .ok_or_else(|| cas_err("simplify: empty result stack"))?;
+        .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
 
     Ok(result)
 }
@@ -2391,13 +2392,13 @@ pub(crate) fn simplify_cas_value_with_debug(value: &Value, debug: CasDebug<'_>) 
 }
 
 pub(crate) fn cas_binary_expr(op: CasOp, lhs: &Value, rhs: &Value) -> WqResult<Value> {
-    ensure_expr_arg(lhs, op.symbol())?;
-    ensure_expr_arg(rhs, op.symbol())?;
+    ensure_expr_arg(lhs, CasExprContext::Operator(op.symbol()))?;
+    ensure_expr_arg(rhs, CasExprContext::Operator(op.symbol()))?;
     simplify_cas_value(&Value::from_cas_op(op, vec![lhs.clone(), rhs.clone()]))
 }
 
 pub(crate) fn cas_unary_expr(op: CasOp, arg: &Value) -> WqResult<Value> {
-    ensure_expr_arg(arg, op.symbol())?;
+    ensure_expr_arg(arg, CasExprContext::Operator(op.symbol()))?;
     simplify_cas_value(&Value::from_cas_op(op, vec![arg.clone()]))
 }
 
@@ -2410,7 +2411,7 @@ pub(crate) fn cas_call_expr(function: CasFunction, args: &[Value]) -> WqResult<V
         )));
     }
     for arg in args {
-        ensure_expr_arg(arg, function.name())?;
+        ensure_expr_arg(arg, CasExprContext::Function(function.name()))?;
     }
     simplify_cas_value(&Value::from_cas_function(function, args.to_vec()))
 }
@@ -2424,7 +2425,7 @@ pub(super) fn var_name_from_value(value: &Value) -> WqResult<String> {
     }
     value
         .try_to_rust_string()
-        .ok_or_else(|| cas_err("expected symbolic variable, symbol, or string").got1(value))
+        .ok_or_else(|| cas_err("expected symbolic variable, tag, or string").got1(value))
 }
 
 pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<Value> {
@@ -2518,9 +2519,10 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
 pub(crate) fn substitute_cas(expr: &Value, var: &Value, val: &Value) -> WqResult<Value> {
     let var = var_name_from_value(var)?;
     if val.is_cas_equation() {
-        return Err(
-            cas_err("substitute expects a replacement expression or value, got equation").got1(val),
-        );
+        return Err(cas_err(
+            "'substitute' expects a replacement expression or value, got equation",
+        )
+        .got1(val));
     }
     let expr = simplify_cas_value(expr)?;
     simplify_cas_value(&substitute_expr(&expr, &var, val)?)

@@ -10,7 +10,7 @@ use crate::wqdb::data::Span;
 pub(crate) struct TraceRecord {
     pub(crate) span: Span,
     pub(crate) value_excerpt: String,
-    pub(crate) type_name: &'static str,
+    pub(crate) debug_kind: &'static str,
     pub(crate) strong_count: Option<usize>,
     pub(crate) call_depth: u32,
 }

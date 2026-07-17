@@ -328,7 +328,7 @@ fn diff_expr_inner(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Val
             ])?,
             _ => {
                 return Err(cas_err(format!(
-                    "unsupported symbolic derivative for operator '{op}'"
+                    "operator '{op}' is not supported in symbolic differentiation"
                 )));
             }
         };
@@ -597,7 +597,7 @@ fn diff_expr_inner(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Val
             }
             _ => {
                 return Err(cas_err(format!(
-                    "unsupported symbolic derivative for function '{name}'"
+                    "function '{name}' is not supported in symbolic differentiation"
                 )));
             }
         };
@@ -606,7 +606,7 @@ fn diff_expr_inner(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Val
     if let Some((name, args)) = expr.cas_apply_parts() {
         if args.iter().any(|arg| contains_cas_var(arg, var)) {
             return Err(cas_err(format!(
-                "unsupported symbolic derivative for application '{}'",
+                "application '{}' is not supported in symbolic differentiation",
                 name.as_str()
             )));
         }
@@ -694,9 +694,10 @@ mod tests {
         let err = diff_cas(&expr, &Value::from_cas_var("x"))
             .expect_err("application derivative needs explicit semantics");
         assert!(
-            err.msg.as_deref().is_some_and(
-                |msg| msg.contains("unsupported symbolic derivative for application 'f'")
-            ),
+            err.msg
+                .as_deref()
+                .is_some_and(|msg| msg
+                    .contains("application 'f' is not supported in symbolic differentiation")),
             "unexpected error: {err:?}",
         );
     }

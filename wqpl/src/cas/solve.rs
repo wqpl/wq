@@ -39,7 +39,7 @@ fn solve_monomial_polynomial(coeffs: &[Value], degree: usize) -> WqResult<Vec<Va
         .any(|coeff| !numeric_is_zero(coeff))
     {
         return Err(cas_err(format!(
-            "solve currently supports degree {degree} only for equations of the form a*x^{degree} + b = 0"
+            "'solve' currently supports degree {degree} only for equations of the form a*x^{degree} + b = 0"
         )));
     }
     let leading = coeffs[degree]
@@ -147,7 +147,7 @@ fn requested_var_index(expr: &Value, vars: &[String]) -> Option<usize> {
 }
 
 fn linear_system_shape_err() -> WqError {
-    cas_err("solve_system currently supports linear equations in the requested variables only")
+    cas_err("'solve_system' currently supports linear equations in the requested variables only")
 }
 
 #[derive(Clone)]
@@ -465,7 +465,7 @@ fn branch_linear_solution(
 ) -> WqResult<LinearSolution> {
     if branch_depth == 0 {
         return Err(cas_err(
-            "solve_system exceeded its conditional branch limit; pass more assumptions",
+            "'solve_system' exceeded its conditional branch limit; pass more assumptions",
         ));
     }
     let predicates = [
@@ -514,7 +514,8 @@ fn normalize_system_equations(equations: &Value) -> WqResult<Vec<Value>> {
         Value::List(items) => items,
         _ => {
             return Err(
-                cas_err("solve_system expects a list of equations or expressions").got1(equations),
+                cas_err("'solve_system' expects a list of equations or expressions")
+                    .got1(equations),
             );
         }
     };
@@ -567,7 +568,7 @@ fn infer_system_var_names(equations: &[Value]) -> WqResult<Vec<String>> {
         collect_cas_vars(equation, &mut vars);
     }
     if vars.is_empty() {
-        return Err(cas_err("solve_system could not infer symbolic variables"));
+        return Err(cas_err("'solve_system' could not infer symbolic variables"));
     }
     Ok(vars.into_iter().collect())
 }
@@ -575,7 +576,9 @@ fn infer_system_var_names(equations: &[Value]) -> WqResult<Vec<String>> {
 fn parse_system_var_names(vars: &Value) -> WqResult<Vec<String>> {
     let vars = match vars {
         Value::List(items) => items,
-        _ => return Err(cas_err("solve_system expects a list of symbolic variables").got1(vars)),
+        _ => {
+            return Err(cas_err("'solve_system' expects a list of symbolic variables").got1(vars));
+        }
     };
     let mut var_names = Vec::with_capacity(vars.len());
     let mut seen = BTreeSet::new();
@@ -583,7 +586,7 @@ fn parse_system_var_names(vars: &Value) -> WqResult<Vec<String>> {
         let name = var_name_from_value(var)?;
         if !seen.insert(name.clone()) {
             return Err(cas_err(format!(
-                "solve_system variable '{name}' appears more than once"
+                "'solve_system' variable '{name}' appears more than once"
             )));
         }
         var_names.push(name);
@@ -764,7 +767,7 @@ fn solve_parameterized_polynomial(
         for coefficient in coeffs {
             if assumptions.prove_real(coefficient) != Truth::Proven {
                 return Err(cas_err(format!(
-                    "real-domain solve cannot prove coefficient {coefficient} is real; pass real[{coefficient}] to named argument assuming"
+                    "'solve' in the real domain cannot prove coefficient {coefficient} is real; pass '`assuming:real[{coefficient}]' to solve"
                 )));
             }
         }
@@ -798,7 +801,7 @@ fn solve_parameterized_polynomial(
             solve_parameterized_quadratic(a, b, disc, assumptions, domain)
         }
         _ => Err(cas_err(
-            "parameterized solve currently supports polynomial degree <= 2",
+            "'solve' with parameters currently supports polynomial degree <= 2",
         )),
     }
 }
@@ -890,7 +893,7 @@ fn branch_root_solution(
 ) -> WqResult<RootSolution> {
     if branch_depth == 0 {
         return Err(cas_err(
-            "solve exceeded its conditional branch limit; pass more assumptions",
+            "'solve' exceeded its conditional branch limit; pass more assumptions",
         ));
     }
     let predicates = [
@@ -997,7 +1000,7 @@ pub(crate) fn solve_system_cas_with_assumptions(
     let var_names = parse_system_var_names(vars)?;
     if var_names.is_empty() {
         return Err(cas_err(
-            "solve_system expects at least one symbolic variable",
+            "'solve_system' expects at least one symbolic variable",
         ));
     }
 
@@ -1017,4 +1020,38 @@ pub(crate) fn solve_system_infer_cas_with_assumptions(
     let var_names = infer_system_var_names(&equations)?;
 
     solve_normalized_system(&equations, &var_names, assumptions)
+}
+
+#[cfg(test)]
+mod diagnostic_wording_tests {
+    use super::*;
+
+    #[test]
+    fn solve_messages_quote_callable_identifiers() {
+        let err = solve_monomial_polynomial(&[Value::Int(1), Value::Int(1), Value::Int(1)], 2)
+            .expect_err("non-monomial polynomial should fail");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(
+                "'solve' currently supports degree 2 only for equations of the form a*x^2 + b = 0"
+            )
+        );
+
+        let err =
+            normalize_system_equations(&Value::Int(1)).expect_err("non-list system should fail");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'solve_system' expects a list of equations or expressions")
+        );
+
+        let vars = Value::List(Arc::new(vec![
+            Value::from_cas_var("x"),
+            Value::from_cas_var("x"),
+        ]));
+        let err = parse_system_var_names(&vars).expect_err("duplicate variable should fail");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'solve_system' variable 'x' appears more than once")
+        );
+    }
 }

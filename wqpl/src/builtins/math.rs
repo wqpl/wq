@@ -1,6 +1,6 @@
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
-use crate::value::{Excerpt, Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::value::{Value, WqResult};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 macro_rules! def_unary_math_fn {
     ($fn_name:ident, $enum_variant:ident, $method:ident) => {
@@ -58,7 +58,7 @@ pub(super) fn delta(args: BuiltinFnArgs) -> WqResult<Value> {
     let input = args[0].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Delta)
-            .msg("expected a number")
+            .expected(Requirement::NUMBER)
             .got1(&args[0])
     })?;
     if input == 0.0 {
@@ -99,8 +99,9 @@ macro_rules! def_rounding_math_fn {
                     _ => {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BuiltinEnum::$enum_variant)
-                            .msg("expected int for decimal count")
-                            .at_arg(1));
+                            .expected(Requirement::INT)
+                            .at_arg(1)
+                            .got1(&args[1]));
                     }
                 }
             };
@@ -115,19 +116,20 @@ macro_rules! def_rounding_math_fn {
                     None => {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BuiltinEnum::$enum_variant)
-                            .msg("expected real")
-                            .at_arg(0));
+                            .expected(Requirement::REAL_NUMBER)
+                            .at_arg(0)
+                            .got1(val_arg));
                     }
                 };
                 if val.is_nan() {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BuiltinEnum::$enum_variant)
                         .msg(format!(
-                            "{} is not defined for given value",
+                            "{} is undefined for the given value",
                             stringify!($fn_name)
                         ))
-                        .attach_note("builtin math functions are defined on real set")
-                        .attach_note(format!("got {}", val_arg.excerpt())));
+                        .attach_note("math functions are defined over the real numbers")
+                        .got1(val_arg));
                 }
                 let factor = 10_f64.powi(dec_count as i32);
                 let res = (val * factor).$f64_method() / factor;
@@ -140,3 +142,25 @@ macro_rules! def_rounding_math_fn {
 def_rounding_math_fn!(floor, Floor, floor, floor);
 def_rounding_math_fn!(ceil, Ceil, ceil, ceil);
 def_rounding_math_fn!(round, Round, round, round);
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn rounding_reports_the_decimal_count_requirement() {
+        let error = round(BuiltinFnArgs::from(vec![
+            Value::Int(1),
+            Value::String(Arc::new("two".to_string())),
+        ]))
+        .expect_err("string decimal count should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected int"));
+        assert_eq!(
+            error.notes.as_ref(),
+            &["at argument 2", "got \"two\" (list)"]
+        );
+    }
+}

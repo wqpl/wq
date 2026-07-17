@@ -5,13 +5,15 @@ use num_traits::{Signed, ToPrimitive};
 use rayon::prelude::*;
 
 use crate::value::op::PAR_BC_THRESHOLD;
-use crate::value::{Value, WqResult, expected_integer1};
+use crate::value::{Value, WqResult, expected_integer1, expected_string1};
 use crate::wqerror::{WqError, WqErrorType};
 
 fn invalid_unicode(v: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg("invalid Unicode code point")
-        .attach_note("valid Unicode code points are 0x0000..=0xD7FF, 0xE000..=0x10FFFF")
+        .msg("invalid Unicode scalar value")
+        .attach_note(
+            "valid Unicode scalar values are U+0000 through U+D7FF and U+E000 through U+10FFFF",
+        )
         .got1(v)
 }
 
@@ -82,9 +84,7 @@ impl Value {
             //     codes.extend(s.chars().map(|c| i64::from(u32::from(c))));
             //     Ok(Value::IntList(Arc::new(codes)))
             // }
-            _ => Err(WqError::new(WqErrorType::Domain)
-                .msg("expected char or string")
-                .got1(v)),
+            _ => Err(expected_string1(v)),
         })
         .map_err(|e| e.into_wqerror())
     }
@@ -177,7 +177,16 @@ mod tests {
 
     #[test]
     fn chr_invalid() {
-        assert!(Value::Int(-1).chr().is_err());
+        let error = Value::Int(-1)
+            .chr()
+            .expect_err("negative scalar should fail");
+        assert_eq!(error.msg.as_deref(), Some("invalid Unicode scalar value"));
+        assert_eq!(
+            error.notes.first().map(String::as_str),
+            Some(
+                "valid Unicode scalar values are U+0000 through U+D7FF and U+E000 through U+10FFFF"
+            )
+        );
         assert!(Value::Int(0x110000).chr().is_err()); // > Unicode max
     }
 

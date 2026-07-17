@@ -1,7 +1,6 @@
 use crate::ast::BinaryOperator;
-use crate::builtins::{BuiltinEnum, BuiltinFnArgs};
+use crate::builtins::{BuiltinEnum, BuiltinFnArgs, at_least_arity_error};
 use crate::value::{Value, WqResult, eval_binary};
-use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn fold_binary_op(
     src: BuiltinEnum,
@@ -9,9 +8,7 @@ pub(super) fn fold_binary_op(
     op: &BinaryOperator,
 ) -> WqResult<Value> {
     if args.len() < 2 {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(src)
-            .msg(format!("expected 2 or more args, got {}", args.len())));
+        return Err(at_least_arity_error(src, 2, args.len()));
     }
     let mut iter = args.into_iter();
     let init = iter.next().unwrap();

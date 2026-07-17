@@ -5,7 +5,7 @@ use num_traits::{One, Signed, Zero};
 use crate::cas::cas_call_expr;
 use crate::value::bc::{Bc1Stop, Bc2Stop};
 use crate::value::cas::CasFunction;
-use crate::value::{Excerpt, Value, WqResult, expected_numeric1, expected_numeric2};
+use crate::value::{Value, WqResult, expected_numeric1, expected_numeric2};
 use crate::wqerror::{WqError, WqErrorType};
 
 #[inline]
@@ -19,18 +19,17 @@ where
 #[inline]
 fn math_nan_err1(op: &str, arg: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg(format!("{op} is not defined for given value"))
-        .attach_note("builtin math functions are defined on real set")
-        .attach_note(format!("got {}", arg.excerpt()))
+        .msg(format!("'{op}' is not defined for the given value"))
+        .attach_note("builtin math functions are defined over the real numbers")
+        .got1(arg)
 }
 
 #[inline]
 fn math_nan_err2(op: &str, lhs: &Value, rhs: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg(format!("{op} is not defined for given values"))
-        .attach_note("builtin math functions are defined on real set")
-        .attach_note(format!("got {} for lhs", lhs.excerpt()))
-        .attach_note(format!("got {} for rhs", rhs.excerpt()))
+        .msg(format!("'{op}' is not defined for the given values"))
+        .attach_note("builtin math functions are defined over the real numbers")
+        .got2(lhs, rhs)
 }
 
 #[inline]

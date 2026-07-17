@@ -2,7 +2,7 @@ use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 
 use super::{
-    cas_add, cas_err, cas_mul, cas_pow, contains_cas_var, eval_exact_numeric_div,
+    cas_add, cas_err, cas_internal_err, cas_mul, cas_pow, contains_cas_var, eval_exact_numeric_div,
     eval_numeric_binary, numeric_is_negative, numeric_is_one, numeric_is_zero, rebuild_scaled_term,
     simplify_cas_value,
 };
@@ -386,7 +386,7 @@ pub(crate) fn square_free_factor(poly: &[Value]) -> WqResult<Vec<(Vec<Value>, us
 
     let g = poly_gcd(&poly, &deriv)?;
     if poly_is_zero(&g) {
-        return Err(cas_err("square_free_factor: unexpected zero gcd"));
+        return Err(cas_internal_err("factoring a polynomial"));
     }
 
     let (mut s, _) = poly_divide(&poly, &g)?;
@@ -584,7 +584,7 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
             return Ok(vec![Value::Int(0), Value::Int(1)]);
         }
         return Err(cas_err(format!(
-            "solve currently supports a single variable '{var}' only"
+            "'solve' currently supports a single variable '{var}' only"
         )));
     }
     if !expr.is_cas_expr() {
@@ -612,7 +612,7 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
             (CasOp::Power, [base, exp]) => {
                 if base.cas_var_name() == Some(var) {
                     let n = exp.exact_int().and_then(|n| n.to_usize()).ok_or_else(|| {
-                        cas_err("solve currently supports non-negative integer powers only")
+                        cas_err("'solve' currently supports non-negative integer powers only")
                     })?;
                     let mut coeffs = vec![Value::Int(0); n + 1];
                     coeffs[n] = Value::Int(1);
@@ -621,12 +621,12 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
                     let Some(n) = exp.exact_int() else {
                         // Fractional power of constant base
                         return Err(cas_err(
-                            "solve currently supports polynomial expressions with exact numeric coefficients",
+                            "'solve' currently supports polynomial expressions with exact numeric coefficients",
                         ));
                     };
                     if n.is_negative() || contains_negative_power(base) {
                         return Err(cas_err(
-                            "solve currently supports polynomial expressions with exact numeric coefficients",
+                            "'solve' currently supports polynomial expressions with exact numeric coefficients",
                         ));
                     }
                     // Try to evaluate the constant power to a numeric or
@@ -643,12 +643,12 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
                     Ok(vec![expr.clone()])
                 } else {
                     Err(cas_err(
-                        "solve currently supports polynomial expressions with exact numeric coefficients",
+                        "'solve' currently supports polynomial expressions with exact numeric coefficients",
                     ))
                 }
             }
             _ => Err(cas_err(
-                "solve currently supports polynomial expressions with exact numeric coefficients",
+                "'solve' currently supports polynomial expressions with exact numeric coefficients",
             )),
         };
     }
@@ -697,18 +697,18 @@ fn poly_from_expr_with_params_simplified(expr: &Value, var: &str) -> WqResult<Ve
             }
             (CasOp::Power, [base, exp]) => {
                 let n = exp.exact_int().and_then(|n| n.to_usize()).ok_or_else(|| {
-                    cas_err("solve currently supports non-negative integer powers only")
+                    cas_err("'solve' currently supports non-negative integer powers only")
                 })?;
                 let base_poly = poly_from_expr_with_params_simplified(base, var)?;
                 poly_pow_with_params(&base_poly, n)
             }
             _ => Err(cas_err(
-                "solve currently supports polynomial expressions in the requested variable",
+                "'solve' currently supports polynomial expressions in the requested variable",
             )),
         };
     }
     Err(
-        cas_err("solve currently supports polynomial expressions in the requested variable")
+        cas_err("'solve' currently supports polynomial expressions in the requested variable")
             .got1(expr),
     )
 }

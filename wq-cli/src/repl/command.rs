@@ -46,8 +46,8 @@ pub(super) enum ReplCommandKind {
     TimeQuery,
     WqdbQuery,
     FmtQuery,
-    TypeShow,
-    TypeQuery,
+    CategoryShow,
+    CategoryQuery,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -383,11 +383,15 @@ const REPL_COMMAND_SPECS: &[ReplCommandSpec] = &[
         "show repl commands",
         ReplCommandKind::Commands,
     ),
-    exact(&[r"\type"], "toggle type mode", ReplCommandKind::TypeShow),
     exact(
-        &[r"\type?"],
-        "show type mode status",
-        ReplCommandKind::TypeQuery,
+        &[r"\category", r"\type"],
+        "toggle category display",
+        ReplCommandKind::CategoryShow,
+    ),
+    exact(
+        &[r"\category?", r"\type?"],
+        "show category display status",
+        ReplCommandKind::CategoryQuery,
     ),
     suffix_arg(
         &[r"\d.", r"\debug."],

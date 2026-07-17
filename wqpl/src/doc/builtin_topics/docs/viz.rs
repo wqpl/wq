@@ -34,12 +34,12 @@ const ASCIIPLOT_EXAMPLES: &[DocExample] = &[
 
 pub(super) const SHOWTABLE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Showtable,
-    summary: "Print table-shaped values as aligned text.",
+    summary: "Print table-shaped values as an aligned table.",
     details:
 "`showtable[table;opts]` accepts a dict of atom values, a list of dicts, a dict of lists, or a dict of dicts.
 Dict keys become column headers, dict-of-dicts outer keys become the `row` column, sparse rows are padded with empty cells, and the formatted table is written to stdout.
 
-Strings render as text cells; other lists in dict-of-lists inputs expand as columns.
+Strings render as single cells; other lists in dict-of-lists inputs expand as columns.
 Numeric columns are right-aligned using display width, so wide Unicode cells line up with narrow cells.
 
 Options:
@@ -61,13 +61,13 @@ pub(super) const ASCIIPLOT: BuiltinDoc = BuiltinDoc {
     details:
 "`asciiplot[data+;opts]` writes a plot to stdout and returns unit.
 
-Data args:
+Data arguments:
 
-- Y-value lists: non-empty `(y0;y1;...)` values use row index as x.
+- Numeric lists: non-empty `(y0;y1;...)` values use row index as x.
 - Point lists: non-empty `((x;y);...)` values plot explicit coordinates.
 - Callables and CAS expressions: sampled over `xlim` (default -10..10) using `samples` points, or the plot width when `samples` is unset; skipped points and sharp discontinuities split line segments.
 - Table-shaped data: dict-of-lists or list-of-dicts; `x` selects the x column, otherwise row index is used; `y` selects y columns, otherwise all numeric columns except x are plotted.
-- Series config dicts: values like ``(`data:sin;`xlim:(0;6.283);`label:\"sin\")`` or ``(`data:(1;3;2);`mode:\"bar\")``. Use `data` as the unified source key for callables, CAS, y-value lists, explicit `((x;y);...)` points, or table-shaped values. Paired numeric `x` and `y` lists are also accepted when the dict has a config option such as `mode` or `label`. `fn`, `cas`, `expr`, `values`, and `points` remain aliases for older or more explicit snippets. Config dicts accept per-series `xlim`, `symbol`, `mode`, and `label`.
+- Series config dicts: values like ``(`data:sin;`xlim:(0;6.283);`label:\"sin\")`` or ``(`data:(1;3;2);`mode:\"bar\")``. Use `data` as the unified source key for callables, CAS expressions, numeric lists, explicit `((x;y);...)` points, or table-shaped data. Paired numeric `x` and `y` lists are also accepted when the dict has a config option such as `mode` or `label`. `fn`, `cas`, `expr`, `values`, and `points` remain aliases for older or more explicit snippets. Config dicts accept per-series `xlim`, `symbol`, `mode`, and `label`.
 
 Global options:
 
@@ -79,9 +79,9 @@ Global options:
 Option values:
 
 - Keyword option values can be strings or tags, e.g. `` `mode:\"line\" `` or `` `mode:`line ``.
-- `mode`: `line`, `scatter`, `step`, `bar`, or `area` (also `l`, `sc`, `st`, `b`, `a`). `line` connects samples and is best for continuous lists, callables, and CAS. `scatter` marks only samples and works well for point clouds, noisy table columns, and `complex:\"plane\"`. `step` draws horizontal-then-vertical segments for piecewise or sample-and-hold data; for callables/CAS, `samples` controls the stair count. `bar` draws vertical bars from zero when visible, otherwise from the bottom edge; it is clearest with discrete y-lists, tables, or low `samples`. `area` fills between the curve and baseline; overlapping area fills are marked and their ANSI colors are mixed automatically.
+- `mode`: `line`, `scatter`, `step`, `bar`, or `area` (also `l`, `sc`, `st`, `b`, `a`). `line` connects samples and is best for continuous lists, callables, and CAS. `scatter` marks only samples and works well for point clouds, noisy table columns, and `complex:\"plane\"`. `step` draws horizontal-then-vertical segments for piecewise or sample-and-hold data; for callables/CAS, `samples` controls the stair count. `bar` draws vertical bars from zero when visible, otherwise from the bottom edge; it is clearest with discrete numeric lists, tables, or low `samples`. `area` fills between the curve and baseline; overlapping area fills are marked and their ANSI colors are mixed automatically.
 - `axes`: `T`, `F`, `full`, `minimal`, `off`, or `none`.
-- `grid`: `T`, `F`, an integer density, or `(x;y)` densities.
+- `grid`: `T`, `F`, an int density, or `(x;y)` densities.
 - `ticklabels:T`: add numeric labels for interior tick positions.
 - `color`: `T`, `F`, a color name, or a list of color names; known names include black, red, green, yellow, blue, magenta, cyan, white, gray/grey, and bright_* variants.
 - `unicode:T`: use Unicode drawing glyphs instead of the default ASCII glyphs.

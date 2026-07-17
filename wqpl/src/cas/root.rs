@@ -4,25 +4,27 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::quote::CasNamedArg;
 use super::{
-    cas_err, infer_single_cas_var, normalize_root_objective_cas, numeric_mul, poly_degree,
-    poly_divide, poly_from_expr, poly_to_expr,
+    cas_err, cas_internal_err, infer_single_cas_var, normalize_root_objective_cas, numeric_mul,
+    poly_degree, poly_divide, poly_from_expr, poly_to_expr,
 };
 use crate::value::algebraic::{AlgebraicData, AlgebraicField, validate_real_root_interval};
 use crate::value::{Value, WqResult};
 
 pub(crate) fn cas_root_expr(args: &[Value], named: &[CasNamedArg]) -> WqResult<Value> {
     if !named.is_empty() {
-        return Err(cas_err("root does not accept named arguments"));
+        return Err(cas_err("'root' does not accept named arguments"));
     }
     if args.len() != 2 && args.len() != 3 {
-        return Err(cas_err("root expects poly;near or poly;lo;hi"));
+        return Err(cas_err(
+            "'root' expects 'root[poly;near]' or 'root[poly;lo;hi]'",
+        ));
     }
 
     let objective = normalize_root_objective_cas(&args[0])?;
     let var = infer_single_cas_var(&objective)?;
     let coeffs = poly_from_expr(&objective, &var)?;
     if poly_degree(&coeffs) < 2 {
-        return Err(cas_err("root expects a polynomial of degree at least 2"));
+        return Err(cas_err("'root' expects a polynomial of degree at least 2"));
     }
     let poly = integer_poly_from_coeffs(&coeffs)?;
 
@@ -57,7 +59,7 @@ fn root_value(poly_expr: &Value, interval: (f64, f64)) -> WqResult<Value> {
     let var = infer_single_cas_var(&objective)?;
     let coeffs = poly_from_expr(&objective, &var)?;
     if poly_degree(&coeffs) < 2 {
-        return Err(cas_err("root expects a polynomial of degree at least 2"));
+        return Err(cas_err("'root' expects a polynomial of degree at least 2"));
     }
     let poly = integer_poly_from_coeffs(&coeffs)?;
     let poly = match select_rational_factor(poly, interval)? {
@@ -75,9 +77,7 @@ enum RootSelection {
 
 fn rational_in_interval(value: &Value, interval: (f64, f64)) -> WqResult<bool> {
     let Some((numer, denom)) = value.rational_parts() else {
-        return Err(cas_err(
-            "rational root finder returned a non-rational value",
-        ));
+        return Err(cas_internal_err("selecting an exact polynomial root"));
     };
     let value = BigRational::new(numer, denom);
     let lo = BigRational::from_float(interval.0)
@@ -102,7 +102,7 @@ fn select_rational_factor(poly: Vec<BigInt>, interval: (f64, f64)) -> WqResult<R
             if rational_in_interval(&root, interval)? {
                 return Ok(RootSelection::Exact(root));
             }
-            return Err(cas_err("root factor normalization lost the selected root"));
+            return Err(cas_internal_err("selecting an exact polynomial root"));
         }
 
         let Some(root) = super::integrate::rational::find_rational_root_value(&coeffs) else {
@@ -115,9 +115,7 @@ fn select_rational_factor(poly: Vec<BigInt>, interval: (f64, f64)) -> WqResult<R
         let factor = vec![root.neg()?, Value::Int(1)];
         let (quotient, remainder) = poly_divide(&coeffs, &factor)?;
         if !remainder.iter().all(super::numeric_is_zero) {
-            return Err(cas_err(
-                "rational root factor did not divide root polynomial",
-            ));
+            return Err(cas_internal_err("selecting an exact polynomial root"));
         }
         coeffs = quotient;
     }
@@ -135,11 +133,11 @@ fn integer_poly_expr(poly: &[BigInt], var: &str) -> WqResult<Value> {
 fn required_finite_f64(value: &Value, name: &str) -> WqResult<f64> {
     let n = value
         .as_f64()
-        .ok_or_else(|| cas_err(format!("root expects a real {name} value")).got1(value))?;
+        .ok_or_else(|| cas_err(format!("'root' expects a real {name} value")).got1(value))?;
     if n.is_finite() {
         Ok(n)
     } else {
-        Err(cas_err(format!("root expects a finite {name} value")).got1(value))
+        Err(cas_err(format!("'root' expects a finite {name} value")).got1(value))
     }
 }
 
@@ -147,7 +145,9 @@ fn integer_poly_from_coeffs(coeffs: &[Value]) -> WqResult<Vec<BigInt>> {
     let mut lcm = BigInt::one();
     for coeff in coeffs {
         let Some((_numer, denom)) = coeff.rational_parts() else {
-            return Err(cas_err("root expects exact rational polynomial coefficients").got1(coeff));
+            return Err(
+                cas_err("'root' expects exact rational polynomial coefficients").got1(coeff),
+            );
         };
         lcm = bigint_lcm(&lcm, &denom);
     }
@@ -157,12 +157,12 @@ fn integer_poly_from_coeffs(coeffs: &[Value]) -> WqResult<Vec<BigInt>> {
     for coeff in coeffs {
         let scaled = numeric_mul(coeff, &lcm_value)?;
         let Some((numer, denom)) = scaled.rational_parts() else {
-            return Err(cas_err("root expects exact rational polynomial coefficients").got1(coeff));
+            return Err(
+                cas_err("'root' expects exact rational polynomial coefficients").got1(coeff),
+            );
         };
         if !denom.is_one() {
-            return Err(
-                cas_err("root could not clear polynomial coefficient denominators").got1(coeff),
-            );
+            return Err(cas_internal_err("normalizing a root polynomial"));
         }
         poly.push(numer);
     }
@@ -171,7 +171,7 @@ fn integer_poly_from_coeffs(coeffs: &[Value]) -> WqResult<Vec<BigInt>> {
         poly.pop();
     }
     if poly.iter().all(Zero::is_zero) {
-        return Err(cas_err("root expects a non-zero polynomial"));
+        return Err(cas_err("'root' expects a non-zero polynomial"));
     }
     Ok(poly)
 }
@@ -206,7 +206,7 @@ fn root_interval_near(poly: &[BigInt], near: f64) -> WqResult<(f64, f64)> {
     }
 
     Err(cas_err(
-        "root could not isolate a real root near the selector",
+        "root could not isolate a real root near the requested point",
     ))
 }
 
@@ -260,16 +260,16 @@ fn interval_brackets_root(poly: &[BigInt], lo: f64, hi: f64) -> WqResult<bool> {
 fn eval_integer_poly_f64(poly: &[BigInt], x: f64) -> WqResult<f64> {
     let mut acc = 0.0f64;
     for coeff in poly.iter().rev() {
-        let coeff = coeff
-            .to_f64()
-            .ok_or_else(|| cas_err("root polynomial is too large to evaluate as a selector"))?;
+        let coeff = coeff.to_f64().ok_or_else(|| {
+            cas_err("root polynomial is too large to evaluate near the requested point")
+        })?;
         acc = acc.mul_add(x, coeff);
     }
     if acc.is_finite() {
         Ok(acc)
     } else {
         Err(cas_err(
-            "root polynomial selector evaluation produced a non-finite value",
+            "root polynomial evaluation produced a non-finite value",
         ))
     }
 }
@@ -298,6 +298,16 @@ mod tests {
         assert_eq!(poly.to_string(), "_^2 - 2");
         assert_eq!(lo, 1.0);
         assert_eq!(hi, 2.0);
+    }
+
+    #[test]
+    fn root_arity_error_shows_complete_call_syntax() {
+        let err = cas_root_expr(&[sqrt2_poly()], &[]).expect_err("root arity should fail");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'root' expects 'root[poly;near]' or 'root[poly;lo;hi]'")
+        );
     }
 
     #[test]

@@ -7,13 +7,14 @@ use rayon::prelude::*;
 use rayon::slice::ParallelSliceMut;
 
 use crate::builtins::{
-    BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
+    BuiltinEnum as BE, BuiltinFnArgs, at_least_arity_error, check_arity, check_arity_named,
+    depth_requirement, type_mismatch,
 };
 use crate::value::bc::Bc2Stop;
 use crate::value::cmp::cmp_atom;
 use crate::value::seq::{ExactIntSeq, IntRangeData, ListStorageSeq, ValueSeq};
 use crate::value::{Value, WqResult, expected_string1};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 fn int_or_bigint(n: BigInt) -> Value {
     n.to_i64()
@@ -276,8 +277,9 @@ pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {
 
             _ => Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Sum)
-                .msg("expected atom or list")
-                .at_arg(0)),
+                .expected(Requirement::one_of([Requirement::ATOM, Requirement::LIST]))
+                .at_arg(0)
+                .got1(&x)),
         };
     }
     // Multiple args
@@ -328,8 +330,9 @@ pub(super) fn product(args: BuiltinFnArgs) -> WqResult<Value> {
 
             _ => Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Product)
-                .msg("expected atom or list")
-                .at_arg(0)),
+                .expected(Requirement::one_of([Requirement::ATOM, Requirement::LIST]))
+                .at_arg(0)
+                .got1(&x)),
         };
     }
     // Multiple args
@@ -357,11 +360,10 @@ fn extreme_values(
                 Some(ordering) if ordering == desired => value,
                 Some(_) => current,
                 None => {
-                    return Err(WqError::new(WqErrorType::Domain).src(src).msg(format!(
-                        "cannot compare {} and {}",
-                        value.type_name(),
-                        current.type_name()
-                    )));
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(src)
+                        .msg("values are not comparable")
+                        .got2(&value, &current));
                 }
             },
         });
@@ -371,9 +373,7 @@ fn extreme_values(
 
 fn extreme(args: BuiltinFnArgs, desired: Ordering, src: BE) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(src)
-            .msg("expected at least 1 argument"));
+        return Err(at_least_arity_error(src, 1, args.len()));
     }
     if args.len() != 1 {
         return extreme_values(args, desired, src);
@@ -532,18 +532,26 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(crate) fn parse_maxsplit(val: Option<&Value>, src: BE) -> WqResult<Option<usize>> {
+    let requirement = || {
+        Requirement::one_of([
+            Requirement::non_negative(Requirement::INT),
+            Requirement::literal("inf"),
+        ])
+    };
     match val {
         None => Ok(None),
         Some(v @ Value::Int(n)) if *n >= 0 => usize::try_from(*n).map(Some).map_err(|_| {
             WqError::new(WqErrorType::Domain)
                 .src(src)
-                .msg("expected int>=0 or inf for `m")
+                .expected(requirement())
+                .at_named_arg("m")
                 .got1(v)
         }),
         Some(Value::Float(f)) if f.is_infinite() && f.is_sign_positive() => Ok(None),
         Some(other) => Err(WqError::new(WqErrorType::Domain)
             .src(src)
-            .msg("expected int>=0 or inf for `m")
+            .expected(requirement())
+            .at_named_arg("m")
             .got1(other)),
     }
 }
@@ -627,7 +635,10 @@ pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
         }
         other => Err(WqError::new(WqErrorType::Domain)
             .src(BE::Split)
-            .msg("expected string or list")
+            .expected(Requirement::one_of([
+                Requirement::STRING,
+                Requirement::LIST,
+            ]))
             .at_arg(0)
             .got1(other)),
     }
@@ -680,44 +691,36 @@ fn parse_find_args(args: &[Value], src: BE) -> WqResult<(&Value, &Value, i64, i6
     let (xs, elem, threshold, depth) = match args.len() {
         2 => (&args[0], &args[1], 1i64, 1i64),
         3 => {
-            let threshold = match &args[2] {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(src)
-                        .msg("threshold must be non-negative int or inf")
-                        .at_arg(2));
-                }
-            };
+            let threshold = parse_non_negative_int_or_inf(&args[2], src, 2)?;
             (&args[0], &args[1], threshold, 1)
         }
         4 => {
-            let threshold = match &args[2] {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(src)
-                        .msg("threshold must be non-negative int or inf")
-                        .at_arg(2));
-                }
-            };
-            let depth = match &args[3] {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(src)
-                        .msg("depth must be non-negative int or inf")
-                        .at_arg(3));
-                }
-            };
+            let threshold = parse_non_negative_int_or_inf(&args[2], src, 2)?;
+            let depth = parse_non_negative_int_or_inf(&args[3], src, 3)?;
             (&args[0], &args[1], threshold, depth)
         }
         _ => unreachable!(),
     };
     Ok((xs, elem, threshold, depth))
+}
+
+pub(super) fn parse_non_negative_int_or_inf(
+    value: &Value,
+    src: BE,
+    position: usize,
+) -> WqResult<i64> {
+    match value {
+        Value::Int(n) if *n >= 0 => Ok(*n),
+        Value::Float(f) if f.is_infinite() && f.is_sign_positive() => Ok(i64::MAX),
+        other => Err(WqError::new(WqErrorType::Domain)
+            .src(src)
+            .expected(Requirement::one_of([
+                Requirement::non_negative(Requirement::INT),
+                Requirement::literal("inf"),
+            ]))
+            .at_arg(position)
+            .got1(other)),
+    }
 }
 
 struct FindCtx<'a> {
@@ -843,7 +846,9 @@ pub(super) fn zip(args: BuiltinFnArgs) -> WqResult<Value> {
     fn _zip(xs: &Value, ys: &Value, d: &Value) -> WqResult<Value> {
         let el = match eff_layers_2(d, xs.depth(), ys.depth()) {
             Some(l) => l,
-            None => return Err(type_mismatch(BE::Zip, 0, "int, inf or -inf", d)),
+            None => {
+                return Err(type_mismatch(BE::Zip, 2, depth_requirement(), d));
+            }
         };
         let stop = Bc2Stop::BothAtomOrDepth(el);
         let op2 = |a: &Value, b: &Value| Ok(Value::List(Arc::new(vec![a.clone(), b.clone()])));
@@ -1494,5 +1499,36 @@ mod tests {
             find(BuiltinFnArgs::from(smallvec![text, Value::Char('b')])).expect("find succeeds"),
             Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![1]))]))
         );
+    }
+
+    #[test]
+    fn zip_reports_invalid_depth_at_the_third_argument() {
+        let error = zip(BuiltinFnArgs::from(smallvec![
+            Value::IntList(Arc::new(vec![1])),
+            Value::IntList(Arc::new(vec![2])),
+            Value::Char('x'),
+        ]))
+        .expect_err("char depth should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected int, inf, or -inf"));
+        assert_eq!(
+            error.notes.as_ref(),
+            &[
+                "at argument 3",
+                "got @u\"x\" (char)",
+                "usage: zip[xs;ys;d?]",
+            ]
+        );
+    }
+
+    #[test]
+    fn min_reports_the_actual_count_when_no_arguments_are_given() {
+        let error = min(BuiltinFnArgs::new()).expect_err("min without arguments should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected at least 1 argument, got 0")
+        );
+        assert_eq!(error.notes.as_slice(), ["min[xs], min[xs;ys+]"]);
     }
 }

@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use smallvec::SmallVec;
 
-use crate::ast::BinaryOperator;
+use crate::ast::{BinaryOperator, binary_op_display, unary_op_display};
 use crate::debugger::{PauseEvent, PauseReason};
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
 use crate::range::{make_range, make_range_from_next, range_alloc_len};
@@ -19,7 +19,7 @@ use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
 use crate::wqdb::data::{ChunkId, CodeLoc};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 mod call;
 pub(crate) mod debug;
@@ -174,11 +174,11 @@ impl VanillaInterpreter {
 
                         if vm.builtins.is_disabled_name(name) {
                             return Err(not_bound_err(format!(
-                            "'{name}' has not been bound to a value"
-                        ))
-                        .attach_note(format!(
-                            "a builtin named '{name}' exists but is disabled in the current preset"
-                        )));
+                                "'{name}' has not been bound to a value"
+                            ))
+                            .attach_note(format!(
+                                "builtin '{name}' exists but is disabled in the current preset"
+                            )));
                         }
 
                         return Err(not_bound_err(format!(
@@ -252,9 +252,9 @@ impl VanillaInterpreter {
                                         v
                                     } else {
                                         let mut err = not_bound_err(format!(
-                                            "'{name}' is not bound as a global or a local"
+                                            "'{name}' has not been bound to a value"
                                         ))
-                                        .attach_note("when loading closure");
+                                        .attach_note("when loading a function");
                                         if let Some((start, end)) = span {
                                             let base_offs = vm.resolved_debug_base_offset();
                                             let abs_start = start + base_offs;
@@ -308,10 +308,9 @@ impl VanillaInterpreter {
                             .push(Value::Bool(vm.lookup_global_slot(name).is_some()));
                     }
                     Instruction::LoadSelf => {
-                        let me = vm
-                            .current_closure_stack
-                            .last()
-                            .ok_or_else(|| vm_err("LoadSelf outside fn"))?;
+                        let me = vm.current_closure_stack.last().ok_or_else(|| {
+                            vm_err("current function is unavailable outside a function")
+                        })?;
                         vm.stack.push(me.clone());
                     }
 
@@ -350,10 +349,19 @@ impl VanillaInterpreter {
                             vm.stack.push(result);
                             continue;
                         }
-                        let right = resolve_operand(vm, idx, &data.right, 1, hooks)
-                            .map_err(|e| e.src(format!("binary op {op:?} right operand")))?;
-                        let left = resolve_operand(vm, idx, &data.left, 0, hooks)
-                            .map_err(|e| e.src(format!("binary op {op:?} left operand")))?;
+                        let right =
+                            resolve_operand(vm, idx, &data.right, 1, hooks).map_err(|e| {
+                                e.src(format!(
+                                    "binary operator '{}' right operand",
+                                    binary_op_display(&op)
+                                ))
+                            })?;
+                        let left = resolve_operand(vm, idx, &data.left, 0, hooks).map_err(|e| {
+                            e.src(format!(
+                                "binary operator '{}' left operand",
+                                binary_op_display(&op)
+                            ))
+                        })?;
                         let result = eval_binary(&op, &left, &right)?;
                         hooks.on_binary_result(&op, &result);
                         vm.stack.push(result);
@@ -369,8 +377,10 @@ impl VanillaInterpreter {
                     }
                     Instruction::UnaryOp(data) => {
                         let op = data.op;
-                        let val = resolve_operand(vm, idx, &data.operand, 0, hooks)
-                            .map_err(|e| e.src(format!("unary op {op:?}")))?;
+                        let val =
+                            resolve_operand(vm, idx, &data.operand, 0, hooks).map_err(|e| {
+                                e.src(format!("unary operator '{}'", unary_op_display(&op)))
+                            })?;
                         let result = eval_unary(&op, &val)?;
                         hooks.on_unary_result(&op, &result);
                         vm.stack.push(result);
@@ -387,7 +397,7 @@ impl VanillaInterpreter {
                     Instruction::CallUser(name, argc) => {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc + 1, || {
-                            format!("fn '{name}' target + args")
+                            format!("function '{name}' target and arguments")
                         })?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
                         if dispatch_loaded_user_call::<false>(vm, idx, name, &func, argc, hooks)? {
@@ -396,7 +406,7 @@ impl VanillaInterpreter {
                     }
                     Instruction::CallAnon(argc) => {
                         let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc + 1, || "callable + args".into())?;
+                        ensure_stack_len(&vm.stack, argc + 1, || "callable and arguments".into())?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
                         if dispatch_anon_call::<false>(vm, idx, &func, argc, hooks)? {
                             continue 'exec;
@@ -407,7 +417,7 @@ impl VanillaInterpreter {
                         let slot_num = *slot;
                         let slot_usize = usize::from(slot_num);
                         ensure_stack_len(&vm.stack, argc + 1, || {
-                            format!("local call slot {slot_num} target + args")
+                            format!("local call slot {slot_num} target and arguments")
                         })
                         .map_err(|e| vm.attach_local_slot_note(slot_usize, e))?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
@@ -421,7 +431,7 @@ impl VanillaInterpreter {
                     Instruction::TailCallUser(name, argc) => {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc + 1, || {
-                            format!("fn '{name}' target + args")
+                            format!("function '{name}' target and arguments")
                         })?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
                         if dispatch_loaded_user_call::<true>(vm, idx, name, &func, argc, hooks)? {
@@ -430,7 +440,7 @@ impl VanillaInterpreter {
                     }
                     Instruction::TailCallAnon(argc) => {
                         let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc + 1, || "callable + args".into())?;
+                        ensure_stack_len(&vm.stack, argc + 1, || "callable and arguments".into())?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
                         if dispatch_anon_call::<true>(vm, idx, &func, argc, hooks)? {
                             continue 'exec;
@@ -441,7 +451,7 @@ impl VanillaInterpreter {
                         let slot_num = *slot;
                         let slot_usize = usize::from(slot_num);
                         ensure_stack_len(&vm.stack, argc + 1, || {
-                            format!("local call slot {slot_num} target + args")
+                            format!("local call slot {slot_num} target and arguments")
                         })
                         .map_err(|e| vm.attach_local_slot_note(slot_usize, e))?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
@@ -474,9 +484,9 @@ impl VanillaInterpreter {
                                 "bulk index cannot appear before the final path segment",
                             )
                             .attach_note(format!(
-                                "index: '{}' ({})",
+                                "index: {} ({})",
                                 idx_val.excerpt(),
-                                idx_val.type_name()
+                                idx_val.category()
                             )));
                         }
                     }
@@ -504,8 +514,12 @@ impl VanillaInterpreter {
                                 None => return Err(index_load_err(&idx_val, global_val)),
                             }
                         } else if vm.builtins.is_disabled_name(name) {
-                            return Err(not_bound_err(format!("'{name}' has not been bound to a value"))
-                                .attach_note(format!("a builtin named '{name}' exists but is disabled in the current preset")));
+                            return Err(not_bound_err(format!(
+                                "'{name}' has not been bound to a value"
+                            ))
+                            .attach_note(format!(
+                                "builtin '{name}' exists but is disabled in the current preset"
+                            )));
                         } else {
                             return Err(not_bound_err(format!(
                                 "'{name}' has not been bound to a value"
@@ -533,8 +547,12 @@ impl VanillaInterpreter {
                             let value = index_value_with_args(global_val, args)?;
                             vm.stack.push(value);
                         } else if vm.builtins.is_disabled_name(name) {
-                            return Err(not_bound_err(format!("'{name}' has not been bound to a value"))
-                                .attach_note(format!("a builtin named '{name}' exists but is disabled in the current preset")));
+                            return Err(not_bound_err(format!(
+                                "'{name}' has not been bound to a value"
+                            ))
+                            .attach_note(format!(
+                                "builtin '{name}' exists but is disabled in the current preset"
+                            )));
                         } else {
                             return Err(not_bound_err(format!(
                                 "'{name}' has not been bound to a value"
@@ -591,7 +609,7 @@ impl VanillaInterpreter {
                             })
                             .ok_or_else(|| {
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when trying to assign to {name}"))
+                                    .attach_note(format!("when assigning to '{name}'"))
                             })?;
                         if assigned.is_some() {
                             vm.stack.push(val);
@@ -605,7 +623,7 @@ impl VanillaInterpreter {
                                 );
                             }
                         } else {
-                            return Err(invalid_index_assign_err(&idx, name));
+                            return Err(invalid_index_assign_err(&idx, format!("'{name}'")));
                         }
                     }
                     Instruction::IndexManyAssignVar(name, argc) => {
@@ -627,7 +645,7 @@ impl VanillaInterpreter {
                             })
                             .ok_or_else(|| {
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when trying to assign to {name}"))
+                                    .attach_note(format!("when assigning to '{name}'"))
                             })?;
                         if assigned.is_some() {
                             vm.stack.push(val);
@@ -641,7 +659,10 @@ impl VanillaInterpreter {
                                 );
                             }
                         } else {
-                            return Err(invalid_index_assign_err_for_args(&args, name));
+                            return Err(invalid_index_assign_err_for_args(
+                                &args,
+                                format!("'{name}'"),
+                            ));
                         }
                     }
                     Instruction::IndexAssignVarDrop(name) => {
@@ -663,10 +684,10 @@ impl VanillaInterpreter {
                             })
                             .ok_or_else(|| {
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when trying to assign to {name}"))
+                                    .attach_note(format!("when assigning to '{name}'"))
                             })?;
                         if assigned.is_none() {
-                            return Err(invalid_index_assign_err(&idx, name));
+                            return Err(invalid_index_assign_err(&idx, format!("'{name}'")));
                         }
                         if let Some((old, new)) = change {
                             vm.note_global_symbol_write(pc, name, "index-assign", Some(old), new);
@@ -691,10 +712,13 @@ impl VanillaInterpreter {
                             })
                             .ok_or_else(|| {
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when trying to assign to {name}"))
+                                    .attach_note(format!("when assigning to '{name}'"))
                             })?;
                         if assigned.is_none() {
-                            return Err(invalid_index_assign_err_for_args(&args, name));
+                            return Err(invalid_index_assign_err_for_args(
+                                &args,
+                                format!("'{name}'"),
+                            ));
                         }
                         if let Some((old, new)) = change {
                             vm.note_global_symbol_write(pc, name, "index-assign", Some(old), new);
@@ -746,7 +770,7 @@ impl VanillaInterpreter {
                         } else {
                             return Err(vm.attach_local_slot_note(
                                 slot,
-                                invalid_index_assign_err(&idx, format!("local[{slot}]")),
+                                invalid_index_assign_err(&idx, "a local value"),
                             ));
                         }
                     }
@@ -796,7 +820,7 @@ impl VanillaInterpreter {
                         } else {
                             return Err(vm.attach_local_slot_note(
                                 slot,
-                                invalid_index_assign_err_for_args(&args, format!("local[{slot}]")),
+                                invalid_index_assign_err_for_args(&args, "a local value"),
                             ));
                         }
                     }
@@ -838,7 +862,7 @@ impl VanillaInterpreter {
                                 );
                             }
                         } else {
-                            return Err(invalid_index_assign_err(&idx, format!("capture[{slot}]")));
+                            return Err(invalid_index_assign_err(&idx, "a captured value"));
                         }
                     }
                     Instruction::IndexManyAssignCapture(slot, argc) => {
@@ -881,7 +905,7 @@ impl VanillaInterpreter {
                         } else {
                             return Err(invalid_index_assign_err_for_args(
                                 &args,
-                                format!("capture[{slot}]"),
+                                "a captured value",
                             ));
                         }
                     }
@@ -908,7 +932,7 @@ impl VanillaInterpreter {
                         if success.is_none() {
                             return Err(vm.attach_local_slot_note(
                                 slot_n,
-                                invalid_index_assign_err(&idx, format!("local[{slot_n}]")),
+                                invalid_index_assign_err(&idx, "a local value"),
                             ));
                         }
                         if let Some((old, new)) = change {
@@ -945,10 +969,7 @@ impl VanillaInterpreter {
                         if success.is_none() {
                             return Err(vm.attach_local_slot_note(
                                 slot_n,
-                                invalid_index_assign_err_for_args(
-                                    &args,
-                                    format!("local[{slot_n}]"),
-                                ),
+                                invalid_index_assign_err_for_args(&args, "a local value"),
                             ));
                         }
                         if let Some((old, new)) = change {
@@ -988,7 +1009,7 @@ impl VanillaInterpreter {
                             success
                         };
                         if success.is_none() {
-                            return Err(invalid_index_assign_err(&idx, format!("capture[{slot}]")));
+                            return Err(invalid_index_assign_err(&idx, "a captured value"));
                         }
                         if let Some((old, new)) = change {
                             vm.note_capture_symbol_write(
@@ -1029,7 +1050,7 @@ impl VanillaInterpreter {
                         if success.is_none() {
                             return Err(invalid_index_assign_err_for_args(
                                 &args,
-                                format!("capture[{slot}]"),
+                                "a captured value",
                             ));
                         }
                         if let Some((old, new)) = change {
@@ -1045,7 +1066,7 @@ impl VanillaInterpreter {
 
                     Instruction::Postfix(argc) => {
                         let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc + 1, || "obj + args".into())?;
+                        ensure_stack_len(&vm.stack, argc + 1, || "target and arguments".into())?;
                         let target = vm.stack.remove(vm.stack.len() - argc - 1);
                         if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
@@ -1053,7 +1074,7 @@ impl VanillaInterpreter {
                     }
                     Instruction::TailPostfix(argc) => {
                         let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc + 1, || "obj + args".into())?;
+                        ensure_stack_len(&vm.stack, argc + 1, || "target and arguments".into())?;
                         let target = vm.stack.remove(vm.stack.len() - argc - 1);
                         if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
@@ -1069,11 +1090,9 @@ impl VanillaInterpreter {
                             attach_pc_source_ctx(
                                 vm,
                                 idx,
-                                domain_err_vm("invalid control flow condition, expected bool")
-                                    .got1(&v)
-                                    .attach_note(
-                                        "this value is used as a branch or loop condition",
-                                    ),
+                                domain_requirement(Requirement::BOOL).got1(&v).attach_note(
+                                    "this value is used as a branch or loop condition",
+                                ),
                             )
                         })?;
                         if !cond {
@@ -1104,11 +1123,7 @@ impl VanillaInterpreter {
                             attach_pc_source_ctx(
                                 vm,
                                 idx,
-                                domain_err_vm(
-                                    "invalid comparison result in conditional jump, expected bool",
-                                )
-                                .got1(&lt)
-                                .attach_note(
+                                domain_requirement(Requirement::BOOL).got1(&lt).attach_note(
                                     "this comparison is used as a loop or branch condition",
                                 ),
                             )
@@ -1137,9 +1152,10 @@ impl VanillaInterpreter {
                             other => Err(attach_pc_source_ctx(
                                 vm,
                                 idx,
-                                domain_err_vm(
-                                    "invalid loop control condition, expected a numeric value",
-                                )
+                                domain_requirement(Requirement::one_of([
+                                    Requirement::INT,
+                                    Requirement::FLOAT,
+                                ]))
                                 .got1(other)
                                 .attach_note("this value is used as a loop bound check"),
                             )),
@@ -1224,9 +1240,9 @@ impl VanillaInterpreter {
                                     map.insert(k, val);
                                 }
                                 other => {
-                                    return Err(
-                                        vm_err("invalid dict key, expected symbol").got1(&other)
-                                    );
+                                    return Err(domain_requirement(Requirement::TAG)
+                                        .attach_note("for a dict key")
+                                        .got1(&other));
                                 }
                             }
                         }
@@ -1609,10 +1625,18 @@ fn eval_cmp_branch_condition(
         if let Some(result) = try_eval_int_binary_operands(vm, data.op, &data.left, &data.right) {
             result
         } else {
-            let right = resolve_operand(vm, idx, &data.right, 1, hooks)
-                .map_err(|e| e.src(format!("compare branch {:?} right operand", data.op)))?;
-            let left = resolve_operand(vm, idx, &data.left, 0, hooks)
-                .map_err(|e| e.src(format!("compare branch {:?} left operand", data.op)))?;
+            let right = resolve_operand(vm, idx, &data.right, 1, hooks).map_err(|e| {
+                e.src(format!(
+                    "comparison operator '{}' right operand",
+                    binary_op_display(&data.op)
+                ))
+            })?;
+            let left = resolve_operand(vm, idx, &data.left, 0, hooks).map_err(|e| {
+                e.src(format!(
+                    "comparison operator '{}' left operand",
+                    binary_op_display(&data.op)
+                ))
+            })?;
             eval_binary(&data.op, &left, &right)?
         };
 
@@ -1620,7 +1644,7 @@ fn eval_cmp_branch_condition(
         attach_pc_source_ctx(
             vm,
             idx,
-            domain_err_vm("invalid control flow condition, expected bool")
+            domain_requirement(Requirement::BOOL)
                 .got1(&result)
                 .attach_note("this value is used as a branch or loop condition"),
         )
@@ -1714,7 +1738,7 @@ fn eval_int_comparison(op: BinaryOperator, left: i64, right: i64) -> Option<bool
 }
 
 fn take_index_args(stack: &mut Vec<Value>, argc: usize) -> WqResult<Sv4> {
-    ensure_stack_len(stack, argc, || "index args".into())?;
+    ensure_stack_len(stack, argc, || "index arguments".into())?;
     let base = stack.len() - argc;
     let mut args = Sv4::new();
     args.extend(stack.drain(base..));
@@ -1729,8 +1753,9 @@ fn index_args_value(args: &[Value]) -> Value {
 }
 
 fn invalid_index_assign_err(idx: &Value, target: impl std::fmt::Display) -> WqError {
-    index_err(format!("invalid index '{idx}' ({})", idx.type_name()))
-        .attach_note(format!("when trying to assign to {target}"))
+    index_err("invalid index")
+        .got1(idx)
+        .attach_note(format!("when assigning to {target}"))
 }
 
 fn invalid_index_assign_err_for_args(args: &[Value], target: impl std::fmt::Display) -> WqError {
@@ -1779,8 +1804,10 @@ fn not_bound_err(msg: impl Into<String>) -> WqError {
 }
 
 #[inline]
-fn domain_err_vm(msg: impl Into<String>) -> WqError {
-    WqError::new(WqErrorType::Domain).src(NAME).msg(msg.into())
+fn domain_requirement(requirement: Requirement) -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .src(NAME)
+        .expected(requirement)
 }
 
 #[inline]
@@ -1792,7 +1819,7 @@ fn index_err(msg: impl Into<String>) -> WqError {
 fn named_arg_index_err() -> WqError {
     WqError::new(WqErrorType::Arity)
         .src(NAME)
-        .msg("cannot pass named arguments when indexing a non-function value")
+        .msg("cannot pass named arguments when indexing a non-callable value")
 }
 
 #[cfg(test)]
@@ -1801,6 +1828,7 @@ mod tests {
 
     use num_bigint::BigInt;
 
+    use super::{domain_requirement, named_arg_index_err};
     use crate::ast::{BinaryOperator, BoolOperator};
     use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
@@ -1810,6 +1838,20 @@ mod tests {
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
     use crate::vm::{PreparedInstructions, Slot, Vm};
     use crate::wqdb::data::ChunkId;
+    use crate::wqerror::Requirement;
+
+    #[test]
+    fn runtime_requirement_helpers_use_canonical_terms() {
+        let condition = domain_requirement(Requirement::BOOL).got1(&Value::Int(1));
+        assert_eq!(condition.msg.as_deref(), Some("expected bool"));
+        assert_eq!(condition.notes.as_slice(), ["got 1 (int)"]);
+
+        let indexing = named_arg_index_err();
+        assert_eq!(
+            indexing.msg.as_deref(),
+            Some("cannot pass named arguments when indexing a non-callable value")
+        );
+    }
 
     #[test]
     fn invalid_local_slot_errors_include_slot_name_note() {
@@ -2424,7 +2466,7 @@ mod tests {
         assert_eq!(vm.trace_depth, 1); // Return doesn't pop trace_depth
         assert_eq!(vm.trace_buf.len(), 1);
         assert_eq!(vm.trace_buf[0].value_excerpt, "3");
-        assert!(vm.trace_buf[0].type_name.contains("int"));
+        assert!(vm.trace_buf[0].debug_kind.contains("int"));
     }
 
     #[test]

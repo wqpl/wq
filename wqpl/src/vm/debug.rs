@@ -613,11 +613,13 @@ impl Vm {
         let names = meta
             .local_names
             .as_ref()
-            .ok_or_else(|| "current chunk has no local symbol names".to_string())?;
+            .ok_or_else(|| "current function has no local variable names".to_string())?;
         let slot = names
             .iter()
             .position(|candidate| candidate == name)
-            .ok_or_else(|| format!("local symbol '{name}' not found in current chunk"))?;
+            .ok_or_else(|| {
+                format!("local variable '{name}' was not found in the current function")
+            })?;
         let target = SymbolTrackTarget::Local {
             chunk: current_chunk,
             slot: u16::try_from(slot).map_err(|_| "local slot out of range".to_string())?,
@@ -778,7 +780,7 @@ impl Vm {
 
     fn format_symbol_track_value(value: Option<&Value>) -> String {
         match value {
-            Some(value) => format!("{} ({})", value.excerpt(), value.type_name()),
+            Some(value) => format!("{} ({})", value.excerpt(), value.debug_kind()),
             None => "<unbound>".to_string(),
         }
     }

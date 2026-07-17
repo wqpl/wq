@@ -2,16 +2,13 @@ use std::sync::Arc;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::builtins::fold::fold_binary_op;
-use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
+use crate::builtins::{BuiltinEnum, BuiltinFnArgs, at_least_arity_error, check_arity};
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::{Value, WqResult, eval_unary};
-use crate::wqerror::{WqError, WqErrorType};
 
 fn fold_cmp_op(src: BuiltinEnum, args: &[Value], op: BinaryOperator) -> WqResult<Value> {
     if args.len() < 2 {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(src)
-            .msg(format!("expected 2 or more args, got {}", args.len())));
+        return Err(at_least_arity_error(src, 2, args.len()));
     }
     let ops = vec![op; args.len() - 1];
     eval_cmp_chain(&ops, args).map_err(|e| e.src(src))
@@ -23,9 +20,7 @@ pub(super) fn op_add(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn op_sub(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BuiltinEnum::OpSub)
-            .msg("expected 1 or more args, got 0"));
+        return Err(at_least_arity_error(BuiltinEnum::OpSub, 1, 0));
     }
     if args.len() == 1 {
         eval_unary(&UnaryOperator::Negate, &args[0]).map_err(|e| e.src(BuiltinEnum::OpSub))
@@ -72,9 +67,7 @@ pub(super) fn op_equal_dot(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn op_tilde(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BuiltinEnum::OpTilde)
-            .msg("expected 1 or more args, got 0"));
+        return Err(at_least_arity_error(BuiltinEnum::OpTilde, 1, 0));
     }
     if args.len() == 1 {
         eval_unary(&UnaryOperator::Not, &args[0]).map_err(|e| e.src(BuiltinEnum::OpTilde))
@@ -105,9 +98,7 @@ pub(super) fn op_gte(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.len() < 2 {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BuiltinEnum::OpCat)
-            .msg(format!("expected 2 or more args, got {}", args.len())));
+        return Err(at_least_arity_error(BuiltinEnum::OpCat, 2, args.len()));
     }
 
     // Fast path: all unit -> return unit directly

@@ -34,16 +34,16 @@ fn algebraic_binary_op(op: &str, a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn zero_div_err(msg: Option<&'static str>) -> WqError {
-    let msg = msg.unwrap_or("cannot divide by 0").to_string();
+    let msg = msg.unwrap_or("cannot divide by zero").to_string();
     WqError::new(WqErrorType::ZeroDiv).msg(msg)
 }
 
 fn zero_to_negative_power_err() -> WqError {
-    zero_div_err(Some("0 cannot be raised to a negative power"))
+    zero_div_err(Some("zero cannot be raised to a negative power"))
 }
 
 fn bigint_too_big_for_float() -> WqError {
-    WqError::new(WqErrorType::Domain).msg("provided bigint is too big to convert to float")
+    WqError::new(WqErrorType::Domain).msg("int is too large to represent as a float")
 }
 
 fn is_zero(v: &Value) -> bool {

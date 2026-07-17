@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
+use crate::builtins::list::parse_non_negative_int_or_inf;
 use crate::builtins::{
-    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
+    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named,
+    depth_requirement, type_mismatch,
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
 use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult};
 use crate::vm::pure::PureCallback;
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 fn pure_callback(vm: &dyn BuiltinContext, func: &Value, arity: usize) -> Option<PureCallback> {
     if vm.requires_callback_frames() {
@@ -60,12 +62,7 @@ fn filter_predicate(
     pure: Option<&PureCallback>,
     value: &Value,
 ) -> WqResult<bool> {
-    match call_pure_or_vm1(vm, func, pure, value)? {
-        Value::Bool(b) => Ok(b),
-        _ => Err(WqError::new(WqErrorType::Domain)
-            .src(BE::Filter)
-            .msg("predicate must return bool")),
-    }
+    predicate_result(BE::Filter, call_pure_or_vm1(vm, func, pure, value)?)
 }
 
 fn call_fold_func(
@@ -83,9 +80,10 @@ fn call_fold_func(
 fn predicate_result(src: BE, pred: Value) -> WqResult<bool> {
     match pred {
         Value::Bool(b) => Ok(b),
-        _ => Err(WqError::new(WqErrorType::Domain)
+        other => Err(WqError::new(WqErrorType::Domain)
             .src(src)
-            .msg("predicate must return bool")),
+            .expected(Requirement::BOOL)
+            .got1(&other)),
     }
 }
 
@@ -158,7 +156,7 @@ pub(super) fn map_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
 fn map_stop(xs: &Value, d: &Value) -> WqResult<Bc1Stop> {
     let el = match eff_layers(d, xs.depth()) {
         Some(l) => l,
-        None => return Err(type_mismatch(BE::Map, 0, "int, inf or -inf", d)),
+        None => return Err(type_mismatch(BE::Map, 2, depth_requirement(), d)),
     };
     Ok(Bc1Stop::AtomOrDepth(el))
 }
@@ -207,12 +205,7 @@ fn any_all_at_depth(
 ) -> WqResult<bool> {
     if depth_from_root >= max_depth || xs.is_atom() {
         let pred = vm.call(func, BuiltinFnArgs::from(xs.clone()))?;
-        return match pred {
-            Value::Bool(b) => Ok(b),
-            _ => Err(WqError::new(WqErrorType::Domain)
-                .src(src)
-                .msg("predicate must return bool")),
-        };
+        return predicate_result(src, pred);
     }
 
     if let Some(seq) = ValueSeq::from_value(xs) {
@@ -274,7 +267,7 @@ pub(super) fn any(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<
     };
     let max_depth = match eff_layers(d, xs.depth()) {
         Some(l) => l,
-        None => return Err(type_mismatch(BE::Any, 0, "int, inf or -inf", d)),
+        None => return Err(type_mismatch(BE::Any, 2, depth_requirement(), d)),
     };
     Ok(Value::Bool(any_all_at_depth(
         vm,
@@ -297,7 +290,7 @@ pub(super) fn all(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<
     };
     let max_depth = match eff_layers(d, xs.depth()) {
         Some(l) => l,
-        None => return Err(type_mismatch(BE::All, 0, "int, inf or -inf", d)),
+        None => return Err(type_mismatch(BE::All, 2, depth_requirement(), d)),
     };
     Ok(Value::Bool(any_all_at_depth(
         vm,
@@ -593,7 +586,7 @@ pub(super) fn zipw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
     ) -> WqResult<Value> {
         let el = match eff_layers_2(d, xs.depth(), ys.depth()) {
             Some(l) => l,
-            None => return Err(type_mismatch(BE::ZipW, 0, "int, inf or -inf", d)),
+            None => return Err(type_mismatch(BE::ZipW, 3, depth_requirement(), d)),
         };
         // atoms are always leaves; stop after traversing L layers from the root
         let stop = Bc2Stop::BothAtomOrDepth(el);
@@ -646,7 +639,8 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
                 _ => {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BE::SplitW)
-                        .msg("predicate must return bool"));
+                        .expected(Requirement::BOOL)
+                        .got1(&pred));
                 }
             }
         }
@@ -682,7 +676,8 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
                     _ => {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::SplitW)
-                            .msg("predicate must return bool"));
+                            .expected(Requirement::BOOL)
+                            .got1(&pred));
                     }
                 }
             }
@@ -705,7 +700,8 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
                     _ => {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::SplitW)
-                            .msg("predicate must return bool"));
+                            .expected(Requirement::BOOL)
+                            .got1(&pred));
                     }
                 }
             }
@@ -727,7 +723,8 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
                     _ => {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::SplitW)
-                            .msg("predicate must return bool"));
+                            .expected(Requirement::BOOL)
+                            .got1(&pred));
                     }
                 }
             }
@@ -736,8 +733,11 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
         }
         other => Err(WqError::new(WqErrorType::Domain)
             .src(BE::SplitW)
-            .msg("expected string or list")
-            .at_arg(1)
+            .expected(Requirement::one_of([
+                Requirement::STRING,
+                Requirement::LIST,
+            ]))
+            .at_arg(0)
             .got1(other)),
     }
 }
@@ -770,9 +770,10 @@ fn findwith_search(
         let pred = vm.call(ctx.func, BuiltinFnArgs::from(item.clone()))?;
         match pred {
             Value::Bool(b) => Ok(b),
-            _ => Err(WqError::new(WqErrorType::Domain)
+            other => Err(WqError::new(WqErrorType::Domain)
                 .src(ctx.src)
-                .msg("predicate must return bool")),
+                .expected(Requirement::BOOL)
+                .got1(&other)),
         }
     };
 
@@ -867,41 +868,15 @@ pub(super) fn findw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
     let (threshold, depth) = match n {
         2 => (1i64, 1i64),
         3 => {
-            let threshold = match &iter.next().unwrap() {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(BE::FindW)
-                        .msg("threshold must be non-negative int or inf")
-                        .at_arg(2));
-                }
-            };
+            let threshold_value = iter.next().unwrap();
+            let threshold = parse_non_negative_int_or_inf(&threshold_value, BE::FindW, 2)?;
             (threshold, 1)
         }
         4 => {
             let thresh_val = iter.next().unwrap();
             let depth_val = iter.next().unwrap();
-            let threshold = match &thresh_val {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(BE::FindW)
-                        .msg("threshold must be non-negative int or inf")
-                        .at_arg(2));
-                }
-            };
-            let depth = match &depth_val {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(BE::FindW)
-                        .msg("depth must be non-negative int or inf")
-                        .at_arg(3));
-                }
-            };
+            let threshold = parse_non_negative_int_or_inf(&thresh_val, BE::FindW, 2)?;
+            let depth = parse_non_negative_int_or_inf(&depth_val, BE::FindW, 3)?;
             (threshold, depth)
         }
         _ => unreachable!(),
@@ -931,41 +906,15 @@ pub(super) fn rfindw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
     let (threshold, depth) = match n {
         2 => (1i64, 1i64),
         3 => {
-            let threshold = match &iter.next().unwrap() {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(BE::RFindW)
-                        .msg("threshold must be non-negative int or inf")
-                        .at_arg(2));
-                }
-            };
+            let threshold_value = iter.next().unwrap();
+            let threshold = parse_non_negative_int_or_inf(&threshold_value, BE::RFindW, 2)?;
             (threshold, 1)
         }
         4 => {
             let thresh_val = iter.next().unwrap();
             let depth_val = iter.next().unwrap();
-            let threshold = match &thresh_val {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(BE::RFindW)
-                        .msg("threshold must be non-negative int or inf")
-                        .at_arg(2));
-                }
-            };
-            let depth = match &depth_val {
-                Value::Int(n) if *n >= 0 => *n,
-                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
-                _ => {
-                    return Err(WqError::new(WqErrorType::Domain)
-                        .src(BE::RFindW)
-                        .msg("depth must be non-negative int or inf")
-                        .at_arg(3));
-                }
-            };
+            let threshold = parse_non_negative_int_or_inf(&thresh_val, BE::RFindW, 2)?;
+            let depth = parse_non_negative_int_or_inf(&depth_val, BE::RFindW, 3)?;
             (threshold, depth)
         }
         _ => unreachable!(),
@@ -1555,5 +1504,14 @@ mod tests {
         let result =
             zipw(&mut vm, BuiltinFnArgs::from(smallvec![xs, ys, f])).expect("zipw succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![9, 17, 27])));
+    }
+
+    #[test]
+    fn predicate_errors_include_the_returned_value() {
+        let error = predicate_result(BE::Filter, Value::Int(1))
+            .expect_err("int predicate result should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected bool"));
+        assert_eq!(error.notes.as_ref(), &["got 1 (int)"]);
     }
 }

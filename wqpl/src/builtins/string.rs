@@ -5,9 +5,11 @@ use num_bigint::BigInt;
 use num_traits::Signed;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, type_mismatch};
+use crate::builtins::{
+    BuiltinEnum as BE, BuiltinFnArgs, at_least_arity_error, check_arity, type_mismatch,
+};
 use crate::value::{IntoWqValue, Value, WqResult, expected_string1};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 pub(super) fn to_str(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Str, [1], &args)?;
@@ -157,14 +159,17 @@ fn dynamic_format_usize(value: &Value, arg_idx: usize, label: &str) -> WqResult<
     let n = value.as_i64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BE::Fmt)
-            .msg(format!("{label} must be an integer"))
+            .expected(Requirement::INT)
             .at_arg(arg_idx)
+            .attach_note(format!("for dynamic {label}"))
+            .got1(value)
     })?;
     usize::try_from(n).map_err(|_| {
         WqError::new(WqErrorType::Domain)
             .src(BE::Fmt)
-            .msg(format!("{label} must be a non-negative integer"))
+            .expected(Requirement::non_negative(Requirement::INT))
             .at_arg(arg_idx)
+            .attach_note(format!("for dynamic {label}"))
             .got1(value)
     })
 }
@@ -538,8 +543,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Fmt)
                             .msg("expected '}' after format specifier")
-                            .attach_note(format!("at template pos {open}"))
-                            .at_arg(0));
+                            .at_arg(0)
+                            .attach_note(format!("at template position {open}")));
                     }
                     return Ok((collect_chars(fmt_chars, open + 2, j), j + 2));
                 }
@@ -550,8 +555,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
         Err(WqError::new(WqErrorType::Domain)
             .src(BE::Fmt)
             .msg("unterminated format specifier")
-            .attach_note(format!("at template pos {open}"))
-            .at_arg(0))
+            .at_arg(0)
+            .attach_note(format!("at template position {open}")))
     }
 
     fn count_placeholders(fmt_chars: &[Value]) -> WqResult<usize> {
@@ -595,8 +600,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                             .msg(
                                 "unescaped '{'; use '{{' for a literal, '{}' for a placeholder, or '{[spec]}' for a formatted placeholder",
                             )
-                            .attach_note(format!("at template pos {i}"))
-                            .at_arg(0));
+                            .at_arg(0)
+                            .attach_note(format!("at template position {i}")));
                     }
                 }
             } else if ch == '}' {
@@ -606,8 +611,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Fmt)
                             .msg("unescaped '}'; use '}}' for a literal")
-                            .attach_note(format!("at template pos {i}"))
-                            .at_arg(0));
+                            .at_arg(0)
+                            .attach_note(format!("at template position {i}")));
                     }
                 }
             } else {
@@ -623,18 +628,26 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
         Some(s) => s.as_rust_char_slice().ok_or_else(|| {
             WqError::new(WqErrorType::Domain)
                 .src(BE::Fmt)
-                .msg("expected char or string")
+                .expected(Requirement::one_of([
+                    Requirement::CHAR,
+                    Requirement::STRING,
+                ]))
                 .at_arg(0)
         })?,
-        None => return Err(WqError::new(WqErrorType::Arity).msg("expected at least 1 arg, got 0")),
+        None => return Err(at_least_arity_error(BE::Fmt, 1, 0)),
     };
     // Pre-count placeholders for arity errors
     let needed = count_placeholders(&fmt_chars)?;
     let provided = args.len().saturating_sub(1);
     if provided != needed {
+        let noun = if needed == 1 {
+            "replacement argument"
+        } else {
+            "replacement arguments"
+        };
         return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Fmt)
-            .msg(format!("expected {needed}, got {provided}")));
+            .msg(format!("expected {needed} {noun}, got {provided}")));
     }
 
     // Format
@@ -695,8 +708,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                         .msg(
                             "unescaped '{'; use '{{' for a literal, '{}' for a placeholder, or '{[spec]}' for a formatted placeholder",
                         )
-                        .attach_note(format!("at template pos {i}"))
-                        .at_arg(0));
+                        .at_arg(0)
+                        .attach_note(format!("at template position {i}")));
                 }
             }
         } else if ch == '}' {
@@ -709,8 +722,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BE::Fmt)
                         .msg("unescaped '}'; use '}}' for a literal")
-                        .attach_note(format!("at template pos {i}"))
-                        .at_arg(0));
+                        .at_arg(0)
+                        .attach_note(format!("at template position {i}")));
                 }
             }
         } else {
@@ -781,7 +794,7 @@ pub(super) fn is_whitespace(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::WsQ, [1], &args)?;
     match &args[0] {
         Value::Char(c) => Ok(Value::Bool(c.is_whitespace())),
-        v => Err(type_mismatch(BE::WsQ, 0, "char", v)),
+        v => Err(type_mismatch(BE::WsQ, 0, Requirement::CHAR, v)),
     }
 }
 
@@ -842,8 +855,7 @@ mod tests {
         .expect_err("negative dynamic width should fail");
 
         assert!(
-            err.to_string()
-                .contains("width must be a non-negative integer"),
+            err.to_string().contains("expected non-negative int"),
             "unexpected error: {err}"
         );
     }

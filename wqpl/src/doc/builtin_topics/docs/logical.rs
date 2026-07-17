@@ -34,7 +34,7 @@ const SHR_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const BXOR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Bxor,
     summary: "Apply bitwise xor.",
-    details: "`bxor[xs;ys+]` folds bitwise xor over integers, bools, and compatible lists of them.",
+    details: "`bxor[xs;ys+]` folds bitwise xor over ints, bools, and compatible lists of them.",
     examples: BXOR_EXAMPLES,
     related: &["band", "bor"],
 };
@@ -42,7 +42,7 @@ pub(super) const BXOR: BuiltinDoc = BuiltinDoc {
 pub(super) const BAND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Band,
     summary: "Apply bitwise and.",
-    details: "`band[xs;ys+]` folds bitwise and over integers, bools, and compatible lists of them.",
+    details: "`band[xs;ys+]` folds bitwise and over ints, bools, and compatible lists of them.",
     examples: BAND_EXAMPLES,
     related: &["bor", "bxor"],
 };
@@ -50,23 +50,23 @@ pub(super) const BAND: BuiltinDoc = BuiltinDoc {
 pub(super) const BOR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Bor,
     summary: "Apply bitwise or.",
-    details: "`bor[xs;ys+]` folds bitwise or over integers, bools, and compatible lists of them.",
+    details: "`bor[xs;ys+]` folds bitwise or over ints, bools, and compatible lists of them.",
     examples: BOR_EXAMPLES,
     related: &["band", "bxor"],
 };
 
 pub(super) const SHL: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Shl,
-    summary: "Shift integer bits left.",
-    details: "`shl[xs;shift+]` folds exact left shifts over integer values, promoting to bigint when an int result no longer fits. Shift counts must be non-negative and fit the runtime shift range.",
+    summary: "Shift int bits left.",
+    details: "`shl[xs;shift+]` folds exact left shifts over ints. Results remain exact when they exceed the signed 64-bit range. Shift counts must be non-negative and fit the runtime shift range.",
     examples: SHL_EXAMPLES,
     related: &["shr", "band", "bor"],
 };
 
 pub(super) const SHR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Shr,
-    summary: "Shift integer bits right.",
-    details: "`shr[xs;shift+]` folds exact arithmetic right shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
+    summary: "Shift int bits right.",
+    details: "`shr[xs;shift+]` folds exact arithmetic right shifts over ints. Shift counts must be non-negative and fit the runtime shift range.",
     examples: SHR_EXAMPLES,
     related: &["shl", "band", "bor"],
 };

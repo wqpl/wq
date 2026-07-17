@@ -82,7 +82,7 @@ Use `{{` and `}}` for literal braces.
 
 Spec contents are `[fill][align][sign][#][0][width][.precision][type]`.
 Align is `<`, `>`, `^`, or `=`. Sign is `+`, `-`, or a space.
-`#` adds integer base prefixes and selects pretty debug with `?`; `0` is sign-aware zero padding.
+`#` adds int base prefixes and selects pretty debug with `?`; `0` is sign-aware zero padding.
 Type is `b`, `B`, `o`, `O`, `x`, `X`, `e`, `E`, `,`, `%`, or `?`.
 ee `fmt` for the same spec in template form.";
 
@@ -269,7 +269,7 @@ pub(super) const AT_DEPTH: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@depth", "@1", "@2", "@-1", "depth modifier"],
     summary: "Append a depth argument to depth-aware builtin calls.",
-    details: "`@1`, `@2`, `@-1`, and other signed integer depth modifiers are postfix call modifiers. They are valid only on builtins whose metadata declares depth sugar, and they append the depth as an ordinary final argument. A non-negative depth is relative to the container root: `0` means the container itself, `1` means the immediate items of the container, and `2` means one layer deeper. A negative depth is relative to the leaves: `-1` means the deepest items, `-2` means their parent layer, and values beyond the measured depth clamp at the root. Builtins that accept the full depth model also accept explicit `inf` for leaves and `-inf` for the root; check each builtin's argument docs for any narrower depth domain. Most depth-aware traversal defaults to depth `1`; broadcast comparison operators such as `=.` and `~.` are the depth-1, element-wise counterparts to whole-value `=` and `~`.",
+    details: "`@1`, `@2`, `@-1`, and other signed int depth modifiers are postfix call modifiers. They are valid only on builtins whose metadata declares depth sugar, and they append the depth as an ordinary final argument. A non-negative depth is relative to the container root: `0` means the container itself, `1` means the immediate items of the container, and `2` means one layer deeper. A negative depth is relative to the leaves: `-1` means the deepest items, `-2` means their parent layer, and values beyond the measured depth clamp at the root. Builtins that accept the full depth model also accept explicit `inf` for leaves and `-inf` for the root; check each builtin's argument docs for any narrower depth domain. Most depth-aware traversal defaults to depth `1`; broadcast comparison operators such as `=.` and `~.` are the depth-1, element-wise counterparts to whole-value `=` and `~`.",
     examples: AT_DEPTH_EXAMPLES,
     related: &["depth", "map", "has?", "find", "=."],
 };

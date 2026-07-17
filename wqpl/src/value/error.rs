@@ -1,34 +1,37 @@
 use num_traits::ToPrimitive;
 
 use crate::value::Value;
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
 pub(crate) fn expected_numeric1(value: &Value) -> WqError {
-    expected1("expected int, bigint, float or fraction", value)
+    expected1(Requirement::NUMBER, value)
 }
 
 pub(crate) fn expected_numeric2(lhs: &Value, rhs: &Value) -> WqError {
-    expected2("expected int, bigint, float or fraction", lhs, rhs)
+    expected2(Requirement::NUMBER, lhs, rhs)
 }
 
 pub(crate) fn expected_integer1(value: &Value) -> WqError {
-    expected1("expected int or bigint", value)
+    expected1(Requirement::INT, value)
 }
 
 pub(crate) fn expected_integer2(lhs: &Value, rhs: &Value) -> WqError {
-    expected2("expected int or bigint", lhs, rhs)
+    expected2(Requirement::INT, lhs, rhs)
 }
 
 pub(crate) fn expected_bool1(value: &Value) -> WqError {
-    expected1("expected bool", value)
+    expected1(Requirement::BOOL, value)
 }
 
 pub(crate) fn expected_bool2(lhs: &Value, rhs: &Value) -> WqError {
-    expected2("expected bool", lhs, rhs)
+    expected2(Requirement::BOOL, lhs, rhs)
 }
 
 pub(crate) fn expected_string1(value: &Value) -> WqError {
-    let error = WqError::new(WqErrorType::Domain).msg("expected char or string");
+    let error = WqError::new(WqErrorType::Domain).expected(Requirement::one_of([
+        Requirement::CHAR,
+        Requirement::STRING,
+    ]));
     let Value::List(items) = value else {
         return error.got1(value);
     };
@@ -37,16 +40,16 @@ pub(crate) fn expected_string1(value: &Value) -> WqError {
         .enumerate()
         .find(|(_, item)| !matches!(item, Value::Char(_)))
     {
-        error.unexpected_element(item, index)
+        error.got_at_index(item, index)
     } else {
         error.got1(value)
     }
 }
 
 pub(crate) fn expected_bytes1(value: &Value) -> WqError {
-    const EXPECTED: &str = "expected list<int in 0..=255>";
-
-    let error = WqError::new(WqErrorType::Domain).msg(EXPECTED);
+    let byte = Requirement::int_range(Bound::Included(0), Bound::Included(255));
+    let error = WqError::new(WqErrorType::Domain)
+        .expected(Requirement::one_of([byte.clone(), Requirement::list(byte)]));
     match value {
         Value::IntList(_) | Value::IntRange(_) => {
             let invalid = value
@@ -56,7 +59,7 @@ pub(crate) fn expected_bytes1(value: &Value) -> WqError {
                 .enumerate()
                 .find(|(_, item)| u8::try_from(*item).is_err());
             if let Some((index, item)) = invalid {
-                error.unexpected_element(&Value::Int(item), index)
+                error.got_at_index(&Value::Int(item), index)
             } else {
                 error.got1(value)
             }
@@ -64,7 +67,7 @@ pub(crate) fn expected_bytes1(value: &Value) -> WqError {
         Value::List(items) => {
             let invalid = items.iter().enumerate().find(|(_, item)| !is_byte(item));
             if let Some((index, item)) = invalid {
-                error.unexpected_element(item, index)
+                error.got_at_index(item, index)
             } else {
                 error.got1(value)
             }
@@ -73,13 +76,15 @@ pub(crate) fn expected_bytes1(value: &Value) -> WqError {
     }
 }
 
-fn expected1(expected: &str, value: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain).msg(expected).got1(value)
+fn expected1(expected: Requirement, value: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .expected(expected)
+        .got1(value)
 }
 
-fn expected2(expected: &str, lhs: &Value, rhs: &Value) -> WqError {
+fn expected2(expected: Requirement, lhs: &Value, rhs: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg(expected)
+        .expected(expected)
         .got2(lhs, rhs)
 }
 
@@ -104,10 +109,7 @@ mod tests {
         let error = expected_string1(&value);
 
         assert_eq!(error.msg.as_deref(), Some("expected char or string"));
-        assert_eq!(
-            error.notes.as_slice(),
-            ["unexpected element '2' (int) at [1]"]
-        );
+        assert_eq!(error.notes.as_slice(), ["at index 1", "got 2 (int)"]);
     }
 
     #[test]
@@ -116,10 +118,10 @@ mod tests {
 
         let error = expected_bytes1(&value);
 
-        assert_eq!(error.msg.as_deref(), Some("expected list<int in 0..=255>"));
         assert_eq!(
-            error.notes.as_slice(),
-            ["unexpected element '256' (int) at [1]"]
+            error.msg.as_deref(),
+            Some("expected int from 0 through 255 or list of ints from 0 through 255")
         );
+        assert_eq!(error.notes.as_slice(), ["at index 1", "got 256 (int)"]);
     }
 }

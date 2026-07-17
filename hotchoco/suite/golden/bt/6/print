@@ -1,6 +1,6 @@
 ▍ Error at <TEST_PATH>
-  zero-div: cannot divide by 0
-  - from binary operator /
+  zero-div: cannot divide by zero
+  - from binary operator '/'
   * at b, <TEST_PATH>
   |    1    a:'{b[]}
   |    2 -> b:{1/0}

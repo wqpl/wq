@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use smallvec::SmallVec;
 
-use super::{Sv4, index_load_err, named_arg_index_err, not_bound_err};
+use super::{Sv4, index_load_err, named_arg_index_err};
 use crate::interpret::InterpreterHook;
-use crate::value::{Excerpt, Value, WqResult};
+use crate::value::{Value, WqResult};
 use crate::vm::call::{CallSpec, ResolvedCallable};
 use crate::vm::{TailFrame, Vm, call_err};
 
@@ -272,7 +272,7 @@ fn dispatch_user_value_cached<const TAIL: bool>(
 pub(super) fn dispatch_loaded_local_call<const TAIL: bool>(
     vm: &mut Vm,
     idx: usize,
-    slot: u16,
+    _slot: u16,
     func: &Value,
     argc: usize,
     hooks: &dyn InterpreterHook,
@@ -291,11 +291,7 @@ pub(super) fn dispatch_loaded_local_call<const TAIL: bool>(
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
             dispatch_user_value_cached::<TAIL>(vm, idx, func, argc, hooks, None)
         }
-        other => Err(call_err(format!(
-            "cannot call local {slot}: expected func, found {} ({})",
-            other.excerpt(),
-            other.type_name(),
-        ))),
+        other => Err(call_err("cannot call local value: expected callable").got1(other)),
     }
 }
 
@@ -321,10 +317,7 @@ pub(super) fn dispatch_loaded_user_call<const TAIL: bool>(
         }
         other => {
             vm.pending_named_meta.take();
-            Err(not_bound_err(format!(
-                "cannot call '{name}': expected callable, got {}",
-                other.type_name()
-            )))
+            Err(call_err(format!("cannot call '{name}': expected callable")).got1(other))
         }
     }
 }

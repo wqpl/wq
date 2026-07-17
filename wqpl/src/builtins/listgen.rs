@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::range::make_range;
 use crate::value::seq::IntRangeData;
-use crate::value::{Excerpt as _, Value, WqResult};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::value::{Value, WqResult};
+use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 const LISTGEN_CACHE_CAPACITY: usize = 1024;
 
@@ -47,7 +47,7 @@ pub(super) fn alloc(args: BuiltinFnArgs) -> WqResult<Value> {
         [shape, fill] => (shape, fill.clone()),
         _ => unreachable!(),
     };
-    let dims = parse_shape(shape).map_err(|e| e.src(BE::Alloc).at_arg(0))?;
+    let dims = parse_shape(shape, BE::Alloc, 0)?;
     if let (Some(s), Value::Int(f)) = (extract_int_shape(shape), &fill) {
         let key = ListGenKey::Alloc(s, Some(*f));
         if let Some(v) = cache_get(&key) {
@@ -69,12 +69,13 @@ pub(super) fn til(args: BuiltinFnArgs) -> WqResult<Value> {
         let Ok(len) = usize::try_from(n) else {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Til)
-                .msg("invalid shape")
-                .attach_note("shape is a non-negative int or list of non-negative ints"));
+                .expected(shape_requirement())
+                .at_arg(0)
+                .got1(&args[0]));
         };
         return Ok(Value::IntRange(Arc::new(IntRangeData::new(0, 1, len))));
     }
-    let dims = parse_shape(&args[0]).map_err(|e| e.src(BE::Til).at_arg(0))?;
+    let dims = parse_shape(&args[0], BE::Til, 0)?;
     if dims.is_empty() {
         return Ok(Value::Int(0));
     }
@@ -127,14 +128,15 @@ pub(super) fn iota(args: BuiltinFnArgs) -> WqResult<Value> {
             let Ok(len) = usize::try_from(*n) else {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Iota)
-                    .msg("invalid shape")
-                    .attach_note("shape is a non-negative int or list of non-negative ints"));
+                    .expected(shape_requirement())
+                    .at_arg(0)
+                    .got1(&args[0]));
             };
             Ok(Value::IntRange(Arc::new(IntRangeData::new(0, 1, len))))
         }
         // Multidimensional: nested grid of coordinate vectors, shaped by dims
         _ => {
-            let dims = parse_shape(&args[0]).map_err(|e| e.src(BE::Iota).at_arg(0))?;
+            let dims = parse_shape(&args[0], BE::Iota, 0)?;
             if dims.is_empty() {
                 // Preserve existing behavior for empty shape
                 return Ok(Value::IntList(Arc::new(vec![])));
@@ -168,7 +170,7 @@ pub(super) fn range(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn reshape(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Reshape, [2], &args)?;
     let flattened = args[0].flatten();
-    let dims = parse_shape(&args[1]).map_err(|e| e.src(BE::Reshape).at_arg(1))?;
+    let dims = parse_shape(&args[1], BE::Reshape, 1)?;
     if flattened.is_empty() {
         let mut generator = || Value::Int(0);
         return Ok(build_from_parsed_shape(&dims, &mut generator));
@@ -193,26 +195,23 @@ pub(super) fn repeat(args: BuiltinFnArgs) -> WqResult<Value> {
             if *n < 0 {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Repeat)
-                    .msg("count must be non-negative")
-                    .at_arg(1));
+                    .expected(Requirement::non_negative(Requirement::INT))
+                    .at_arg(1)
+                    .got1(&args[1]));
             }
             usize::try_from(*n).map_err(|_| {
                 WqError::new(WqErrorType::Domain)
                     .src(BE::Repeat)
-                    .msg("count is too large")
+                    .msg("repeat count is too large")
                     .at_arg(1)
             })?
         }
         other => {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Repeat)
-                .msg("count must be an integer")
+                .expected(Requirement::non_negative(Requirement::INT))
                 .at_arg(1)
-                .attach_note(format!(
-                    "got {} of type {}",
-                    other.excerpt(),
-                    other.type_name()
-                )));
+                .got1(other));
         }
     };
     let too_large = || {
@@ -300,8 +299,6 @@ pub(super) fn repeat(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
-    const EXP: &str = "list whose leaves are int or bool";
-
     fn fmt_path(path: &[i64]) -> String {
         if path.is_empty() {
             "[]".to_string()
@@ -313,13 +310,10 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
     fn fail_type<T>(got: &Value, path: &[i64]) -> WqResult<T> {
         Err(WqError::new(WqErrorType::Domain)
             .src(BE::Where)
-            .msg(format!("expected {EXP}"))
+            .expected(where_requirement())
             .at_arg(0)
-            .attach_note(format!(
-                "unexpected {} at path {}",
-                got.type_name(),
-                fmt_path(path)
-            )))
+            .attach_note(format!("at path {}", fmt_path(path)))
+            .got1(got))
     }
 
     // Helper used by the nested collector: emit Int for length-1 paths, IntList
@@ -478,32 +472,47 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
             }
         }
         other => Err(WqError::new(WqErrorType::Domain)
-            .msg(format!("expected {EXP}"))
+            .src(BE::Where)
+            .expected(where_requirement())
             .at_arg(0)
-            .attach_note(format!(
-                "got {} of type {}",
-                other.excerpt(),
-                other.type_name()
-            ))),
+            .got1(other)),
     }
 }
 
-fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
-    const EXP: &str = "non-negative int or list of non-negative ints";
+fn where_requirement() -> Requirement {
+    Requirement::phrase(
+        "list whose leaves are ints or bools",
+        "lists whose leaves are ints or bools",
+    )
+}
+
+fn shape_requirement() -> Requirement {
+    Requirement::one_of([
+        Requirement::non_negative(Requirement::INT),
+        Requirement::list(Requirement::non_negative(Requirement::INT)),
+    ])
+}
+
+fn parse_shape(v: &Value, src: BE, position: usize) -> WqResult<Vec<usize>> {
     let Some(dims) = v.exact_int_seq() else {
-        return Err(WqError::new(WqErrorType::Domain).msg(EXP));
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(src)
+            .expected(shape_requirement())
+            .at_arg(position)
+            .got1(v));
     };
     dims.iter()
         .enumerate()
         .map(|(i, d)| {
             usize::try_from(d).map_err(|_| {
-                let error = WqError::new(WqErrorType::Domain).msg(EXP);
+                let error = WqError::new(WqErrorType::Domain)
+                    .src(src)
+                    .expected(shape_requirement())
+                    .at_arg(position);
                 if dims.is_atom() {
-                    error
+                    error.got1(v)
                 } else {
-                    error
-                        .attach_note(format!("at index {i}"))
-                        .attach_note(format!("value excerpt is {}", d.excerpt()))
+                    error.got_at_index(&Value::Int(d), i)
                 }
             })
         })
@@ -709,14 +718,51 @@ mod tests {
     }
 
     #[test]
+    fn repeat_reports_a_composable_count_requirement() {
+        let error = repeat(BuiltinFnArgs::from(smallvec![
+            Value::Char('x'),
+            Value::Int(-1),
+        ]))
+        .expect_err("negative repeat count should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected non-negative int"));
+        assert_eq!(error.notes.as_ref(), &["at argument 2", "got -1 (int)"]);
+    }
+
+    #[test]
     fn shape_parsing_is_independent_of_int_list_storage() {
         let general = Value::List(Arc::new(vec![Value::Int(0), Value::Int(2)]));
         let packed = Value::IntList(Arc::new(vec![0, 2]));
-        assert_eq!(parse_shape(&general).expect("general shape"), vec![0, 2]);
-        assert_eq!(parse_shape(&packed).expect("packed shape"), vec![0, 2]);
+        assert_eq!(
+            parse_shape(&general, BE::Alloc, 0).expect("general shape"),
+            vec![0, 2]
+        );
+        assert_eq!(
+            parse_shape(&packed, BE::Alloc, 0).expect("packed shape"),
+            vec![0, 2]
+        );
 
         let range = Value::IntRange(Arc::new(IntRangeData::new(2, 1, 2)));
-        assert_eq!(parse_shape(&range).expect("range shape"), vec![2, 3]);
+        assert_eq!(
+            parse_shape(&range, BE::Alloc, 0).expect("range shape"),
+            vec![2, 3]
+        );
+    }
+
+    #[test]
+    fn shape_errors_identify_the_failing_dimension() {
+        let shape = Value::IntList(Arc::new(vec![2, -1]));
+        let error =
+            parse_shape(&shape, BE::Alloc, 0).expect_err("negative shape dimension should fail");
+
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected non-negative int or list of non-negative ints")
+        );
+        assert_eq!(
+            error.notes.as_ref(),
+            &["at argument 1", "at index 1", "got -1 (int)"]
+        );
     }
 
     #[test]

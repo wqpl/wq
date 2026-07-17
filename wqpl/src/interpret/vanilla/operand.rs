@@ -61,9 +61,7 @@ pub(super) fn resolve_operand(
             } else if vm.builtins.is_disabled_name(name) {
                 Err(
                     not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
-                        format!(
-                            "a builtin named '{name}' exists but is disabled in the current preset"
-                        ),
+                        format!("builtin '{name}' exists but is disabled in the current preset"),
                     ),
                 )
             } else {
@@ -76,6 +74,6 @@ pub(super) fn resolve_operand(
             .current_closure_stack
             .last()
             .cloned()
-            .ok_or_else(|| vm_err("LoadSelf outside fn")),
+            .ok_or_else(|| vm_err("current function is unavailable outside a function")),
     }
 }

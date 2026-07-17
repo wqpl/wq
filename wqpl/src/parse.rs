@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::ast::{
     AstNode, AstSpan, BinaryOperator, BoolOperator, FStringPart, Parameter, UnaryOperator,
+    binary_op_display,
 };
 use crate::cas::{cas_binary_expr, cas_symbolic_call_expr, cas_unary_expr};
 use crate::cst::{
@@ -711,6 +712,34 @@ impl Parser {
         }
     }
 
+    fn diagnostic_token(&self, token: &Token) -> String {
+        match token.token_type {
+            TokenType::Eof | TokenType::Newline => token.token_type.diagnostic_name().to_string(),
+            _ => self
+                .source
+                .get(token.byte_start..token.byte_end)
+                .map(Self::quote_source_token)
+                .unwrap_or_else(|| token.token_type.diagnostic_name().to_string()),
+        }
+    }
+
+    fn quote_source_token(spelling: &str) -> String {
+        let mut quoted = String::with_capacity(spelling.len() + 2);
+        quoted.push('\'');
+        for ch in spelling.chars() {
+            match ch {
+                '\\' => quoted.push_str("\\\\"),
+                '\'' => quoted.push_str("\\'"),
+                '\n' => quoted.push_str("\\n"),
+                '\r' => quoted.push_str("\\r"),
+                '\t' => quoted.push_str("\\t"),
+                _ => quoted.push(ch),
+            }
+        }
+        quoted.push('\'');
+        quoted
+    }
+
     fn consume(&mut self, expected: TokenType) -> WqResult<()> {
         if let Some(tok) = self.current_token() {
             if std::mem::discriminant(&tok.token_type) == std::mem::discriminant(&expected) {
@@ -719,7 +748,11 @@ impl Parser {
             } else {
                 Err(self.syntax_err(
                     tok,
-                    format!("expected {:?}, found {:?}", expected, tok.token_type),
+                    format!(
+                        "expected {}, found {}",
+                        expected.diagnostic_name(),
+                        self.diagnostic_token(tok)
+                    ),
                 ))
             }
         } else {
@@ -769,27 +802,6 @@ impl Parser {
         n
     }
 
-    // /// Require a literal semicolon. Comments/newlines may appear around it.
-    // /// But only `;` satisfies the requirement.
-    // #[inline]
-    // fn require_semicolon(&mut self, ctx: &str) -> WqResult<()> {
-    //     self.eat_trivia(true, true);
-    //     match self.current_token().map(|t| &t.token_type) {
-    //         Some(TokenType::Semicolon) => {
-    //             self.advance();
-    //             Ok(())
-    //         }
-    //         Some(TokenType::Eof) => {
-    //             Err(self.eof_error_here(format!("Unexpected end of input in
-    // {ctx}")))         }
-    //         Some(tt) => Err(self.syntax_err(
-    //             self.current_token().unwrap(),
-    //             format!("expected ';' in {ctx}, found {tt:?}"),
-    //         )),
-    //         None => Err(self.eof_error_here(format!("Unexpected end of input in
-    // {ctx}"))),     }
-    // }
-
     #[inline]
     fn require_control_separator(&mut self, ctx: &str) -> WqResult<()> {
         // Prefer a literal semicolon first
@@ -820,9 +832,12 @@ impl Parser {
             Some(TokenType::Eof) => {
                 Err(self.eof_error_here(format!("unexpected end of input in {ctx}")))
             }
-            Some(tt) => Err(self.syntax_err(
+            Some(_) => Err(self.syntax_err(
                 self.current_token().unwrap(),
-                format!("expected ';' or newline in {ctx}, found {tt:?}"),
+                format!(
+                    "expected ';' or newline in {ctx}, found {}",
+                    self.diagnostic_token(self.current_token().unwrap())
+                ),
             )),
             None => Err(self.eof_error_here(format!("unexpected end of input in {ctx}"))),
         }
@@ -830,7 +845,13 @@ impl Parser {
 
     #[inline]
     fn missing_rhs(&self, op_tok: &Token, ctx: &str) -> WqError {
-        self.syntax_err(op_tok, format!("expected expression after {ctx}"))
+        self.syntax_err(
+            op_tok,
+            format!(
+                "expected expression after {ctx} {}",
+                self.diagnostic_token(op_tok)
+            ),
+        )
     }
 
     #[inline]
@@ -1165,7 +1186,7 @@ impl Parser {
         span: AstSpan,
     ) -> WqResult<AstNode> {
         if items.is_empty() {
-            return Err(self.syntax_err(colon_tok, "invalid unpack assignment target: empty list"));
+            return Err(self.syntax_err(colon_tok, "unpack assignment target cannot be empty"));
         }
 
         self.validate_unpack_targets(&items, colon_tok)?;
@@ -1195,22 +1216,21 @@ impl Parser {
                 } => {}
                 AstNode::Ellipsis(_) => {
                     if saw_ellipsis {
-                        return Err(
-                            self.syntax_err(colon_tok, "invalid unpack assignment: multiple '...'")
-                        );
+                        return Err(self.syntax_err(
+                            colon_tok,
+                            "unpack assignment pattern can contain only one '...'",
+                        ));
                     }
                     saw_ellipsis = true;
                 }
                 AstNode::List(inner, _) => {
                     self.validate_unpack_targets(inner, colon_tok)?;
                 }
-                other => {
-                    return Err(self
-                        .syntax_err(
-                            colon_tok,
-                            "invalid unpack assignment target: expected identifier, index assignment target, '_' or '...'",
-                        )
-                        .attach_note(format!("got {other}")));
+                _ => {
+                    return Err(self.syntax_err(
+                        colon_tok,
+                        "unpack assignment target must be an identifier, index target, '_', '...', or a nested list",
+                    ));
                 }
             }
         }
@@ -1338,7 +1358,7 @@ impl Parser {
                     let name = tag_name.to_string();
                     let colon_tok = token.clone();
                     self.advance(); // consume ':'
-                    self.ensure_rhs(&colon_tok, "named argument")?;
+                    self.ensure_rhs(&colon_tok, "named argument separator")?;
                     let value = self.parse_assignment()?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::NamedArgExpr);
                     expr = AstNode::NamedArg {
@@ -1374,13 +1394,7 @@ impl Parser {
             // and then the operator itself.
             self.eat_trivia(true, true);
             self.advance();
-            let op_name = match kind {
-                PipeKind::Pipe => "'|'",
-                PipeKind::PipeDot => "'|.'",
-                PipeKind::PipePipe => "'||'",
-                PipeKind::PipePipeDot => "'||.'",
-            };
-            self.eat_rhs_trivia(&token, &format!("{op_name} operator"))?;
+            self.eat_rhs_trivia(&token, "pipe operator")?;
             let right = self.parse_pipe_rhs_expr()?;
             // Iterating on `||` etc. nests the PipeExpr left-associatively,
             // mirroring the AST. `pending` is `Copy`, safe to reuse.
@@ -1632,7 +1646,7 @@ impl Parser {
             match token.token_type {
                 TokenType::Minus => {
                     self.advance();
-                    self.ensure_rhs(&token, "unary operator -")?;
+                    self.ensure_rhs(&token, "unary operator")?;
                     negate_parity ^= 1;
                     unary_applied = true;
                 }
@@ -1642,7 +1656,7 @@ impl Parser {
                         negate_parity = 0;
                     }
                     self.advance();
-                    self.ensure_rhs(&token, "unary operator #")?;
+                    self.ensure_rhs(&token, "unary operator")?;
                     ops.push(UnaryOperator::Count);
                     unary_applied = true;
                 }
@@ -1652,7 +1666,7 @@ impl Parser {
                         negate_parity = 0;
                     }
                     self.advance();
-                    self.ensure_rhs(&token, "unary operator ~")?;
+                    self.ensure_rhs(&token, "unary operator")?;
                     ops.push(UnaryOperator::Not);
                     unary_applied = true;
                 }
@@ -2031,7 +2045,7 @@ impl Parser {
                         &token,
                         "pipe assignment stages take no explicit RHS; the pipe value is the RHS",
                     )
-                    .attach_note("write `value|name:` to bind the current pipe value")
+                    .attach_note("write 'value|name:' to bind the current pipe value")
                     .attach_note("use a block if the pipe stage needs separate assignment logic"));
             }
             return Ok(expr);
@@ -2209,7 +2223,15 @@ impl Parser {
                     TokenType::Eof => {
                         break Err(self.eof_error_here("unexpected end of input in dict"));
                     }
-                    _ => break Err(self.syntax_err(key_tok, "expected symbol key in dict")),
+                    _ => {
+                        break Err(self.syntax_err(
+                            key_tok,
+                            format!(
+                                "expected tag key in dict, found {}",
+                                self.diagnostic_token(key_tok)
+                            ),
+                        ));
+                    }
                 };
                 if let Err(e) = self.consume(TokenType::Colon) {
                     break Err(e);
@@ -2720,10 +2742,10 @@ impl Parser {
                     Ok(AstNode::Variable("/%".into(), Some(span)))
                 }
                 TokenType::Eof => Err(self.eof_error_here("unexpected end of input")),
-                _ => {
-                    Err(self
-                        .syntax_err(&token, format!("unexpected token: {:?}", token.token_type)))
-                }
+                _ => Err(self.syntax_err(
+                    &token,
+                    format!("unexpected token {}", self.diagnostic_token(&token)),
+                )),
             }
         } else {
             Err(self.eof_error_here("unexpected end of input"))
@@ -3582,7 +3604,7 @@ impl Parser {
         let start = self
             .current_token()
             .cloned()
-            .ok_or_else(|| self.eof_error_here("unexpected end of input after @s"))?;
+            .ok_or_else(|| self.eof_error_here("unexpected end of input after '@s'"))?;
         self.advance();
         self.eat_trivia(true, true);
         let expr = self.parse_comma()?;
@@ -3667,7 +3689,7 @@ impl Parser {
                 ..
             } => Err(mk_err(
                 node_span,
-                "@s: count operator '#' is not supported in symbolic expressions".to_string(),
+                "@s: operator '#' is not supported in symbolic expressions".to_string(),
             )),
             BinaryOp {
                 left,
@@ -3677,20 +3699,6 @@ impl Parser {
             } => Ok(Value::from_cas_eq(
                 self.quote_symbolic_value(*left, start)?,
                 self.quote_symbolic_value(*right, start)?,
-            )),
-            BinaryOp {
-                operator:
-                    BinaryOperator::EqualDot
-                    | BinaryOperator::NotEqual
-                    | BinaryOperator::NotEqualDot
-                    | BinaryOperator::Lt
-                    | BinaryOperator::Lte
-                    | BinaryOperator::Gt
-                    | BinaryOperator::Gte,
-                ..
-            } => Err(mk_err(
-                node_span,
-                "@s: comparison operators are not supported in symbolic expressions".to_string(),
             )),
             BinaryOp {
                 left,
@@ -3709,8 +3717,10 @@ impl Parser {
                     _ => {
                         return Err(mk_err(
                             node_span,
-                            "@s: this binary operator is not supported in symbolic expressions"
-                                .to_string(),
+                            format!(
+                                "@s: operator '{}' is not supported in symbolic expressions",
+                                binary_op_display(&operator)
+                            ),
                         ));
                     }
                 };
@@ -4082,7 +4092,7 @@ impl Parser {
                 break;
             }
             if self.is_token(&TokenType::Eof) {
-                return Err(self.eof_error_here("unexpected end of input in $$[...]"));
+                return Err(self.eof_error_here("unexpected end of input in '$$[...]'"));
             }
             let item = if self.is_token(&TokenType::Semicolon) || self.is_token(&TokenType::Newline)
             {
@@ -4100,13 +4110,13 @@ impl Parser {
         if items.is_empty() {
             return Err(self.syntax_err(
                 self.current_token().expect("loop saw a non-Eof token"),
-                "'$$': expected condition",
+                "'$$' requires at least one condition",
             ));
         }
         if items.len() == 1 {
             return Err(self.syntax_err(
                 self.current_token().expect("loop saw a non-Eof token"),
-                "'$$': expected condition/branch pairs",
+                "'$$' requires condition and branch pairs",
             ));
         }
         self.consume(TokenType::RightBracket)?;
@@ -4120,7 +4130,7 @@ impl Parser {
             let true_branch = iter.next().ok_or_else(|| {
                 self.syntax_err(
                     self.current_token().expect("inside $$[...]"),
-                    "'$$': expected condition/branch pairs",
+                    "'$$' requires condition and branch pairs",
                 )
             })?;
             pairs.push((cond, true_branch));
@@ -4320,7 +4330,7 @@ mod fstring_span_tests {
             Some(src)
         );
         let rendered = err.render_with_color_mode(crate::style::ColorMode::Never);
-        assert!(rendered.contains("unexpected token: Bang"));
+        assert!(rendered.contains("unexpected token '!'"));
         assert!(rendered.contains("1 -> @f\"{123!x}\""));
     }
 
@@ -4465,6 +4475,119 @@ mod fstring_span_tests {
         assert!(
             err.to_string().contains("unmatched '{' in format spec"),
             "unexpected error: {err}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_wording_tests {
+    use super::*;
+
+    fn parse_input(input: &str) -> WqResult<AstNode> {
+        let tokens = Lexer::new(input).tokenize().expect("tokenize");
+        let mut parser =
+            Parser::new_with_builtins(tokens, input.to_string(), crate::builtins::Builtins::new());
+        parser.parse()
+    }
+
+    fn recovered_error(input: &str) -> WqError {
+        let ast = parse_input(input).expect("parser should recover with an error node");
+        let AstNode::Error(err, _) = ast else {
+            panic!("expected parser error node, got {ast:?}");
+        };
+        err
+    }
+
+    #[test]
+    fn consume_error_uses_source_token_spellings() {
+        let src = ")";
+        let tokens = Lexer::new(src).tokenize().expect("tokenize");
+        let mut parser = Parser::new(tokens, src.to_string());
+
+        let err = parser
+            .consume(TokenType::RightBracket)
+            .expect_err("mismatched delimiter should fail");
+
+        assert_eq!(err.msg.as_deref(), Some("expected ']', found ')'"));
+    }
+
+    #[test]
+    fn missing_rhs_names_the_exact_operator() {
+        let err = recovered_error("1+");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("expected expression after binary operator '+'")
+        );
+    }
+
+    #[test]
+    fn missing_assignment_rhs_names_the_exact_operator() {
+        let err = recovered_error("x:");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("expected expression after assignment operator ':'")
+        );
+    }
+
+    #[test]
+    fn invalid_unpack_target_lists_the_supported_forms() {
+        let err = recovered_error("(1+2;x):(3;4)");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some(
+                "unpack assignment target must be an identifier, index target, '_', '...', or a nested list"
+            )
+        );
+    }
+
+    #[test]
+    fn unpack_pattern_names_the_ellipsis_limit() {
+        let err = recovered_error("(x;...;...):(1;2;3)");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("unpack assignment pattern can contain only one '...'")
+        );
+    }
+
+    #[test]
+    fn dict_key_error_uses_tag_and_source_spelling() {
+        let err = recovered_error("(`a:1;2:3)");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("expected tag key in dict, found '2'")
+        );
+    }
+
+    #[test]
+    fn condition_chain_errors_name_the_required_structure() {
+        let err = recovered_error("$$[]");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'$$' requires at least one condition")
+        );
+
+        let err = recovered_error("$$[T]");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'$$' requires condition and branch pairs")
+        );
+    }
+
+    #[test]
+    fn pipe_assignment_note_uses_terminal_safe_quotes() {
+        let err = recovered_error("1|x:2");
+
+        assert!(
+            err.notes
+                .iter()
+                .any(|note| note == "write 'value|name:' to bind the current pipe value"),
+            "unexpected notes: {:?}",
+            err.notes
         );
     }
 }
@@ -4656,13 +4779,13 @@ mod symbolic_quote_tests {
     #[test]
     fn symbolic_quote_rejects_invalid_reserved_calls() {
         for (input, expected) in [
-            ("@s sin[]", "sin expects exactly 1 argument"),
-            ("@s sin[x;y]", "sin expects exactly 1 argument"),
-            ("@s log[x]", "log expects exactly 2 arguments"),
-            ("@s arctan2[x]", "arctan2 expects exactly 2 arguments"),
-            ("@s floor[x;1]", "floor expects exactly 1 argument"),
-            ("@s sin[`x:y]", "sin does not accept named arguments"),
-            ("@s nonzero[x;y]", "nonzero expects exactly 1 argument"),
+            ("@s sin[]", "'sin' expects exactly 1 argument"),
+            ("@s sin[x;y]", "'sin' expects exactly 1 argument"),
+            ("@s log[x]", "'log' expects exactly 2 arguments"),
+            ("@s arctan2[x]", "'arctan2' expects exactly 2 arguments"),
+            ("@s floor[x;1]", "'floor' expects exactly 1 argument"),
+            ("@s sin[`x:y]", "'sin' does not accept named arguments"),
+            ("@s nonzero[x;y]", "'nonzero' expects exactly 1 argument"),
         ] {
             let ast = parse_input(input).expect("parser should recover with an error node");
             let AstNode::Error(err, _) = ast else {
@@ -4709,6 +4832,31 @@ mod symbolic_quote_tests {
     }
 
     #[test]
+    fn symbolic_quote_names_unsupported_operator() {
+        let ast = parse_input("@s x/.2").expect("parser should recover with error node");
+        let AstNode::Error(err, _) = ast else {
+            panic!("expected parser error node, got {ast:?}");
+        };
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("@s: operator '/.' is not supported in symbolic expressions")
+        );
+    }
+
+    #[test]
+    fn symbolic_quote_limit_quotes_direction_forms() {
+        let ast =
+            parse_input("@s limit[1/x;0;`d:x]").expect("parser should recover with error node");
+        let AstNode::Error(err, _) = ast else {
+            panic!("expected parser error node, got {ast:?}");
+        };
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("'limit' direction must be '@s+' or '@s-'")
+        );
+    }
+
+    #[test]
     fn symbolic_quote_preserves_named_args_in_unknown_application() {
         let ast = parse_input("@s f[x;`a:y]").expect("named symbolic arg should parse");
         let AstNode::Literal(value, _) = ast else {
@@ -4737,8 +4885,9 @@ mod symbolic_quote_tests {
         assert!(
             err.msg
                 .as_deref()
-                .is_some_and(|msg| msg
-                    .contains("limit expects expr;point or expr followed by var;point pairs")),
+                .is_some_and(|msg| msg.contains(
+                    "'limit' expects 'limit[expr;point]' or 'limit[expr;var;point]', optionally followed by additional 'var;point' pairs"
+                )),
             "unexpected error: {err:?}",
         );
     }

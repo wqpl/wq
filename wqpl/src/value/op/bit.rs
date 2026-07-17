@@ -6,11 +6,15 @@ use num_traits::ToPrimitive;
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::op::arith::{int_bigint_pair, intlist_map, intlist_zip_map};
 use crate::value::{Value, WqResult, expected_integer1, expected_integer2};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
 fn invalid_shift(v: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg("shift must be a non-negative integer that fits u32")
+        .expected(Requirement::int_range(
+            Bound::Included(0),
+            Bound::Included(i128::from(u32::MAX)),
+        ))
+        .attach_note("for a shift count")
         .got1(v)
 }
 
@@ -300,7 +304,17 @@ mod tests {
     fn shifts_reject_counts_that_do_not_fit_u32() {
         let count = Value::Int(i64::from(u32::MAX) + 1);
 
-        assert!(Value::Int(1).shl(&count).is_err());
+        let error = Value::Int(1)
+            .shl(&count)
+            .expect_err("oversized shift should fail");
+        assert_eq!(
+            error.msg.as_deref(),
+            Some("expected int from 0 through 4294967295")
+        );
+        assert_eq!(
+            error.notes.as_slice(),
+            ["for a shift count", "got 4294967296 (int)"]
+        );
         assert!(Value::Int(8).shr(&count).is_err());
     }
 

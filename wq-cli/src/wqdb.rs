@@ -747,47 +747,47 @@ fn exec_single_wqdb_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Option<DebugR
             }
             let mut name_w = "name".len();
             let mut value_w = "value".len();
-            let mut type_w = "type".len();
+            let mut kind_w = "kind".len();
             for (name, v) in &globals {
                 name_w = name_w.max(name.len());
                 value_w = value_w.max(v.to_string().len());
-                type_w = type_w.max(v.type_name().len());
+                kind_w = kind_w.max(v.debug_kind().as_str().len());
             }
             wqdb_println!(
                 host,
                 format!(
-                    "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                    "{:<name_w$}  {:<value_w$}  {:<kind_w$}",
                     "name",
                     "value",
-                    "type",
+                    "kind",
                     name_w = name_w,
                     value_w = value_w,
-                    type_w = type_w
+                    kind_w = kind_w
                 )
             );
             wqdb_println!(
                 host,
                 format!(
-                    "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
+                    "{:-<name_w$}  {:-<value_w$}  {:-<kind_w$}",
                     "",
                     "",
                     "",
                     name_w = name_w,
                     value_w = value_w,
-                    type_w = type_w
+                    kind_w = kind_w
                 )
             );
             for (name, v) in &globals {
                 wqdb_println!(
                     host,
                     format!(
-                        "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                        "{:<name_w$}  {:<value_w$}  {:<kind_w$}",
                         name,
                         v.excerpt(),
-                        v.type_name(),
+                        v.debug_kind(),
                         name_w = name_w,
                         value_w = value_w,
-                        type_w = type_w
+                        kind_w = kind_w
                     )
                 );
             }
@@ -1215,58 +1215,58 @@ fn print_frame_locals(host: &WqdbHost<'_, '_>, frame: &DebugLocalsFrame, include
                     .get(*i)
                     .cloned()
                     .unwrap_or_else(|| format!("loc[{i}]"));
-                rows.push((name, v.excerpt(), v.type_name()));
+                rows.push((name, v.excerpt(), v.debug_kind().as_str()));
             }
         }
         None => {
             for (i, v) in &frame.locals {
-                rows.push((format!("loc[{i}]"), v.excerpt(), v.type_name()));
+                rows.push((format!("loc[{i}]"), v.excerpt(), v.debug_kind().as_str()));
             }
         }
     }
     let mut name_w = "name".len();
     let mut value_w = "value".len();
-    let mut type_w = "type".len();
-    for (name, value, ty) in &rows {
+    let mut kind_w = "kind".len();
+    for (name, value, kind) in &rows {
         name_w = name_w.max(name.len());
         value_w = value_w.max(value.len());
-        type_w = type_w.max(ty.len());
+        kind_w = kind_w.max(kind.len());
     }
     wqdb_println!(
         host,
         format!(
-            "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+            "{:<name_w$}  {:<value_w$}  {:<kind_w$}",
             "name",
             "value",
-            "type",
+            "kind",
             name_w = name_w,
             value_w = value_w,
-            type_w = type_w
+            kind_w = kind_w
         )
     );
     wqdb_println!(
         host,
         format!(
-            "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
+            "{:-<name_w$}  {:-<value_w$}  {:-<kind_w$}",
             "",
             "",
             "",
             name_w = name_w,
             value_w = value_w,
-            type_w = type_w
+            kind_w = kind_w
         )
     );
-    for (name, value, ty) in rows {
+    for (name, value, kind) in rows {
         wqdb_println!(
             host,
             format!(
-                "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                "{:<name_w$}  {:<value_w$}  {:<kind_w$}",
                 name,
                 value,
-                ty,
+                kind,
                 name_w = name_w,
                 value_w = value_w,
-                type_w = type_w
+                kind_w = kind_w
             )
         );
     }

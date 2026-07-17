@@ -2,7 +2,7 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::{
-    CasDebug, cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, numeric_add,
+    CasDebug, cas_add, cas_internal_err, cas_mul, cas_pow, eval_exact_numeric_div, numeric_add,
     numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
     simplify_cas_value, split_mul_factor,
 };
@@ -190,7 +190,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
             ExpandFrame::Pow { exp, power } => {
                 let base = results
                     .pop()
-                    .ok_or_else(|| cas_err("expand_expr: missing base for ^"))?;
+                    .ok_or_else(|| cas_internal_err("expanding a symbolic expression"))?;
                 match power {
                     Some(power) => {
                         let mut terms = vec![Value::Int(1)];
@@ -235,10 +235,10 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
             ExpandFrame::Eq => {
                 let rhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("expand_expr: missing rhs for eq"))?;
+                    .ok_or_else(|| cas_internal_err("expanding a symbolic expression"))?;
                 let lhs = results
                     .pop()
-                    .ok_or_else(|| cas_err("expand_expr: missing lhs for eq"))?;
+                    .ok_or_else(|| cas_internal_err("expanding a symbolic expression"))?;
                 results.push(Value::from_cas_eq(lhs, rhs));
             }
         }
@@ -246,13 +246,13 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
 
     let result = results
         .pop()
-        .ok_or_else(|| cas_err("expand_expr: empty result stack"))?;
+        .ok_or_else(|| cas_internal_err("expanding a symbolic expression"))?;
     Ok(result)
 }
 
 pub(super) fn split_off_results(results: &mut Vec<Value>, n: usize) -> WqResult<Vec<Value>> {
     if results.len() < n {
-        return Err(cas_err("expand_expr: insufficient results on stack"));
+        return Err(cas_internal_err("processing a symbolic expression"));
     }
     Ok(results.split_off(results.len().saturating_sub(n)))
 }
@@ -506,4 +506,22 @@ pub(super) fn factor_expr(expr: &Value) -> WqResult<Value> {
 
 pub(crate) fn factor_cas(expr: &Value) -> WqResult<Value> {
     factor_expr(&simplify_cas_value(expr)?)
+}
+
+#[cfg(test)]
+mod internal_error_tests {
+    use super::*;
+    use crate::wqerror::WqErrorType;
+
+    #[test]
+    fn traversal_underflow_is_an_internal_cas_error() {
+        let err = split_off_results(&mut Vec::new(), 1)
+            .expect_err("missing traversal result should fail");
+
+        assert_eq!(err.err_type, WqErrorType::Vm);
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("internal CAS error while processing a symbolic expression")
+        );
+    }
 }

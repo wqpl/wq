@@ -13,14 +13,18 @@ use std::time::{Duration, Instant};
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_traits::Num;
+#[cfg(not(target_arch = "wasm32"))]
+use num_traits::ToPrimitive;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::builtins::at_least_arity_error;
 use crate::builtins::{
     BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_named, check_named_args,
     type_mismatch,
 };
 use crate::session::stdio::WqIoError;
 use crate::value::{Excerpt, IntoWqValue, Value, WqResult, expected_string1, into_wq_string};
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
 fn host_io_error(builtin: BuiltinEnum, error: WqIoError) -> WqError {
     WqError::new(WqErrorType::Io)
@@ -57,7 +61,7 @@ pub(super) fn echo(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         let sep = sep_val.try_to_rust_string().ok_or_else(|| {
             expected_string1(sep_val)
                 .src(BuiltinEnum::Echo)
-                .attach_note("named arg 'sep' must be a string")
+                .at_named_arg("sep")
         })?;
         let mut out = String::new();
         for (i, arg) in args.iter().enumerate() {
@@ -124,8 +128,7 @@ pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
     fn unexpected_base() -> WqError {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Int)
-            .msg("unexpected base")
-            .attach_note("base should only be provided when parsing text")
+            .msg("base is only accepted when parsing a string")
             .at_arg(0)
     }
 
@@ -137,10 +140,12 @@ pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
         [_, b] => {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Int)
-                .msg("expected valid base")
-                .attach_note("valid base is int in 2..=36")
+                .expected(Requirement::int_range(
+                    Bound::Included(2),
+                    Bound::Included(36),
+                ))
                 .at_arg(1)
-                .attach_note(format!("got {}", b.excerpt())));
+                .got1(b));
         }
         _ => unreachable!(),
     };
@@ -202,16 +207,16 @@ pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
             if digits.is_empty() {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BuiltinEnum::Int)
-                    .msg("expected valid int literal")
+                    .msg("could not parse int literal")
                     .at_arg(0)
                     .attach_note("digits are required after optional sign or prefix"));
             }
             let mut mag = BigInt::from_str_radix(&digits, base).map_err(|e| {
                 WqError::new(WqErrorType::Domain)
                     .src(BuiltinEnum::Int)
-                    .msg("expected valid int literal")
+                    .msg("could not parse int literal")
                     .at_arg(0)
-                    .attach_note(format!("original error: {}", e))
+                    .attach_note(format!("parser error: {e}"))
             })?;
             if neg {
                 mag = -mag;
@@ -229,7 +234,7 @@ pub(super) fn float(args: BuiltinFnArgs) -> WqResult<Value> {
         return input.as_f64().map(Value::float).ok_or_else(|| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Float)
-                .msg("provided value cannot be converted to float")
+                .msg("value cannot be represented as a float")
                 .got1(input)
         });
     }
@@ -245,9 +250,9 @@ pub(super) fn float(args: BuiltinFnArgs) -> WqResult<Value> {
     f64::from_str(s).map(Value::float).map_err(|e| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Float)
-            .msg("expected valid float literal")
+            .msg("could not parse float literal")
             .at_arg(0)
-            .attach_note(format!("original error: {e}"))
+            .attach_note(format!("parser error: {e}"))
     })
 }
 
@@ -258,7 +263,7 @@ pub(super) fn bin(args: BuiltinFnArgs) -> WqResult<Value> {
         2 => match args[1] {
             Value::Bool(b) => (&args[0], b),
             ref v => {
-                return Err(type_mismatch(BuiltinEnum::Bin, 1, "bool", v));
+                return Err(type_mismatch(BuiltinEnum::Bin, 1, Requirement::BOOL, v));
             }
         },
         _ => unreachable!(),
@@ -275,7 +280,7 @@ pub(super) fn oct(args: BuiltinFnArgs) -> WqResult<Value> {
         2 => match args[1] {
             Value::Bool(b) => (&args[0], b),
             ref v => {
-                return Err(type_mismatch(BuiltinEnum::Oct, 1, "bool", v));
+                return Err(type_mismatch(BuiltinEnum::Oct, 1, Requirement::BOOL, v));
             }
         },
         _ => unreachable!(),
@@ -292,7 +297,7 @@ pub(super) fn hex(args: BuiltinFnArgs) -> WqResult<Value> {
         2 => match args[1] {
             Value::Bool(b) => (&args[0], b),
             ref v => {
-                return Err(type_mismatch(BuiltinEnum::Hex, 1, "bool", v));
+                return Err(type_mismatch(BuiltinEnum::Hex, 1, Requirement::BOOL, v));
             }
         },
         _ => unreachable!(),
@@ -330,7 +335,14 @@ pub(super) fn assert_condition(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity_named(BuiltinEnum::Assert, [1, 2], &args, super::ASSERT_NAMED_ARGS)?;
     let condition = match args[0] {
         Value::Bool(condition) => condition,
-        ref value => return Err(type_mismatch(BuiltinEnum::Assert, 0, "bool", value)),
+        ref value => {
+            return Err(type_mismatch(
+                BuiltinEnum::Assert,
+                0,
+                Requirement::BOOL,
+                value,
+            ));
+        }
     };
     let message = assertion_message(&args, 1, BuiltinEnum::Assert, "assertion failed")?;
 
@@ -368,14 +380,14 @@ pub(super) fn assert_equal(args: BuiltinFnArgs) -> WqResult<Value> {
         .src(BuiltinEnum::AssertEq)
         .msg(message)
         .attach_note(format!(
-            "actual '{}' ({})",
+            "actual {} ({})",
             actual.excerpt(),
-            actual.type_name()
+            actual.category()
         ))
         .attach_note(format!(
-            "expected '{}' ({})",
+            "expected {} ({})",
             expected.excerpt(),
-            expected.type_name()
+            expected.category()
         ))
         .with_data("check", Value::Tag(Arc::from("equal")))
         .with_data("actual", actual.clone())
@@ -405,10 +417,8 @@ pub(super) fn raise(args: BuiltinFnArgs) -> WqResult<Value> {
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BuiltinEnum::Exec)
-            .msg("expected 1 or more args")
-            .attach_note("require at least the program name"));
+        return Err(at_least_arity_error(BuiltinEnum::Exec, 1, 0)
+            .attach_note("the first argument is the program name"));
     }
 
     let parts: Vec<String> = args
@@ -455,42 +465,48 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
     if let Some(v) = args.named("stdin") {
         opts.stdin = Some(
             v.try_to_rust_string()
-                .ok_or_else(|| exec_named_arg_error(expected_string1(v), "stdin", "a string"))?,
+                .ok_or_else(|| exec_named_arg_error(expected_string1(v), "stdin"))?,
         );
     }
     if let Some(v) = args.named("cwd") {
         opts.cwd = Some(
             v.try_to_rust_string()
-                .ok_or_else(|| exec_named_arg_error(expected_string1(v), "cwd", "a string"))?,
+                .ok_or_else(|| exec_named_arg_error(expected_string1(v), "cwd"))?,
         );
     }
     if let Some(v) = args.named("env") {
         let Value::Dict(env_map) = v else {
-            return Err(exec_named_type_error("env", "dict", v));
+            return Err(exec_named_type_error("env", Requirement::DICT, v));
         };
         let mut pairs = Vec::with_capacity(env_map.len());
         for (ek, ev) in env_map.iter() {
             let key = ek.to_string();
             let val = ev.try_to_rust_string().ok_or_else(|| {
-                exec_named_arg_error(expected_string1(ev), "env", "a dict of string values")
-                    .attach_note(format!("at env key '{key}'"))
+                exec_named_arg_error(expected_string1(ev), "env")
+                    .attach_note(format!("at env key `{key}"))
             })?;
             pairs.push((key, val));
         }
         opts.env = Some(pairs);
     }
     if let Some(v) = args.named("timeout") {
+        let requirement =
+            || Requirement::int_range(Bound::Included(0), Bound::Included(i128::from(u64::MAX)));
         opts.timeout = Some(match v {
-            Value::Int(n) if *n >= 0 => u64::try_from(*n)
-                .map_err(|_| exec_named_type_error("timeout", "non-negative int", v))?,
+            Value::Int(n) if *n >= 0 => {
+                u64::try_from(*n).map_err(|_| exec_named_type_error("timeout", requirement(), v))?
+            }
+            Value::BigInt(n) => n
+                .to_u64()
+                .ok_or_else(|| exec_named_type_error("timeout", requirement(), v))?,
             _ => {
-                return Err(exec_named_type_error("timeout", "non-negative int", v));
+                return Err(exec_named_type_error("timeout", requirement(), v));
             }
         });
     }
     if let Some(v) = args.named("check") {
         let Value::Bool(b) = v else {
-            return Err(exec_named_type_error("check", "bool", v));
+            return Err(exec_named_type_error("check", Requirement::BOOL, v));
         };
         opts.check = *b;
         // Restore default: when check is omitted, it's true.
@@ -502,19 +518,18 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn exec_named_arg_error(err: WqError, name: &str, expected: &str) -> WqError {
+fn exec_named_arg_error(err: WqError, name: &str) -> WqError {
     err.src(BuiltinEnum::Exec)
-        .attach_note(format!("at named arg '{name}'"))
-        .attach_note(format!("named arg '{name}' must be {expected}"))
+        .at_named_arg(name)
         .attach_note(format!("usage: {}", BuiltinEnum::Exec.usage()))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn exec_named_type_error(name: &str, expected: &str, got: &Value) -> WqError {
+fn exec_named_type_error(name: &str, expected: Requirement, got: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
         .src(BuiltinEnum::Exec)
-        .msg(format!("expected {expected}"))
-        .attach_note(format!("at named arg '{name}'"))
+        .expected(expected)
+        .at_named_arg(name)
         .got1(got)
         .attach_note(format!("usage: {}", BuiltinEnum::Exec.usage()))
 }
@@ -557,7 +572,7 @@ fn exec_simple(parts: &[String]) -> WqResult<Value> {
     let output = cmd.stdin(Stdio::null()).output().map_err(|e| {
         WqError::new(WqErrorType::Exec)
             .src(BuiltinEnum::Exec)
-            .msg(format!("cannot spawn '{}': {e}", parts[0]))
+            .msg(format!("cannot spawn \"{}\": {e}", parts[0]))
     })?;
 
     if !output.status.success() {
@@ -591,12 +606,12 @@ fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
         let meta = std::fs::metadata(cwd).map_err(|e| {
             WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Exec)
-                .msg(format!("invalid cwd '{cwd}': {e}"))
+                .msg(format!("invalid cwd \"{cwd}\": {e}"))
         })?;
         if !meta.is_dir() {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Exec)
-                .msg(format!("cwd '{cwd}' is not a directory")));
+                .msg(format!("cwd \"{cwd}\" is not a directory")));
         }
         cmd.current_dir(cwd);
     }
@@ -612,7 +627,7 @@ fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
     let mut child = cmd.spawn().map_err(|e| {
         WqError::new(WqErrorType::Exec)
             .src(BuiltinEnum::Exec)
-            .msg(format!("cannot spawn '{}': {e}", parts[0]))
+            .msg(format!("cannot spawn \"{}\": {e}", parts[0]))
     })?;
 
     let mut stdout_pipe = child.stdout.take().unwrap();
@@ -671,7 +686,7 @@ fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
                     let _ = stderr_thread.join();
                     return Err(WqError::new(WqErrorType::Exec)
                         .src(BuiltinEnum::Exec)
-                        .msg(format!("error waiting for '{}': {e}", parts[0])));
+                        .msg(format!("error waiting for \"{}\": {e}", parts[0])));
                 }
             }
         }
@@ -683,7 +698,7 @@ fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
                 let _ = stderr_thread.join();
                 return Err(WqError::new(WqErrorType::Exec)
                     .src(BuiltinEnum::Exec)
-                    .msg(format!("error waiting for '{}': {e}", parts[0])));
+                    .msg(format!("error waiting for \"{}\": {e}", parts[0])));
             }
         }
     };
@@ -747,11 +762,11 @@ mod tests {
         let result = hash(BuiltinFnArgs::from(Value::Int(42))).unwrap();
         assert!(matches!(result, Value::Int(_) | Value::BigInt(_)));
 
-        // Same value produce thw same hash
+        // The same value produces the same hash.
         let result2 = hash(BuiltinFnArgs::from(Value::Int(42))).unwrap();
         assert_eq!(result, result2);
 
-        // Different values produce different hash
+        // Different values produce different hashes.
         let result3 = hash(BuiltinFnArgs::from(Value::Int(43))).unwrap();
         assert_ne!(result, result3);
     }
@@ -803,6 +818,30 @@ mod tests {
         assert_eq!(
             int(BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
             Value::Int(1)
+        );
+    }
+
+    #[test]
+    fn int_builtin_reports_base_as_a_bounded_int_requirement() {
+        let error = int(BuiltinFnArgs::from(smallvec![
+            into_wq_string("10"),
+            Value::Int(37),
+        ]))
+        .expect_err("a base above 36 should fail");
+
+        assert_eq!(error.msg.as_deref(), Some("expected int from 2 through 36"));
+        assert_eq!(error.notes.as_slice(), ["at argument 2", "got 37 (int)"]);
+    }
+
+    #[test]
+    fn int_builtin_describes_literal_parse_failures_directly() {
+        let error = int(BuiltinFnArgs::from(into_wq_string("xyz")))
+            .expect_err("non-digits should fail int parsing");
+
+        assert_eq!(error.msg.as_deref(), Some("could not parse int literal"));
+        assert_eq!(
+            error.notes.first().map(String::as_str),
+            Some("at argument 1")
         );
     }
 
@@ -962,15 +1001,16 @@ mod tests {
 
         #[test]
         fn exec_named_type_errors_name_option() {
-            fn assert_named_error(name: &str, value: Value) {
+            fn assert_named_error(name: &str, value: Value, expected: &str) {
                 let err = exec(BuiltinFnArgs::with_named(
                     smallvec![into_wq_string("printf"), into_wq_string("hello")],
                     vec![(Arc::from(name), value)],
                 ))
                 .unwrap_err();
+                assert_eq!(err.msg.as_deref(), Some(expected));
                 let text = err.to_string();
                 assert!(
-                    text.contains(&format!("at named arg '{name}'")),
+                    text.contains(&format!("at named argument '{name}'")),
                     "expected named arg note, got {text}"
                 );
                 assert!(
@@ -979,8 +1019,27 @@ mod tests {
                 );
             }
 
-            assert_named_error("timeout", into_wq_string("soon"));
-            assert_named_error("check", Value::Int(1));
+            assert_named_error(
+                "timeout",
+                into_wq_string("soon"),
+                "expected int from 0 through 18446744073709551615",
+            );
+            assert_named_error("check", Value::Int(1), "expected bool");
+        }
+
+        #[test]
+        fn exec_timeout_accepts_bigints_that_fit_the_public_range() {
+            let timeout = BigInt::from(i64::MAX) + BigInt::from(1_u8);
+            let options = exec_options_from_named(&BuiltinFnArgs::with_named(
+                smallvec![],
+                vec![(
+                    Arc::from("timeout"),
+                    Value::BigInt(Arc::new(timeout.clone())),
+                )],
+            ))
+            .expect("a bigint-backed timeout inside the stated range should parse");
+
+            assert_eq!(options.timeout, timeout.to_u64());
         }
 
         #[test]
@@ -994,11 +1053,11 @@ mod tests {
             .unwrap_err();
             let text = err.to_string();
             assert!(
-                text.contains("at named arg 'env'"),
+                text.contains("at named argument 'env'"),
                 "expected env named arg note, got {text}"
             );
             assert!(
-                text.contains("at env key 'WQ_TEST_VAR'"),
+                text.contains("at env key `WQ_TEST_VAR"),
                 "expected env key note, got {text}"
             );
         }

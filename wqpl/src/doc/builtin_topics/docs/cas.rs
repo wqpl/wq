@@ -32,7 +32,7 @@ const NEGATIVE_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const NONNEGATIVE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe a nonnegative symbolic parameter",
+    title: "Describe a non-negative symbolic parameter",
     code: "nonnegative @s a",
     expectation: ExampleExpectation::ResultContains("nonnegative[a]"),
 }];
@@ -225,7 +225,7 @@ pub(super) const ZERO: BuiltinDoc = BuiltinDoc {
 pub(super) const POSITIVE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Positive,
     summary: "Build a symbolic positive condition.",
-    details: "`positive[expr]` asserts that `expr` is real and greater than zero. The CAS can derive nonzero, nonnegative, and real facts from this condition.",
+    details: "`positive[expr]` asserts that `expr` is real and greater than zero. The CAS can derive nonzero, non-negative, and real facts from this condition.",
     examples: POSITIVE_EXAMPLES,
     related: &["negative", "nonnegative", "real", "solve"],
 };
@@ -240,7 +240,7 @@ pub(super) const NEGATIVE: BuiltinDoc = BuiltinDoc {
 
 pub(super) const NONNEGATIVE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Nonnegative,
-    summary: "Build a symbolic nonnegative condition.",
+    summary: "Build a symbolic non-negative condition.",
     details: "`nonnegative[expr]` asserts that `expr` is real and greater than or equal to zero. It does not imply that the expression is nonzero.",
     examples: NONNEGATIVE_EXAMPLES,
     related: &["positive", "negative", "real", "solve"],
@@ -249,7 +249,7 @@ pub(super) const NONNEGATIVE: BuiltinDoc = BuiltinDoc {
 pub(super) const REAL: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Real,
     summary: "Build a symbolic real condition.",
-    details: "`real[expr]` asserts that `expr` belongs to the real numbers. Integer, positive, negative, and nonnegative conditions also imply realness.",
+    details: "`real[expr]` asserts that `expr` belongs to the real numbers. Integer, positive, negative, and non-negative conditions also imply realness.",
     examples: REAL_EXAMPLES,
     related: &["integer", "positive", "negative", "solve"],
 };
