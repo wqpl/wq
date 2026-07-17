@@ -50,7 +50,7 @@ Options:
 - `missing`: replace sparse empty cells.
 - `style`: `\"plain\"`, `\"markdown\"`, or `\"md\"`.
 
-The result value is unit.",
+The result value is an empty list.",
     examples: SHOWTABLE_EXAMPLES,
     related: &["asciiplot", "keys", "zip"],
 };
@@ -59,7 +59,7 @@ pub(super) const ASCIIPLOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Asciiplot,
     summary: "Print one or more numeric series as a terminal plot.",
     details:
-"`asciiplot[data+;opts]` writes a plot to stdout and returns unit.
+"`asciiplot[data+;opts]` writes a plot to stdout and returns an empty list.
 
 Data arguments:
 

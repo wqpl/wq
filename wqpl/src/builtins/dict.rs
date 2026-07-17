@@ -50,15 +50,15 @@ pub(super) fn idx_to_key(args: BuiltinFnArgs) -> WqResult<Value> {
         }
     };
     let Some(norm_idx) = normalize_idx(*idx, dict.len()) else {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     };
     match dict.get_index(norm_idx) {
         Some((k, _)) => Ok(Value::Tag(k.clone())),
-        None => Ok(Value::unit()),
+        None => Ok(Value::empty_list()),
     }
 }
 
-/// Returns the positional index for the given key or unit if absent.
+/// Returns the positional index for the given key or an empty list if absent.
 pub(super) fn key_to_idx(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::KeyToIdx, [2], &args)?;
     let dict = match &args[0] {
@@ -85,6 +85,6 @@ pub(super) fn key_to_idx(args: BuiltinFnArgs) -> WqResult<Value> {
     };
     match dict.get_index_of(key.as_ref()) {
         Some(idx) => Ok(idx.into_wq_value()),
-        None => Ok(Value::unit()),
+        None => Ok(Value::empty_list()),
     }
 }

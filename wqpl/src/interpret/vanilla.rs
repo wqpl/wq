@@ -219,9 +219,9 @@ impl VanillaInterpreter {
                                         parent
                                             .get(slot_idx)
                                             .map(|s| s.read())
-                                            .unwrap_or_else(Value::unit)
+                                            .unwrap_or_else(Value::empty_list)
                                     } else {
-                                        Value::unit()
+                                        Value::empty_list()
                                     };
                                     captured_vals.push(Arc::new(Mutex::new(val)));
                                 }
@@ -231,9 +231,11 @@ impl VanillaInterpreter {
                                         parent
                                             .get_mut(slot_idx)
                                             .map(|s| s.ensure_cell())
-                                            .unwrap_or_else(|| Arc::new(Mutex::new(Value::unit())))
+                                            .unwrap_or_else(|| {
+                                                Arc::new(Mutex::new(Value::empty_list()))
+                                            })
                                     } else {
-                                        Arc::new(Mutex::new(Value::unit()))
+                                        Arc::new(Mutex::new(Value::empty_list()))
                                     };
                                     captured_vals.push(cell);
                                 }
@@ -244,7 +246,9 @@ impl VanillaInterpreter {
                                         .last()
                                         .and_then(|c| c.get(cap_idx))
                                         .cloned()
-                                        .unwrap_or_else(|| Arc::new(Mutex::new(Value::unit())));
+                                        .unwrap_or_else(|| {
+                                            Arc::new(Mutex::new(Value::empty_list()))
+                                        });
                                     captured_vals.push(cell);
                                 }
                                 Capture::Global(name, span) => {
@@ -1373,7 +1377,7 @@ impl VanillaInterpreter {
         {
             record_trace_probe(vm, prev);
         }
-        let value = vm.stack.pop().unwrap_or(Value::unit());
+        let value = vm.stack.pop().unwrap_or(Value::empty_list());
         Ok(value)
     }
 
@@ -1395,7 +1399,7 @@ impl VanillaInterpreter {
             if vm.stack.len() > stack_start {
                 vm.stack.pop().expect("stack length checked")
             } else {
-                Value::unit()
+                Value::empty_list()
             }
         });
         Self::restore_try_state(vm, frame, false);
@@ -2663,7 +2667,7 @@ mod call_safety {
         vm.inline_cache[0].slot = Some(42);
         vm.locals.push(vec![Slot::default()]);
         vm.captures.push(cell::empty_cells());
-        vm.current_closure_stack.push(Value::unit());
+        vm.current_closure_stack.push(Value::empty_list());
 
         vm.prepare_tail(CallSpec {
             instructions: Arc::clone(&insts),
@@ -2673,7 +2677,7 @@ mod call_safety {
             argc: 0,
             callee_name: None,
             dbg_chunk: None,
-            callee: Value::unit(),
+            callee: Value::empty_list(),
             cache_idx: None,
         })
         .expect("prepare_tail");
@@ -2694,7 +2698,7 @@ mod call_safety {
         vm.stack.push(Value::Int(2));
         vm.locals.push(vec![Slot::default()]);
         vm.captures.push(cell::empty_cells());
-        vm.current_closure_stack.push(Value::unit());
+        vm.current_closure_stack.push(Value::empty_list());
 
         let result = vm.prepare_tail(CallSpec {
             instructions: insts,
@@ -2704,7 +2708,7 @@ mod call_safety {
             argc: 2,
             callee_name: None,
             dbg_chunk: None,
-            callee: Value::unit(),
+            callee: Value::empty_list(),
             cache_idx: None,
         });
 
@@ -2997,11 +3001,14 @@ mod call_safety {
 
         let result = VanillaInterpreter
             .interpret(&mut vm, limit)
-            .expect("empty try should succeed with unit");
+            .expect("empty try should succeed with an empty list");
 
         assert_eq!(
             result,
-            Value::List(Arc::new(vec![Value::Tag(Arc::from("ok")), Value::unit(),]))
+            Value::List(Arc::new(vec![
+                Value::Tag(Arc::from("ok")),
+                Value::empty_list(),
+            ]))
         );
         assert_eq!(vm.stack, vec![Value::Int(42)]);
     }

@@ -101,12 +101,12 @@ pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
         return Err(at_least_arity_error(BuiltinEnum::OpCat, 2, args.len()));
     }
 
-    // Fast path: all unit -> return unit directly
+    // Fast path: all empty lists -> return an empty list directly
     if args.iter().all(|v| v.is_unit()) {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
 
-    // Fast path: all string-like (String/Char mix, but not all unit)
+    // Fast path: all string-like (String/Char mix, but not all empty lists)
     if args.iter().all(|v| v.is_string()) {
         let mut s = String::new();
         for arg in args {

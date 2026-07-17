@@ -35,7 +35,8 @@ impl Value {
         }
     }
 
-    /// Convert a char, string, unit, or char-only list into a Rust string.
+    /// Convert a char, string, empty list, or char-only list into a Rust
+    /// string.
     ///
     /// Do not call from `Display::fmt`.
     pub(crate) fn try_to_rust_string(&self) -> Option<String> {

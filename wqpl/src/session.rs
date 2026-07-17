@@ -645,7 +645,7 @@ impl Session {
         match self.eval_script_with(source, |_, _| -> Result<_, std::convert::Infallible> {
             unreachable!("directives were rejected before evaluation")
         }) {
-            Ok(value) => Ok(value.unwrap_or_else(Value::unit)),
+            Ok(value) => Ok(value.unwrap_or_else(Value::empty_list)),
             Err(ScriptRunError::Evaluation(error)) => Err(error),
             Err(ScriptRunError::Directive(never)) => match never {},
         }
@@ -886,7 +886,7 @@ impl Session {
         )?;
 
         if self.dry_mode {
-            return Ok(Value::unit());
+            return Ok(Value::empty_list());
         }
 
         *phase = EvaluationPhase::Execute;
@@ -2209,7 +2209,7 @@ mod tests {
             session
                 .eval_string("apply[{()};1]")
                 .expect("empty container result apply should succeed"),
-            Value::List(std::sync::Arc::new(vec![Value::unit()]))
+            Value::List(std::sync::Arc::new(vec![Value::empty_list()]))
         );
     }
 

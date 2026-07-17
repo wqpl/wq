@@ -119,7 +119,7 @@ pub(super) fn apply_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) ->
             vm.call(fs, BuiltinFnArgs::from(x.clone()))?;
         }
     }
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 /// map[xs;f;d?]
@@ -180,7 +180,7 @@ fn map_discard_impl(
     let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
     xs.bc1_for_each_until(stop, op1)
         .map_err(|e| e.into_wqerror().src(BE::Map))?;
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 #[inline]
@@ -315,7 +315,7 @@ pub(super) fn fold(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         2 => {
             if let Some(seq) = ValueSeq::from_value(&xs) {
                 if seq.len() == 0 {
-                    return Ok(Value::unit());
+                    return Ok(Value::empty_list());
                 }
                 let mut values = seq.values();
                 let mut acc = values.next().expect("sequence is non-empty");
@@ -328,7 +328,7 @@ pub(super) fn fold(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
             match xs {
                 Value::Dict(map) => {
                     if map.is_empty() {
-                        return Ok(Value::unit());
+                        return Ok(Value::empty_list());
                     }
                     let mut val_iter = map.values();
                     let mut acc = val_iter.next().unwrap().clone();
@@ -375,7 +375,7 @@ pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         2 => {
             if let Some(seq) = ValueSeq::from_value(&xs) {
                 if seq.len() == 0 {
-                    return Ok(Value::unit());
+                    return Ok(Value::empty_list());
                 }
                 let mut results: Vec<Value> = Vec::with_capacity(seq.len());
                 let mut values = seq.values();
@@ -391,7 +391,7 @@ pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
             match xs {
                 Value::Dict(map) => {
                     if map.is_empty() {
-                        return Ok(Value::unit());
+                        return Ok(Value::empty_list());
                     }
                     let mut results: Vec<Value> = Vec::with_capacity(map.len());
                     let mut val_iter = map.values();
@@ -445,7 +445,7 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
         2 => {
             if let Some(seq) = ValueSeq::from_value(&xs) {
                 if seq.len() == 0 {
-                    return Ok(Value::unit());
+                    return Ok(Value::empty_list());
                 }
                 let mut results: Vec<Value> = Vec::with_capacity(seq.len());
                 let mut values = seq.values().rev();
@@ -462,7 +462,7 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
             match xs {
                 Value::Dict(map) => {
                     if map.is_empty() {
-                        return Ok(Value::unit());
+                        return Ok(Value::empty_list());
                     }
                     let mut results: Vec<Value> = Vec::with_capacity(map.len());
                     let mut val_iter = map.values().rev();
@@ -548,7 +548,7 @@ pub(super) fn filter_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -
         for item in seq.values() {
             filter_predicate(vm, &func, pure.as_ref(), &item)?;
         }
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
 
     if let Value::Dict(map) = xs {
@@ -556,7 +556,7 @@ pub(super) fn filter_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -
             filter_predicate(vm, &func, pure.as_ref(), item)?;
         }
     }
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 /// zipw[xs;ys;f;d?]

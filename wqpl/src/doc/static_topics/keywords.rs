@@ -170,7 +170,7 @@ pub(super) const AT_RETURN: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@r", "return"],
     summary: "Return early from the current function.",
-    details: "`@r value` exits immediately with `value`. Bare `@r` returns unit.",
+    details: "`@r value` exits immediately with `value`. Bare `@r` returns an empty list.",
     examples: AT_RETURN_EXAMPLES,
     related: &["functions"],
 };

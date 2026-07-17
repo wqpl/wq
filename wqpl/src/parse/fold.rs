@@ -373,7 +373,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             let condition = Box::new(fold(*condition));
             let body = Box::new(fold(*body));
             if let Literal(Value::Bool(false), _) = condition.as_ref() {
-                return Literal(Value::unit(), span);
+                return Literal(Value::empty_list(), span);
             }
             WLoop {
                 condition,
@@ -385,7 +385,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             if let AstNode::Literal(Value::Int(n), _) = count.as_ref()
                 && *n <= 0
             {
-                return Literal(Value::unit(), span);
+                return Literal(Value::empty_list(), span);
             }
             NLoop {
                 count: Box::new(fold(*count)),

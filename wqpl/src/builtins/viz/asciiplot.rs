@@ -61,7 +61,7 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
             .src(BE::Asciiplot)
             .attach_note(format!("host I/O error: {error}"))
     })?;
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 #[derive(Clone)]
@@ -2839,7 +2839,7 @@ mod tests {
                 ],
             ),
         );
-        assert_eq!(result.unwrap(), Value::unit());
+        assert_eq!(result.unwrap(), Value::empty_list());
     }
 
     #[test]
@@ -2869,7 +2869,7 @@ mod tests {
                     ],
                 ),
             );
-            assert_eq!(callable_result.unwrap(), Value::unit());
+            assert_eq!(callable_result.unwrap(), Value::empty_list());
 
             let mut vm = Vm::new(vec![]);
             vm.runtime_io.set_stdout(Box::new(SinkStdout));
@@ -2892,7 +2892,7 @@ mod tests {
                     ],
                 ),
             );
-            assert_eq!(cas_result.unwrap(), Value::unit());
+            assert_eq!(cas_result.unwrap(), Value::empty_list());
         }
     }
 

@@ -21,8 +21,8 @@
   - CAS simplification (`@s`, `cas_*`, `numeric_*`) should preserve exact constants where possible. It may use exact dot arithmetic internally even when the symbolic surface operator is `CasOp::Divide` or `CasOp::Power`.
     - If you add or change CAS integration strategies, update the unsupported integral reason classifier in `wqpl/src/cas/integrate.rs` and its tests so `unsupported symbolic integral` notes stay accurate.
   - `$[c;t;f;...]` is ternary. If false, every expression after the second semicolon belongs to the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false.
-  - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns unit `()`.
-  - `$$[c1;t1;c2;t2;default]` is a condition chain. Conditions are checked in order. The final default is optional; omitted default is unit.
+  - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns an empty list `()`.
+  - `$$[c1;t1;c2;t2;default]` is a condition chain. Conditions are checked in order. The final default is optional; an omitted default is an empty list.
   - `|` is pipe, which inserts lhs as the first arg to rhs call
   - `band[...]`, `bor[...]`, and `bxor[...]` apply eager bitwise logic to integers or bools.
   - `A[...]` and `O[...]` are short-circuit bool and/or forms.
@@ -55,7 +55,7 @@
     - After using `@s` to create one, apply operations directly instead of stacking `@s`.
       - e.g. `diff integrate @s 1/(x^3-2)`
     - A bare `x^3-2` without `@s` is evaluation and is not related to CAS.
-  - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*unit*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
+  - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*empty list*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
 - Ensure `cargo clippy --all-targets -- -D warnings` passes.
   - Avoid using `#[allow(...)]` to pass clippy.
     - An exception is dead code that won't be used anymore, where you are allowed to use `#[allow(...)]` instead of removing it

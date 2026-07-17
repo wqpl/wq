@@ -207,7 +207,7 @@ pub(super) const INT: BuiltinDoc = BuiltinDoc {
 pub(super) const FLOAT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Float,
     summary: "Convert a value to a float.",
-    details: "`float` converts numeric values directly and parses string input with Rust-style floating-point syntax. An empty string converts to unit.",
+    details: "`float` converts numeric values directly and parses string input with Rust-style floating-point syntax. An empty string converts to an empty list.",
     examples: FLOAT_EXAMPLES,
     related: &["int", "fraction"],
 };
@@ -291,7 +291,7 @@ The spec is a dict with:
 
 Every descriptor requires a tag `name` and a tag `kind`. Supported kinds are `flag`, `count`, `option`, and `positional`. Option and positional descriptors may use a one-argument `parse` callable, `value_name`, `required`, `multiple`, and `choices`. All descriptors may use `default`, `help`, `hidden`, `conflicts`, and `requires`. Non-positional descriptors may use `short` and `long`; flags may also use `negatable`.
 
-If `long` is omitted for a non-positional argument, the argument name is used with underscores changed to hyphens. `flag` defaults to `F`, `count` to `0`, multiple arguments to an empty list, and other absent arguments to unit.
+If `long` is omitted for a non-positional argument, the argument name is used with underscores changed to hyphens. `flag` defaults to `F`, `count` to `0`, multiple arguments to an empty list, and other absent arguments to an empty list.
 
 The result is a dict with `kind` and `status`. Successful results have kind `ok`, status `0`, and a `value` dict containing `args` and `command`. Help and version requests have status `0` and plain `text`. User input failures have kind `error`, status `2`, plain `text`, and a structured `error` dict. Invalid specifications raise a domain error because they are program defects.",
     examples: ARGPARSE_EXAMPLES,
@@ -308,7 +308,7 @@ pub(super) const CLIARGS: BuiltinDoc = BuiltinDoc {
 
 pub(super) const ECHO: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Echo,
-    summary: "Print values to stdout and return unit.",
+    summary: "Print values to stdout and return an empty list.",
     details: "Use `echo` for line-oriented output. Strings are printed without quotes, other values use their display form, and the optional `sep` named argument joins multiple values on one line.",
     examples: ECHO_EXAMPLES,
     related: &["print", "str", "pipes"],
@@ -325,7 +325,7 @@ pub(super) const PRINT: BuiltinDoc = BuiltinDoc {
 pub(super) const INPUT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Input,
     summary: "Read one line from stdin.",
-    details: "`input` optionally prints a prompt, reads one line, and returns it as a string. End-of-file and interruption return unit.",
+    details: "`input` optionally prints a prompt, reads one line, and returns it as a string. End-of-file and interruption return an empty list.",
     examples: INPUT_EXAMPLES,
     related: &["echo", "print"],
 };
@@ -361,7 +361,7 @@ When checking is enabled, failures include the exit code plus stderr and stdout 
 pub(super) const LEN: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Len,
     summary: "Return the length of a value.",
-    details: "For containers, `len` returns the number of top-level items; for strings, this is the number of Unicode scalars. Atoms have length 1 and unit has length 0.",
+    details: "For containers, `len` returns the number of top-level items; for strings, this is the number of Unicode scalars. Atoms have length 1 and an empty list has length 0.",
     examples: LEN_EXAMPLES,
     related: &["shape", "#"],
 };

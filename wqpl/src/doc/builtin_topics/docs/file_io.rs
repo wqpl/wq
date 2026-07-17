@@ -80,7 +80,7 @@ Permission and other filesystem failures raise an IO error.",
 pub(super) const MKDIR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Mkdir,
     summary: "Create a directory and its missing parents.",
-    details: "`mkdir[path]` creates the directory tree at `path` and returns unit.
+    details: "`mkdir[path]` creates the directory tree at `path` and returns an empty list.
 It succeeds when the directory already exists and raises an IO error when the path cannot be created.",
     examples: MKDIR_EXAMPLES,
     related: &["path_exists?", "open"],
@@ -101,7 +101,7 @@ pub(super) const WRITE: BuiltinDoc = BuiltinDoc {
     summary: "Write bytes to a writable stream.",
     details:
         "`write[stream;bytes]` accepts one int from 0 through 255 or a list of ints in that range.
-It writes every byte, flushes the stream, and returns unit.
+It writes every byte, flushes the stream, and returns an empty list.
 Encode strings explicitly with `encode` before writing them.",
     examples: WRITE_EXAMPLES,
     related: &["open", "read", "encode", "close"],
@@ -112,7 +112,7 @@ pub(super) const READ: BuiltinDoc = BuiltinDoc {
     summary: "Read bytes from a readable stream.",
     details: "`read[stream]` reads all remaining bytes.
 `read[stream;count]` reads up to the non-negative int `count`; a count of zero does not advance the stream.
-The result is a list of byte ints, or unit at EOF.
+The result is a list of byte ints, or an empty list at EOF.
 Decode a complete byte buffer explicitly with `decode`.
 `read` does not perform incremental character decoding.",
     examples: READ_EXAMPLES,
@@ -141,7 +141,7 @@ pub(super) const TELL: BuiltinDoc = BuiltinDoc {
 pub(super) const CLOSE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Close,
     summary: "Close a stream.",
-    details: "`close[stream]` flushes a writable stream, closes it, and returns unit.
+    details: "`close[stream]` flushes a writable stream, closes it, and returns an empty list.
 Closing an already closed stream also succeeds.
 Later read, write, seek, or tell operations raise an IO error.",
     examples: CLOSE_EXAMPLES,

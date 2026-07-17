@@ -21,7 +21,7 @@ n:7
 $[n%2=0;"even";label:"odd";label]|echo
 ```
 
-With no false branch, a false condition yields unit.
+With no false branch, a false condition yields an empty list.
 
 ```wq
 $[F;"not reached"]|echo
@@ -30,7 +30,7 @@ $[F;"not reached"]|echo
 ## Run When True
 
 `$.[condition;body1;body2...]` runs its body only when the condition is true.
-If the condition is false, the body is skipped and the result is unit.
+If the condition is false, the body is skipped and the result is an empty list.
 
 ```wq
 x:0
@@ -57,7 +57,7 @@ $$[grade>=90;"A";grade>=80;"B";grade>=70;"C";"D"]|echo
 
 That reads as `if grade>=90 then "A", else if grade>=80 then "B", else if grade>=70 then "C", else "D"`.
 
-The default is optional. If no condition matches and no default is present, the result is unit.
+The default is optional. If no condition matches and no default is present, the result is an empty list.
 
 ```wq
 $$[F;"no";F;"also no"]|echo

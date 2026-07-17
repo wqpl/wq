@@ -159,8 +159,8 @@ pub(crate) enum Instruction {
     // CallBuiltin(String, usize),
     /// Builtin call resolved to an ID at compile time for faster dispatch
     CallBuiltinId(u16, u16),
-    /// Builtin call whose result is only needed as unit because the expression
-    /// result will be discarded.
+    /// Builtin call whose result is only needed as an empty list because the
+    /// expression result will be discarded.
     CallBuiltinDiscardId(u16, u16),
     /// Call a function stored in a local slot
     CallLocal(u16, usize),

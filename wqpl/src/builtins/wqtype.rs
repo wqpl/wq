@@ -17,11 +17,6 @@ pub(super) fn is_atom(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::Bool(args[0].is_atom()))
 }
 
-pub(super) fn is_unit(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::UnitQ, [1], &args)?;
-    Ok(Value::Bool(args[0].is_unit()))
-}
-
 fn is_valid_tag_name(name: &str) -> bool {
     !name.is_empty()
         && name

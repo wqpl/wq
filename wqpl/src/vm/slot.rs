@@ -11,7 +11,7 @@ pub(crate) enum Slot {
 
 impl Default for Slot {
     fn default() -> Self {
-        Slot::Value(Value::unit())
+        Slot::Value(Value::empty_list())
     }
 }
 
@@ -58,7 +58,7 @@ impl Slot {
         match self {
             Slot::Cell(cell) => cell.clone(),
             Slot::Value(slot_val) => {
-                let current = std::mem::replace(slot_val, Value::unit());
+                let current = std::mem::replace(slot_val, Value::empty_list());
                 let cell = Arc::new(Mutex::new(current));
                 *self = Slot::Cell(cell.clone());
                 cell

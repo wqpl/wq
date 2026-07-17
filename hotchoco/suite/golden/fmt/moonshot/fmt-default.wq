@@ -36,7 +36,7 @@ options:cliargs[spec] `args
 demo:options `demo
 plain:options `plain
 max_turns:options `max_turns
-seed:$[U options `seed;$[demo;4242;1+rand 1000000];options `seed]
+seed:$[#options `seed=0;$[demo;4242;1+rand 1000000];options `seed]
 mission_rng:rng seed
 
 clamp:{[value;low;high]max[low;min[high;value]]}
@@ -148,7 +148,7 @@ lower_ascii:{[s]
 read_command:{[]
   W[T
     line:input "burn [w/a/d/wa/wd/. or q] > "
-    $.[U line;@r "q"]
+    $.[#line=0;@r "q"]
     command:lower_ascii line
     $.[valid_command? command;@r $[command="";".";command]]
     echo "Flight computer: command not understood."]}

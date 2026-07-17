@@ -333,7 +333,7 @@ const CONDITIONAL_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains("b"),
     },
     DocExample {
-        title: "Use an implicit unit chain default",
+        title: "Use an empty list as the implicit chain default",
         code: "$$[F;\"a\";F;\"b\"]",
         expectation: ExampleExpectation::ResultContains("()"),
     },
@@ -580,7 +580,7 @@ pub(super) const CONDITIONALS: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["$", "$.", "$$", "conditional", "conditionals"],
     summary: "Choose between branches with dollar forms.",
-    details: "`$[c;t;f]` is a ternary; extra expressions after `f` are part of the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false. `$.[c;t1;t2...]` is a guard-like conditional that runs its body only when `c` is true and otherwise returns unit. `$$[c1;t1;c2;t2;default]` checks condition/branch pairs in order; the final default is optional, and an omitted default is unit.",
+    details: "`$[c;t;f]` is a ternary; extra expressions after `f` are part of the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false. `$.[c;t1;t2...]` is a guard-like conditional that runs its body only when `c` is true and otherwise returns an empty list. `$$[c1;t1;c2;t2;default]` checks condition/branch pairs in order; the final default is optional, and an omitted default is an empty list.",
     examples: CONDITIONAL_EXAMPLES,
     related: &["bool"],
 };

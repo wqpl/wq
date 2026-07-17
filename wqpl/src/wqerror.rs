@@ -150,7 +150,7 @@ impl WqError {
                 self.src
                     .as_deref()
                     .map(string_value)
-                    .unwrap_or_else(Value::unit),
+                    .unwrap_or_else(Value::empty_list),
             ),
             ("span", self.wq_span_value(debug_info, frames)),
             (
@@ -161,7 +161,7 @@ impl WqError {
             ),
             ("data", Value::Dict(Arc::clone(&self.data))),
             ("stack", wq_stack_value(debug_info, frames)),
-            ("cause", Value::unit()),
+            ("cause", Value::empty_list()),
         ])
     }
 
@@ -171,13 +171,13 @@ impl WqError {
         }
 
         let Some(frame) = frames.first() else {
-            return Value::unit();
+            return Value::empty_list();
         };
         let CrashFrame::Located {
             location, source, ..
         } = frame
         else {
-            return Value::unit();
+            return Value::empty_list();
         };
         if let Some(source) = source {
             return span_value(
@@ -188,10 +188,10 @@ impl WqError {
             );
         }
         let Some(resolved) = debug_info.resolve_location(*location) else {
-            return Value::unit();
+            return Value::empty_list();
         };
         let Some(source) = resolved.source else {
-            return Value::unit();
+            return Value::empty_list();
         };
         span_value(
             &source.path,
@@ -228,7 +228,12 @@ fn wq_stack_value(debug_info: &DebugInfo, frames: &[CrashFrame]) -> Value {
                     usize_value(source.column),
                 )
             } else {
-                (Value::unit(), Value::unit(), Value::unit(), Value::unit())
+                (
+                    Value::empty_list(),
+                    Value::empty_list(),
+                    Value::empty_list(),
+                    Value::empty_list(),
+                )
             };
             value_dict([
                 ("function", string_value(name)),

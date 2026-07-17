@@ -45,16 +45,17 @@ impl fmt::Display for Value {
             }
             Value::Tag(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "T" } else { "F" }),
-            Value::BoolList(items) => fmt_bool_slice(f, items),
-            Value::FloatList(items) => fmt_float_slice(f, items),
+
             Value::IntList(_) | Value::IntRange(_) => fmt_int_seq(
                 f,
                 self.packed_int_seq()
                     .expect("int-list and int-range are packed int sequences"),
             ),
+            Value::FloatList(items) => fmt_float_slice(f, items),
+            Value::BoolList(items) => fmt_bool_slice(f, items),
             Value::String(s) => {
                 if s.is_empty() {
-                    return write!(f, "\"\"");
+                    return write!(f, "()");
                 }
                 let esc = escape_str_for_display(s);
                 write!(f, "\"{esc}\"")
@@ -100,13 +101,7 @@ impl fmt::Display for Value {
                     write!(f, "({})", items_str.join(";"))
                 }
             }
-            Value::Cas(_) => {
-                if let Some(s) = self.format_cas() {
-                    write!(f, "{s}")
-                } else {
-                    write!(f, "<cas>")
-                }
-            }
+
             Value::Dict(map) => {
                 if map.is_empty() {
                     write!(f, "(`)")
@@ -159,9 +154,18 @@ impl fmt::Display for Value {
             Value::LiftedCallable(data) => {
                 write!(f, "<fn {}>", fmt_callable_expr(&data.expr, false))
             }
+
+            Value::Cas(_) => {
+                if let Some(s) = self.format_cas() {
+                    write!(f, "{s}")
+                } else {
+                    write!(f, "<cas>")
+                }
+            }
+            Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),
+
             Value::Rng(_) => write!(f, "<rng>"),
             Value::Stream(_) => write!(f, "<stream>"),
-            Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),
         }
     }
 }

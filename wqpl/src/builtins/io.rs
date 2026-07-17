@@ -132,7 +132,7 @@ pub(super) fn mkdir(args: BuiltinFnArgs) -> WqResult<Value> {
         .try_to_rust_string()
         .ok_or_else(|| expected_string1(&args[0]).src(BE::Mkdir).at_arg(0))?;
     fs::create_dir_all(&path).map_err(|error| io_err(error, BE::Mkdir))?;
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 pub(super) fn file_size(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -166,7 +166,7 @@ pub(super) fn write(args: BuiltinFnArgs) -> WqResult<Value> {
     file.write_all(&bytes)
         .map_err(|error| io_err(error, BE::Write))?;
     file.flush().map_err(|error| io_err(error, BE::Write))?;
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 pub(super) fn read(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -183,7 +183,7 @@ pub(super) fn read(args: BuiltinFnArgs) -> WqResult<Value> {
         return Err(stream_not_readable(BE::Read));
     }
     if length == Some(0) {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
     let file = handle
         .file
@@ -202,7 +202,7 @@ pub(super) fn read(args: BuiltinFnArgs) -> WqResult<Value> {
         }
     }
     if bytes.is_empty() {
-        Ok(Value::unit())
+        Ok(Value::empty_list())
     } else {
         Ok(Value::IntList(Arc::new(
             bytes.into_iter().map(i64::from).collect(),
@@ -335,7 +335,7 @@ pub(super) fn close(args: BuiltinFnArgs) -> WqResult<Value> {
         file.flush().map_err(|error| io_err(error, BE::Close))?;
     }
     handle.file = None;
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 fn io_err(error: impl Error, source: BE) -> WqError {

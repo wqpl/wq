@@ -489,6 +489,6 @@ mod hash_tests {
         // Comparison
         let list2 = list.clone();
         assert_eq!(list, list2);
-        assert_ne!(list, Value::unit());
+        assert_ne!(list, Value::empty_list());
     }
 }

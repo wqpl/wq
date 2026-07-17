@@ -43,12 +43,6 @@ const ATOM_Q_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(T;F)"),
 }];
 
-const UNIT_Q_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Test for unit",
-    code: "(unit? ();unit? (1;2))",
-    expectation: ExampleExpectation::ResultContains("(T;F)"),
-}];
-
 const LIST_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Wrap an atom in a list",
     code: "list 7",
@@ -66,9 +60,9 @@ pub(super) const TYPE: BuiltinDoc = BuiltinDoc {
     summary: "Return the public value category for a value.",
     details: "`type[x]` returns the stable public category of `x` as a string.
 The result is one of `\"int\"`, `\"float\"`, `\"complex\"`, `\"fraction\"`, `\"algebraic\"`, `\"char\"`, `\"tag\"`, `\"bool\"`, `\"list\"`, `\"cas\"`, `\"dict\"`, `\"function\"`, `\"rng\"`, or `\"stream\"`.
-Use predicates such as `atom?` and `unit?` for structural questions.",
+Use predicates such as `atom?` and length comparisons such as `#x~0` for structural questions.",
     examples: TYPE_EXAMPLES,
-    related: &["atom?", "unit?", "shape"],
+    related: &["atom?", "len", "shape"],
 };
 
 pub(super) const TAG: BuiltinDoc = BuiltinDoc {
@@ -98,17 +92,9 @@ pub(super) const CHAR: BuiltinDoc = BuiltinDoc {
 pub(super) const ATOM_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::AtomQ,
     summary: "Return true when a value is not a traversable container.",
-    details: "`atom?[x]` is false for containers such as lists, strings and dicts. It is true for atoms such as ints, floats, bools, chars, tags, and functions. Unit is the empty list value, so it is not an atom.",
+    details: "`atom?[x]` is false for containers such as lists, strings and dicts. It is true for atoms such as ints, floats, bools, chars, tags, and functions. The empty list is not an atom.",
     examples: ATOM_Q_EXAMPLES,
-    related: &["unit?", "type", "shape"],
-};
-
-pub(super) const UNIT_Q: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::UnitQ,
-    summary: "Return true when a value is unit.",
-    details: "`unit?[x]` is true for empty lists and empty strings. It is false for dicts, non-empty lists, and atoms. `U` is an alias.",
-    examples: UNIT_Q_EXAMPLES,
-    related: &["U", "atom?", "len"],
+    related: &["len", "type", "shape"],
 };
 
 pub(super) const LIST: BuiltinDoc = BuiltinDoc {

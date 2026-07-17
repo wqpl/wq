@@ -99,7 +99,7 @@ pub(super) const MAP: BuiltinDoc = BuiltinDoc {
 pub(super) const FOLD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Fold,
     summary: "Reduce a value from left to right.",
-    details: "`fold[xs;f]` uses the first item as the initial accumulator; `fold[xs;f;i]` starts with `i`. Empty lists without an initial value return unit, and atoms are returned unchanged.",
+    details: "`fold[xs;f]` uses the first item as the initial accumulator; `fold[xs;f;i]` starts with `i`. Empty lists without an initial value return an empty list, and atoms are returned unchanged.",
     examples: FOLD_EXAMPLES,
     related: &["reduce", "scan", "rscan"],
 };

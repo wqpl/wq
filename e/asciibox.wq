@@ -7,5 +7,5 @@ asciibox_:{[lines](maxlen;i):alloc 2;N[#lines;len_:#lines i
 asciibox:{asciibox_ split x}
 read_text:{open x|read|decode"utf-8"}
 split_lines:{lines:split[x;"\n"]
-  $.[and[#lines>0;U lines[-1]];lines!];lines}
+  $.[and[#lines>0;#lines[-1]=0];lines!];lines}
 asciibox_file:{asciibox_ split_lines read_text x}

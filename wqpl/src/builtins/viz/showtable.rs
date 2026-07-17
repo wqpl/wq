@@ -22,7 +22,7 @@ pub(crate) fn show_table(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> Wq
                 .src(BE::Showtable)
                 .attach_note(format!("host I/O error: {error}"))
         })?;
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
     Err(WqError::new(WqErrorType::Domain)
         .src(BE::Showtable)

@@ -46,15 +46,15 @@ parse:{[toks]
     $.[top~OP_LPAR;right:nodes!;left:nodes!;nodes,:mknode[top;left;right;""]]];
   nodes!}
 collect_vars:{[node;vars]
-  $.[U node;@r vars];
-  $.[and[U node `left;U node `right];v:node `var;exist:F
+  $.[#node=0;@r vars];
+  $.[and[#node `left=0;#node `right=0];v:node `var;exist:F
     N[#vars;$.[vars _n=v;exist:T]];$.[~exist;vars,:v];@r vars]
   vars:collect_vars[node `left;vars];collect_vars[node `right;vars]}
 evaluate:{[node;vals;vars]
-  $.[U node;@r F]
-  $.[and[U node `left;U node `right];v:node `var;N[#vars;$.[vars _n=v;@r vals _n]];@r F]
-  left:$[U node `left;F;evaluate[node `left;vals;vars]] /*@d left*/
-  right:$[U node `right;F;evaluate[node `right;vals;vars]] /*@d right*/
+  $.[#node=0;@r F]
+  $.[and[#node `left=0;#node `right=0];v:node `var;N[#vars;$.[vars _n=v;@r vals _n]];@r F]
+  left:$[#node `left=0;F;evaluate[node `left;vals;vars]] /*@d left*/
+  right:$[#node `right=0;F;evaluate[node `right;vals;vars]] /*@d right*/
   $$[node `op=OP_AND;and[left;right];node `op=OP_OR;or[left;right]
     node `op=OP_NOT;not left;node `op=OP_XOR;bxor[left;right]
     node `op=OP_IMPLY;or[not left;right];node `op=OP_EQUAL;left=right;F]}
@@ -66,7 +66,7 @@ print_table:{[str_;expr;vars]
     N[n;vals _n:band[shr[i;n-1-_n];1]|bool;print@f"| {$[vals _n;1;0]} "]
     res:evaluate[expr;vals;vars];echo@f"| {$[res;1;0]} |"]}
 print_ast:{[node;d;isleft]
-  $.[U node;@r 0];print_ast[node `right;d+1;F]
+  $.[#node=0;@r 0];print_ast[node `right;d+1;F]
   prefix:"";N[d-1;prefix:@f"{prefix}│   "];$.[d>0;prefix:@f"{prefix}{$[isleft;"└";"├"]}---"]
   label:$$[node `op=OP_VAR;@f"VAR('{node `var}')";node `op=OP_AND;"AND(&)"
     node `op=OP_OR;"OR(|)";node `op=OP_XOR;"XOR(^)"

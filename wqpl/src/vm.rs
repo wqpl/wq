@@ -487,7 +487,7 @@ impl Vm {
             None => {
                 let slot = self.global_slots.len();
                 self.global_slot_map.insert(name.to_string(), slot);
-                self.global_slots.push(Value::unit());
+                self.global_slots.push(Value::empty_list());
                 slot
             }
         };

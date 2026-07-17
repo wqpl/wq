@@ -205,8 +205,8 @@ impl Value {
         self.len() == 0
     }
 
-    pub fn unit() -> Self {
-        Value::IntList(Arc::new(vec![]))
+    pub fn empty_list() -> Self {
+        Value::List(Arc::new(vec![]))
     }
 
     pub(crate) fn builtin_function(name: impl Into<Arc<str>>, id: u16) -> Self {
@@ -1107,8 +1107,8 @@ mod tests {
     #[test]
     fn string_display_quotes_and_escapes() {
         assert_eq!(into_wq_string("hello").to_string(), "\"hello\"");
-        assert_eq!(into_wq_string("").to_string(), "\"\"");
         assert_eq!(into_wq_string("a\"b").to_string(), "\"a\\\"b\"");
+        assert_eq!(into_wq_string("").to_string(), "()");
     }
 
     #[test]

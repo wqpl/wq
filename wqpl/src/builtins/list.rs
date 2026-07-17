@@ -37,7 +37,7 @@ fn sum_int_range(range: &IntRangeData) -> Value {
 
 fn min_int_range(range: &IntRangeData) -> Value {
     if range.len() == 0 {
-        return Value::unit();
+        return Value::empty_list();
     }
     if range.step() > 0 {
         Value::Int(range.start())
@@ -52,7 +52,7 @@ fn min_int_range(range: &IntRangeData) -> Value {
 
 fn max_int_range(range: &IntRangeData) -> Value {
     if range.len() == 0 {
-        return Value::unit();
+        return Value::empty_list();
     }
     if range.step() > 0 {
         Value::Int(
@@ -215,12 +215,12 @@ fn min_exact_int_seq(items: ExactIntSeq<'_>) -> Value {
             .copied()
             .reduce_with(i64::min)
             .map(Value::Int)
-            .unwrap_or_else(Value::unit),
+            .unwrap_or_else(Value::empty_list),
         items => items
             .iter()
             .min()
             .map(Value::Int)
-            .unwrap_or_else(Value::unit),
+            .unwrap_or_else(Value::empty_list),
     }
 }
 
@@ -232,19 +232,19 @@ fn max_exact_int_seq(items: ExactIntSeq<'_>) -> Value {
             .copied()
             .reduce_with(i64::max)
             .map(Value::Int)
-            .unwrap_or_else(Value::unit),
+            .unwrap_or_else(Value::empty_list),
         items => items
             .iter()
             .max()
             .map(Value::Int)
-            .unwrap_or_else(Value::unit),
+            .unwrap_or_else(Value::empty_list),
     }
 }
 
 pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {
     let n = args.len();
     if n == 0 {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
     if n == 1 {
         let is_atom = args[0].is_atom();
@@ -294,7 +294,7 @@ pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn product(args: BuiltinFnArgs) -> WqResult<Value> {
     let n = args.len();
     if n == 0 {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
     if n == 1 {
         let is_atom = args[0].is_atom();
@@ -368,7 +368,7 @@ fn extreme_values(
             },
         });
     }
-    Ok(extreme.unwrap_or_else(Value::unit))
+    Ok(extreme.unwrap_or_else(Value::empty_list))
 }
 
 fn extreme(args: BuiltinFnArgs, desired: Ordering, src: BE) -> WqResult<Value> {
@@ -399,7 +399,7 @@ fn extreme(args: BuiltinFnArgs, desired: Ordering, src: BE) -> WqResult<Value> {
             } else {
                 items.iter().copied().max()
             };
-            Ok(item.map(Value::Float).unwrap_or_else(Value::unit))
+            Ok(item.map(Value::Float).unwrap_or_else(Value::empty_list))
         }
         Value::Dict(items) => extreme_values(items.values().cloned(), desired, src),
         value => {
@@ -913,7 +913,7 @@ mod tests {
 
         let mut atom = Value::Int(7);
         assert_eq!(pop_in_place(&mut atom, 1).unwrap(), Value::Int(7));
-        assert_eq!(atom, Value::unit());
+        assert_eq!(atom, Value::empty_list());
     }
 
     #[test]
@@ -1187,7 +1187,7 @@ mod tests {
         // Not found returns an empty path-result frame.
         let list = Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)]));
         let result = find(BuiltinFnArgs::from(smallvec![list, Value::Int(5)])).unwrap();
-        assert_eq!(result, Value::unit());
+        assert_eq!(result, Value::empty_list());
     }
 
     #[test]

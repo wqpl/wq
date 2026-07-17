@@ -598,7 +598,7 @@ impl ValueSeqBuilder {
 
     pub(crate) fn finish(self) -> Value {
         match self.state {
-            ValueSeqBuilderState::Empty { .. } => Value::unit(),
+            ValueSeqBuilderState::Empty { .. } => Value::empty_list(),
             ValueSeqBuilderState::Int(items) => Value::IntList(Arc::new(items)),
             ValueSeqBuilderState::Float(items) => Value::FloatList(Arc::new(items)),
             ValueSeqBuilderState::Bool(items) => Value::BoolList(Arc::new(items)),
@@ -623,7 +623,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builder_preserves_empty_unit() {
+    fn builder_preserves_empty_list() {
         assert_eq!(
             ValueSeqBuilder::from_items(vec![]),
             Value::IntList(Arc::new(vec![]))

@@ -34,7 +34,7 @@ fn host_io_error(builtin: BuiltinEnum, error: WqIoError) -> WqError {
 
 pub(super) fn print(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
     for arg in args {
         if let Some(s) = arg.try_flatten_to_rust_string() {
@@ -45,7 +45,7 @@ pub(super) fn print(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
                 .map_err(|error| host_io_error(BuiltinEnum::Print, error))?;
         }
     }
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 pub(super) fn echo(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -54,7 +54,7 @@ pub(super) fn echo(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
     if args.is_empty() {
         vm.write_stdout_line("")
             .map_err(|error| host_io_error(BuiltinEnum::Echo, error))?;
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
 
     if let Some(sep_val) = args.named("sep") {
@@ -87,7 +87,7 @@ pub(super) fn echo(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
             }
         }
     }
-    Ok(Value::unit())
+    Ok(Value::empty_list())
 }
 
 pub(super) fn input(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -101,7 +101,7 @@ pub(super) fn input(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
     };
     match vm.read_line(&prompt) {
         Ok(line) => Ok(into_wq_string(line)),
-        Err(WqIoError::Eof | WqIoError::Interrupted) => Ok(Value::unit()),
+        Err(WqIoError::Eof | WqIoError::Interrupted) => Ok(Value::empty_list()),
         Err(error) => Err(host_io_error(BuiltinEnum::Input, error)),
     }
 }
@@ -178,7 +178,7 @@ pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
                 .ok_or_else(|| expected_string1(v).src(BuiltinEnum::Int))?;
             let s = s.trim();
             if s.is_empty() {
-                return Ok(Value::unit());
+                return Ok(Value::empty_list());
             }
             // sign
             let (neg, rest) = match s.as_bytes().first() {
@@ -244,7 +244,7 @@ pub(super) fn float(args: BuiltinFnArgs) -> WqResult<Value> {
         .ok_or_else(|| expected_string1(input).src(BuiltinEnum::Float).at_arg(0))?;
     let s = s.trim();
     if s.is_empty() {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
 
     f64::from_str(s).map(Value::float).map_err(|e| {
@@ -879,7 +879,10 @@ mod tests {
             into_wq_string("").try_flatten_to_rust_string(),
             Some("".into())
         );
-        assert_eq!(Value::unit().try_flatten_to_rust_string(), Some("".into()));
+        assert_eq!(
+            Value::empty_list().try_flatten_to_rust_string(),
+            Some("".into())
+        );
         assert_eq!(
             Value::List(Arc::new(vec![])).try_flatten_to_rust_string(),
             Some("".into())

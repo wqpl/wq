@@ -1,3 +1,3 @@
 nsdec:{[path]KEY:132;BS:32;(dec;fin;pos):(alloc file_size path;open path;0);chunk:read[fin;BS]
-  W[~U chunk;dec pos..(pos+#chunk):bxor[KEY;chunk];pos+:#chunk;chunk:read[fin;BS]];dec|decode"sjis"}
+  W[#chunk~0;dec pos..(pos+#chunk):bxor[KEY;chunk];pos+:#chunk;chunk:read[fin;BS]];dec|decode"sjis"}
 echo nsdec "hotchoco/wq/data/hellosjis.dat"

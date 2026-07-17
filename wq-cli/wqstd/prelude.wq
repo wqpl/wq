@@ -14,7 +14,7 @@ windows:{[xs;n]$.[n<=0;raise"windows: size must be positive"];r:();l:#xs
   $.[n>l;@r r];i:0;W[i+n<=l;r,:,xs[i..(i+n)];i+:1];r} // Return sliding windows of size n.
 
 values:{[d]d[keys d]} // Return dict values in key order.
-haskey?:{[d;k]~U kti[d;k]} // Test whether a dict has a key.
+haskey?:{[d;k]#kti[d;k]~0} // Test whether a dict has a key.
 get:{[d;k;default]$[haskey?[d;k];d[k];default]} // Return a dict value or default.
 indexby:{[xs;f]d:(`);N[#xs;v:xs _n;d[tag str f v]:v];d} // Build a dict keyed by f, with later values winning.
 groupby:{[xs;f]groups:();N[#xs;v:xs _n;k:f v;hit:-1;i:0

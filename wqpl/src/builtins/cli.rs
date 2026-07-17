@@ -128,17 +128,17 @@ pub(super) fn cliargs(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqRes
         ParseOutcome::Help => {
             write_stdout(vm, &render_help(&spec))?;
             vm.request_halt(0);
-            Ok(Value::unit())
+            Ok(Value::empty_list())
         }
         ParseOutcome::Version => {
             write_stdout(vm, &render_version(&spec))?;
             vm.request_halt(0);
-            Ok(Value::unit())
+            Ok(Value::empty_list())
         }
         ParseOutcome::Error(error) => {
             write_stderr(vm, &render_usage_error(&spec, &error))?;
             vm.request_halt(2);
-            Ok(Value::unit())
+            Ok(Value::empty_list())
         }
     }
 }
@@ -678,7 +678,7 @@ fn parse_args(
                 ArgKind::Flag => Value::Bool(false),
                 ArgKind::Count => Value::Int(0),
                 _ if arg.multiple => Value::List(Arc::new(Vec::new())),
-                _ => Value::unit(),
+                _ => Value::empty_list(),
             })
         } else {
             match arg.kind {
@@ -698,7 +698,7 @@ fn parse_args(
     }
     Ok(ParseOutcome::Ok(value_dict([
         ("args", Value::Dict(Arc::new(values))),
-        ("command", Value::unit()),
+        ("command", Value::empty_list()),
     ])))
 }
 
@@ -810,9 +810,15 @@ fn usage_error_value(error: UsageError) -> Value {
         ("message", string_value(error.message)),
         (
             "token",
-            error.token.map(string_value).unwrap_or_else(Value::unit),
+            error
+                .token
+                .map(string_value)
+                .unwrap_or_else(Value::empty_list),
         ),
-        ("arg", error.arg.map(Value::Tag).unwrap_or_else(Value::unit)),
+        (
+            "arg",
+            error.arg.map(Value::Tag).unwrap_or_else(Value::empty_list),
+        ),
     ])
 }
 

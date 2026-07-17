@@ -229,7 +229,6 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     wqtype::BOOL,
     wqtype::CHAR,
     wqtype::ATOM_Q,
-    wqtype::UNIT_Q,
     wqtype::LIST,
     wqtype::DICT,
 ];

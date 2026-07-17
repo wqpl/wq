@@ -43,7 +43,7 @@ Strict errors identify the codec and byte offset and distinguish malformed input
 pub(super) const ENCODE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Encode,
     summary: "Encode a string or char with a named character encoding.",
-    details: "`encode[value;codec]` converts a string, char, or unit to a list of byte ints.
+    details: "`encode[value;codec]` converts a string, char, or empty list to a list of byte ints.
 The named `mode` argument uses the `strict` tag by default and reports an unrepresentable character with its character offset.
 Use the `replace` tag to apply the codec's replacement representation.",
     examples: ENCODE_EXAMPLES,

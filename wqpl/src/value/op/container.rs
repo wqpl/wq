@@ -11,7 +11,7 @@ impl Value {
 
         if self.is_string() && other.is_string() {
             if self.is_unit() && other.is_unit() {
-                return Value::unit();
+                return Value::empty_list();
             }
 
             let mut s = self.try_to_rust_string().expect("valid string");
@@ -152,13 +152,13 @@ impl Value {
     /// based on total length rather than growing incrementally.
     pub(crate) fn cat_many(values: Vec<Value>) -> Value {
         if values.is_empty() {
-            return Value::unit();
+            return Value::empty_list();
         }
         if values.len() == 1 {
             return values.into_iter().next().expect("len==1");
         }
         if values.iter().all(|v| v.is_unit()) {
-            return Value::unit();
+            return Value::empty_list();
         }
 
         // All string-like: pre-allocate a single String buffer.
@@ -241,7 +241,7 @@ impl Value {
         values
             .into_iter()
             .reduce(|acc, v| acc.cat(v))
-            .unwrap_or_else(Value::unit)
+            .unwrap_or_else(Value::empty_list)
     }
 
     pub(crate) fn flatten(&self) -> Vec<Value> {

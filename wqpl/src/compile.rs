@@ -845,7 +845,7 @@ impl Compiler {
         match node {
             AstNode::Block(stmts, _) => {
                 if stmts.is_empty() {
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                     return Ok(());
                 }
                 for stmt in stmts.iter().take(stmts.len().saturating_sub(1)) {
@@ -869,7 +869,7 @@ impl Compiler {
                     self.cur_stmt_idx += 1;
                 }
                 let result = if stmts.is_empty() {
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                     Ok(())
                 } else {
                     for stmt in stmts.iter().take(stmts.len().saturating_sub(1)) {
@@ -1318,7 +1318,7 @@ impl Compiler {
                 if let Some(e) = expr {
                     self.compile_expr(e)?;
                 } else {
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                 }
                 self.instructions.push(Instruction::Return);
             }
@@ -1352,7 +1352,7 @@ impl Compiler {
                     *slot = *span;
                 }
                 if !has_expr && self.value_needed {
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                 }
             }
             AstNode::Try(expr, _) => {
@@ -1667,8 +1667,8 @@ impl Compiler {
                     self.compile_stmt_sequence_with_spans(fb, self.value_needed, &false_spans)?;
                 } else {
                     // when there is no false branch, the conditional
-                    // expression should evaluate to unit on the false path
-                    self.emit_load_const(Value::unit());
+                    // expression should evaluate to an empty list on the false path
+                    self.emit_load_const(Value::empty_list());
                 }
                 let end = self.instructions.len();
                 self.instructions[jump_end_pos] = Instruction::Jump(end);
@@ -1710,7 +1710,7 @@ impl Compiler {
                         v
                     };
                     let result_var = format!("--w-loop-res-{id}");
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                     self.emit_store(&result_var)?;
                     Some(result_var)
                 } else {
@@ -1750,7 +1750,7 @@ impl Compiler {
                 if let Some(result_var) = &result_var {
                     self.emit_load(result_var, None)?;
                 } else {
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                 }
             }
             AstNode::NLoop { count, body, .. } => {
@@ -1773,7 +1773,7 @@ impl Compiler {
                     let limit = 16;
                     if *n <= limit {
                         if *n == 0 {
-                            self.emit_load_const(Value::unit());
+                            self.emit_load_const(Value::empty_list());
                         } else {
                             let restore = self.begin_loop_var_restore("_n")?;
                             for i in 0..*n {
@@ -1831,7 +1831,7 @@ impl Compiler {
                             self.instructions.pop();
                             self.finish_loop_var_restore("_n", &restore)?;
                         } else {
-                            self.emit_load_const(Value::unit());
+                            self.emit_load_const(Value::empty_list());
                         }
                         return Ok(());
                     }
@@ -1852,7 +1852,7 @@ impl Compiler {
                 self.emit_load_const(Value::Int(0));
                 self.emit_store("_n")?;
                 if let Some(result_var) = &result_var {
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                     self.emit_store(result_var)?;
                 }
                 let cmp_start = self.instructions.len();
@@ -1904,7 +1904,7 @@ impl Compiler {
                 if let Some(result_var) = &result_var {
                     self.emit_load(result_var, None)?;
                 } else {
-                    self.emit_load_const(Value::unit());
+                    self.emit_load_const(Value::empty_list());
                 }
             }
             AstNode::Block(..) | AstNode::BlockExpr(..) => {
@@ -2439,7 +2439,7 @@ impl Compiler {
             || self.ref_capture_map.contains_key(name)
             || self.is_ref_default_name(name)
         {
-            self.emit_load_const(Value::unit());
+            self.emit_load_const(Value::empty_list());
             self.emit_store(&old_var)?;
             self.emit_load(name, None)?;
             self.emit_store(&old_var)?;
@@ -2453,7 +2453,7 @@ impl Compiler {
                 .push(Instruction::LoadVarExists(name.to_string().into()));
             self.emit_store_keep(&was_bound_var)?;
 
-            self.emit_load_const(Value::unit());
+            self.emit_load_const(Value::empty_list());
             self.emit_store(&old_var)?;
 
             self.instructions

@@ -30,7 +30,7 @@ pub(super) const KEYS: BuiltinDoc = BuiltinDoc {
 pub(super) const IDX_TO_KEY: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::IdxToKey,
     summary: "Return the key at a dict position.",
-    details: "`itk[dct;i]` maps a zero-based dict position to its tag key. Negative positions count from the end, so `-1` is the last key. Out-of-range positions return unit instead of raising.",
+    details: "`itk[dct;i]` maps a zero-based dict position to its tag key. Negative positions count from the end, so `-1` is the last key. Out-of-range positions return an empty list instead of raising.",
     examples: IDX_TO_KEY_EXAMPLES,
     related: &["keys", "kti", "dict"],
 };
@@ -38,7 +38,7 @@ pub(super) const IDX_TO_KEY: BuiltinDoc = BuiltinDoc {
 pub(super) const KEY_TO_IDX: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::KeyToIdx,
     summary: "Return a key's position in a dict.",
-    details: "`kti[dct;k]` requires `k` to be a tag and returns the zero-based position of that key in the dict's stored order. Missing keys return unit instead of raising.",
+    details: "`kti[dct;k]` requires `k` to be a tag and returns the zero-based position of that key in the dict's stored order. Missing keys return an empty list instead of raising.",
     examples: KEY_TO_IDX_EXAMPLES,
     related: &["keys", "itk", "dict"],
 };

@@ -665,7 +665,8 @@ impl Vm {
                         // User override: push positional args back, then call.
                         let pos_len = taken.args.len();
                         self.stack.extend(taken.args);
-                        self.invoke_user(&val, pos_len, None).map(|_| Value::unit())
+                        self.invoke_user(&val, pos_len, None)
+                            .map(|_| Value::empty_list())
                     }
                 }
             } else {
@@ -761,7 +762,7 @@ impl Vm {
             if let Some(discard_fn) = BuiltinEnum::from_id(id).and_then(BuiltinEnum::discard_fn) {
                 discard_fn(self, args)?
             } else {
-                func.invoke(self, args).map(|_| Value::unit())?
+                func.invoke(self, args).map(|_| Value::empty_list())?
             };
         self.record_builtin_result(id, argc, &result);
         Ok(result)

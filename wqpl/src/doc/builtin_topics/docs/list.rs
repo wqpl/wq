@@ -86,7 +86,7 @@ pub(super) const PRODUCT: BuiltinDoc = BuiltinDoc {
 pub(super) const MIN: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Min,
     summary: "Return the smallest comparable atom.",
-    details: "`min[xs]` compares the immediate atom items of `xs`, skipping nested non-atoms; for dicts it compares values. `min[x;y;...]` compares the arguments directly. Empty inputs with no comparable atom return unit.",
+    details: "`min[xs]` compares the immediate atom items of `xs`, skipping nested non-atoms; for dicts it compares values. `min[x;y;...]` compares the arguments directly. Empty inputs with no comparable atom return an empty list.",
     examples: MIN_EXAMPLES,
     related: &["max", "sort"],
 };
@@ -94,7 +94,7 @@ pub(super) const MIN: BuiltinDoc = BuiltinDoc {
 pub(super) const MAX: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Max,
     summary: "Return the largest comparable atom.",
-    details: "`max[xs]` compares the immediate atom items of `xs`, skipping nested non-atoms; for dicts it compares values. `max[x;y;...]` compares the arguments directly. Empty inputs with no comparable atom return unit.",
+    details: "`max[xs]` compares the immediate atom items of `xs`, skipping nested non-atoms; for dicts it compares values. `max[x;y;...]` compares the arguments directly. Empty inputs with no comparable atom return an empty list.",
     examples: MAX_EXAMPLES,
     related: &["min", "sort"],
 };

@@ -1103,7 +1103,7 @@ pub(crate) fn parse_pop_count(arg: &Value) -> WqResult<usize> {
 pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
     materialize_int_range(data);
     if n == 0 {
-        return Ok(Value::unit());
+        return Ok(Value::empty_list());
     }
 
     if let Value::String(s) = data {
@@ -1131,7 +1131,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
                     .into_iter()
                     .next()
                     .map(Value::Int)
-                    .unwrap_or_else(Value::unit)
+                    .unwrap_or_else(Value::empty_list)
             } else {
                 Value::IntList(Arc::new(removed))
             }
@@ -1144,7 +1144,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
                     .into_iter()
                     .next()
                     .map(Value::Bool)
-                    .unwrap_or_else(Value::unit)
+                    .unwrap_or_else(Value::empty_list)
             } else {
                 Value::BoolList(Arc::new(removed))
             }
@@ -1157,7 +1157,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
                     .into_iter()
                     .next()
                     .map(Value::Float)
-                    .unwrap_or_else(Value::unit)
+                    .unwrap_or_else(Value::empty_list)
             } else {
                 Value::FloatList(Arc::new(removed))
             }
@@ -1166,7 +1166,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
             let split = items.len().saturating_sub(n);
             let removed = Arc::make_mut(items).split_off(split);
             if n == 1 {
-                removed.into_iter().next().unwrap_or_else(Value::unit)
+                removed.into_iter().next().unwrap_or_else(Value::empty_list)
             } else {
                 Value::from_items(removed)
             }
@@ -1183,7 +1183,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
             }
             removed.reverse();
             if n == 1 {
-                removed.into_iter().next().unwrap_or_else(Value::unit)
+                removed.into_iter().next().unwrap_or_else(Value::empty_list)
             } else {
                 Value::from_items(removed)
             }
@@ -1191,7 +1191,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
 
         atom => {
             let popped = atom.clone();
-            *atom = Value::unit();
+            *atom = Value::empty_list();
             popped
         }
     })
@@ -1305,7 +1305,7 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
             if is_multi {
                 Ok(Value::from_items(removed))
             } else {
-                Ok(removed.into_iter().next().unwrap_or_else(Value::unit))
+                Ok(removed.into_iter().next().unwrap_or_else(Value::empty_list))
             }
         }
 
@@ -1314,11 +1314,11 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
             if is_multi {
                 ensure_unique_positions(&positions, "remove indices")?;
                 let removed = positions.iter().map(|_| atom.clone()).collect::<Vec<_>>();
-                *atom = Value::unit();
+                *atom = Value::empty_list();
                 Ok(Value::from_items(removed))
             } else {
                 let removed = atom.clone();
-                *atom = Value::unit();
+                *atom = Value::empty_list();
                 Ok(removed)
             }
         }

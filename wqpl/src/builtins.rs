@@ -1208,8 +1208,6 @@ declare_builtins! {
     (BOOL, Bool, "bool", "bool[x]", sig!(arity!(1)), plain(wqtype::to_bool), builtin_metadata!(Type, PURE)),
     (CHAR, Char, "char", "char[x]", sig!(arity!(1)), plain(wqtype::to_char), builtin_metadata!(Type, PURE)),
     (ATOM_Q, AtomQ, "atom?", "atom?[x]", sig!(arity!(1)), plain(wqtype::is_atom), builtin_metadata!(Type, PURE)),
-    (UNIT_Q, UnitQ, "unit?", "unit?[x]", sig!(arity!(1)), plain(wqtype::is_unit), builtin_metadata!(Type, PURE)),
-    (U, U, "U", "U[x]", sig!(arity!(1), alias UnitQ), plain(wqtype::is_unit), builtin_metadata!(Type, PURE)), // alias of unit?
     (LIST, List, "list", "list[x]", sig!(arity!(1)), plain(wqtype::to_list), builtin_metadata!(Type, PURE)),
     (DICT, Dict, "dict", "dict[x]", sig!(arity!(1)), plain(wqtype::to_dict), builtin_metadata!(Type, PURE)),
 
@@ -1594,6 +1592,12 @@ mod tests {
     }
 
     #[test]
+    fn removed_unit_predicate_names_are_not_builtins() {
+        assert!(!Builtins::NAMES.contains(&"unit?"));
+        assert!(!Builtins::NAMES.contains(&"U"));
+    }
+
+    #[test]
     fn builtin_metadata_respects_registry_invariants() {
         let builtins = Builtins::new();
         let mut names = std::collections::HashSet::new();
@@ -1870,8 +1874,6 @@ mod tests {
             (BuiltinEnum::Bool, "1"),
             (BuiltinEnum::Char, "1"),
             (BuiltinEnum::AtomQ, "1"),
-            (BuiltinEnum::UnitQ, "1"),
-            (BuiltinEnum::U, "1"),
             (BuiltinEnum::List, "1"),
             (BuiltinEnum::Dict, "1"),
             (BuiltinEnum::Showtable, "1"),
