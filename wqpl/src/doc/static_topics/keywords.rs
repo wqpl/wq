@@ -56,6 +56,7 @@ const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
 
 const AT_SYMBOLIC_DETAILS: &str = "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly.
 Bare arithmetic without `@s` is normal evaluation.
+Inside `@s`, `/.` and `^.` normalize to symbolic division and power.
 Single-variable CAS expressions can be called with one positional argument, while named arguments bind symbols by name.
 CAS-only special forms such as `root[...]` are recognized inside `@s` quoting and are not ordinary builtins.
 `root[poly;lo;hi]` requires finite bounds that strictly contain exactly one distinct real root; an endpoint cannot itself be a root.

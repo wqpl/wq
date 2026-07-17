@@ -1,6 +1,9 @@
 //test simplify polynomial by combining like terms
 simplify[@s x+x+1] | echo
 
+//test exact arithmetic operators normalize inside symbolic expressions
+(@s1/.2;@s x/.2;@s x^.2) | echo
+
 //test rewrite sum of logs into log of product
 rewrite[@s ln[x]+ln[y]] | echo
 

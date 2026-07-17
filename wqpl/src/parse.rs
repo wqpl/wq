@@ -3728,8 +3728,8 @@ impl Parser {
                     BinaryOperator::Add => CasOp::Add,
                     BinaryOperator::Subtract => CasOp::Subtract,
                     BinaryOperator::Multiply => CasOp::Multiply,
-                    BinaryOperator::Power => CasOp::Power,
-                    BinaryOperator::Divide => CasOp::Divide,
+                    BinaryOperator::Power | BinaryOperator::PowerDot => CasOp::Power,
+                    BinaryOperator::Divide | BinaryOperator::DivideDot => CasOp::Divide,
                     _ => {
                         return Err(mk_err(
                             node_span,
@@ -4876,15 +4876,26 @@ mod symbolic_quote_tests {
     }
 
     #[test]
-    fn symbolic_quote_names_unsupported_operator() {
-        let ast = parse_input("@s x/.2").expect("parser should recover with error node");
-        let AstNode::Error(err, _) = ast else {
-            panic!("expected parser error node, got {ast:?}");
-        };
-        assert_eq!(
-            err.msg.as_deref(),
-            Some("@s: operator '/.' is not supported in symbolic expressions")
-        );
+    fn symbolic_quote_normalizes_exact_operators() {
+        for (exact_input, classic_input, expected_display) in [
+            ("@s x/.y", "@s x/y", "x/y"),
+            ("@s x^.y", "@s x^y", "x^y"),
+            ("@s 1/.2", "@s 1/2", "1/2"),
+            ("@s 2^.3", "@s 2^3", "8"),
+        ] {
+            let exact_ast = parse_input(exact_input).expect("exact symbolic operator should parse");
+            let AstNode::Literal(exact_value, _) = exact_ast else {
+                panic!("expected CAS literal, got {exact_ast:?}");
+            };
+            let classic_ast =
+                parse_input(classic_input).expect("classic symbolic operator should parse");
+            let AstNode::Literal(classic_value, _) = classic_ast else {
+                panic!("expected CAS literal, got {classic_ast:?}");
+            };
+
+            assert_eq!(exact_value, classic_value);
+            assert_eq!(exact_value.to_string(), expected_display);
+        }
     }
 
     #[test]
