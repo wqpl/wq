@@ -19,6 +19,8 @@ const BIN = /[01](?:_?[01])*/;
 const OCT = /[0-7](?:_?[0-7])*/;
 const HEX = /[0-9a-fA-F](?:_?[0-9a-fA-F])*/;
 
+// Decimal floats require digits on both sides of the dot. A standalone dot
+// has no token rule, so malformed inputs such as `.1` produce an ERROR node.
 const decimalFloat = choice(
   seq(DEC, ".", DEC, optional(seq(/[eE]/, optional(/[+-]/), DEC))),
   seq(DEC, /[eE]/, optional(/[+-]/), DEC),
@@ -693,6 +695,8 @@ export default grammar({
 
     return_form: ($) =>
       choice(prec.right(PREC.ASSIGN, seq("@r", $.expression)), "@r"),
+    // Keep @ forms explicit. A catch-all @ token would hide misspelled forms
+    // from tree-sitter's error recovery.
     break_form: (_) => "@b",
     continue_form: (_) => "@c",
     try_form: ($) => seq("@t", $.expression),

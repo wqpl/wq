@@ -983,6 +983,27 @@ impl Parser {
         }
     }
 
+    fn recover_unexpected_closing_delimiter(&mut self) -> AstNode {
+        let token = self
+            .current_token()
+            .cloned()
+            .expect("closing delimiter recovery requires a current token");
+        debug_assert!(matches!(
+            token.token_type,
+            TokenType::RightBrace | TokenType::RightBracket | TokenType::RightParen
+        ));
+        let span = (token.byte_start, token.byte_end);
+        let error = self.syntax_err(
+            &token,
+            format!("unexpected token {}", self.diagnostic_token(&token)),
+        );
+        let cp = self.cst_checkpoint();
+        self.advance();
+        self.cst_start_node_at(cp, SyntaxKind::ErrorNode);
+        self.cst_finish_node();
+        AstNode::Error(error, Some(span))
+    }
+
     pub(crate) fn parse(&mut self) -> WqResult<AstNode> {
         // Open the CST Root once at the top of every parse. `take_cst`
         // matches this with `finish_node`. When CST is disabled this is a
@@ -993,12 +1014,8 @@ impl Parser {
             self.eat_stmt_separators();
             match self.current_token().map(|t| &t.token_type) {
                 Some(TokenType::Eof) | None => break,
-                Some(TokenType::RightBrace) => break,
-                Some(TokenType::RightBracket) | Some(TokenType::RightParen) => {
-                    // stray closing bracket/paren from a broken nested construct;
-                    // consume and continue so we don't spin forever
-                    self.advance();
-                    continue;
+                Some(TokenType::RightBrace | TokenType::RightBracket | TokenType::RightParen) => {
+                    statements.push(self.recover_unexpected_closing_delimiter());
                 }
                 _ => {
                     let start_idx = self.current;
@@ -1111,8 +1128,7 @@ impl Parser {
                     return Err(self.eof_error_here("unexpected end of input in block"));
                 }
                 Some(TokenType::RightBracket) | Some(TokenType::RightParen) => {
-                    self.advance();
-                    continue;
+                    statements.push(self.recover_unexpected_closing_delimiter());
                 }
                 _ => {
                     let start_idx = self.current;
@@ -4512,6 +4528,34 @@ mod diagnostic_wording_tests {
     }
 
     #[test]
+    fn unmatched_top_level_closing_delimiters_are_errors() {
+        for source in [")", "]", "}"] {
+            let err = recovered_error(source);
+
+            assert_eq!(
+                err.msg.as_deref(),
+                Some(format!("unexpected token '{source}'").as_str())
+            );
+            assert_eq!(err.span, Some((0, 1)));
+        }
+    }
+
+    #[test]
+    fn unmatched_closing_delimiters_inside_blocks_are_errors() {
+        for source in ["{)}", "{]}"] {
+            let ast = parse_input(source).expect("parser should recover with an error node");
+            let AstNode::Function { body, .. } = ast else {
+                panic!("expected function for {source}, got {ast:?}");
+            };
+            let AstNode::Error(err, _) = body.as_ref() else {
+                panic!("expected parser error in {source}, got {body:?}");
+            };
+
+            assert_eq!(err.span, Some((1, 2)));
+        }
+    }
+
+    #[test]
     fn missing_rhs_names_the_exact_operator() {
         let err = recovered_error("1+");
 
@@ -5313,7 +5357,6 @@ mod cst_integration_tests {
         round_trip("N[10;@b]");
         round_trip("[1;2;3]");
         round_trip("B[1;2;3]");
-        round_trip("B.[1;2;3]");
     }
 
     #[test]
@@ -5327,7 +5370,7 @@ mod cst_integration_tests {
         assert!(matches!(stmts[0], AstNode::Assignment { .. }));
         assert!(matches!(stmts[1], AstNode::BinaryOp { .. }));
 
-        let ast = parse_without_cst("B.[x:1;x+1]");
+        let ast = parse_without_cst("B[x:1;x+1]");
         assert!(matches!(ast, AstNode::BlockExpr(_, _)));
     }
 

@@ -1,0 +1,190 @@
+============================
+Leading Dot Decimal
+============================
+.1
+
+---
+
+(source_file
+  (ERROR
+    (UNEXPECTED '1'))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))))))))
+  (separator
+    (newline)))
+
+============================
+Dot After Block Alias
+============================
+B.[1]
+
+---
+
+(source_file
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (block_form
+                              (ERROR
+                                (UNEXPECTED '['))
+                              (block_arg_list
+                                (block_items
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (literal
+                                                            (integer))))))))))))))))))))))))))))))
+  (separator
+    (newline)))
+
+============================
+Trailing Dot Decimal
+============================
+1.
+
+---
+
+(source_file
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))))))))
+  (ERROR
+    (UNEXPECTED '\n'))
+  (separator
+    (newline)))
+
+============================
+Unknown At Form
+============================
+@q
+
+---
+
+(source_file
+  (ERROR
+    (UNEXPECTED 'q'))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (variable_ref
+                              (identifier)))))))))))))))
+  (separator
+    (newline)))
+
+============================
+Unmatched Closing Delimiters
+============================
+)1
+]2
+}3
+
+---
+
+(source_file
+  (ERROR
+    (statement
+      (expression
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer)))))))))))))))
+    (separator
+      (newline))
+    (ERROR)
+    (statement
+      (expression
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer)))))))))))))))
+    (separator
+      (newline)))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))))))))
+  (separator
+    (newline)))

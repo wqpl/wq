@@ -78,7 +78,7 @@ impl<'a> Lexer<'a> {
         _column: usize,
         byte_start: usize,
         byte_end: usize,
-        msg: &'static str,
+        msg: impl std::fmt::Display,
     ) -> WqError {
         let src = self.source;
         let bs = byte_start.min(src.len());
@@ -115,7 +115,7 @@ impl<'a> Lexer<'a> {
         column: usize,
         byte_start: usize,
         byte_end: usize,
-        msg: &'static str,
+        msg: impl std::fmt::Display,
     ) -> WqError {
         self.build_error(WqErrorType::Syntax, line, column, byte_start, byte_end, msg)
     }
@@ -126,7 +126,7 @@ impl<'a> Lexer<'a> {
         column: usize,
         byte_start: usize,
         byte_end: usize,
-        msg: &'static str,
+        msg: impl std::fmt::Display,
     ) -> WqError {
         self.build_error(WqErrorType::Eof, line, column, byte_start, byte_end, msg)
     }
@@ -1143,9 +1143,15 @@ impl<'a> Lexer<'a> {
                         }
 
                         _ => {
-                            // Unknown single '.': consume and skip
+                            let err = self.syntax_error_span(
+                                token_line,
+                                token_column,
+                                token_byte_start,
+                                self.byte_pos,
+                                "unrecognized character",
+                            );
                             self.advance();
-                            continue;
+                            return Err(err);
                         }
                     }
                 }
@@ -1153,16 +1159,6 @@ impl<'a> Lexer<'a> {
                 Some('@') => {
                     self.advance(); // consume '@'
                     let tok = match self.current_char {
-                        Some('a') => {
-                            self.advance();
-                            return Err(self.syntax_error_span(
-                                token_line,
-                                token_column,
-                                token_byte_start,
-                                self.byte_pos,
-                                "unknown '@' form '@a'",
-                            ));
-                        }
                         Some('b') => {
                             self.advance();
                             TokenType::AtBreak
@@ -1274,7 +1270,25 @@ impl<'a> Lexer<'a> {
                             )?;
                             return emit(t, self.byte_pos);
                         }
-                        _ => continue, // Skip unknown '@' form.
+                        unknown => {
+                            if unknown.is_some() {
+                                self.advance();
+                            }
+                            let spelling = self
+                                .source
+                                .get(token_byte_start..self.byte_pos)
+                                .unwrap_or("@");
+                            return Err(self.syntax_error_span(
+                                token_line,
+                                token_column,
+                                token_byte_start,
+                                self.byte_pos,
+                                format!(
+                                    "unknown '@' form {}",
+                                    crate::escape::quote_string(spelling, '\'')
+                                ),
+                            ));
+                        }
                     };
                     return emit(tok, self.byte_pos);
                 }
@@ -1562,6 +1576,36 @@ mod tests {
         let err = lexer_err("@a");
 
         assert_eq!(err.msg.as_deref(), Some("unknown '@' form '@a'"));
+    }
+
+    #[test]
+    fn standalone_dots_are_rejected() {
+        for (source, span) in [
+            (".", (0, 1)),
+            (".1", (0, 1)),
+            ("1.", (1, 2)),
+            ("B.[1]", (1, 2)),
+        ] {
+            let err = lexer_err(source);
+
+            assert_eq!(err.msg.as_deref(), Some("unrecognized character"));
+            assert_eq!(err.span, Some(span));
+        }
+    }
+
+    #[test]
+    fn unknown_at_forms_are_rejected() {
+        for (source, message, span) in [
+            ("@", "unknown '@' form '@'", (0, 1)),
+            ("@q", "unknown '@' form '@q'", (0, 2)),
+            ("@-", "unknown '@' form '@-'", (0, 2)),
+            ("@\0", "unknown '@' form '@\\0'", (0, 2)),
+        ] {
+            let err = lexer_err(source);
+
+            assert_eq!(err.msg.as_deref(), Some(message));
+            assert_eq!(err.span, Some(span));
+        }
     }
 
     #[test]

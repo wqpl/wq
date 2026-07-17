@@ -1419,7 +1419,6 @@ mod tests {
     fn bare_block_is_canonical() {
         assert_eq!(fmt("[1]", 80), "[1]");
         assert_eq!(fmt("B[1]", 80), "[1]");
-        assert_eq!(fmt("B.[1]", 80), "[1]");
         assert_eq!(fmt("[1; 2; 3]", 80), "[1;2;3]");
         assert_eq!(fmt("B[1; 2; 3]", 80), "[1;2;3]");
         assert_eq!(fmt("[1\n2; 3]", 80), "[1\n  2;3]");
@@ -1428,9 +1427,7 @@ mod tests {
     #[test]
     fn implicit_function_body_block_keeps_legacy_head() {
         assert_eq!(fmt("{B[x]}", 80), "{B[x]}");
-        assert_eq!(fmt("{B.[x]}", 80), "{B[x]}");
         assert_eq!(fmt("{B[x; y]}", 80), "{B[x;y]}");
-        assert_eq!(fmt("{B.[x; y]}", 80), "{B[x;y]}");
         assert_eq!(fmt("{[a]B[x]}", 80), "{[a][x]}");
         assert_eq!(fmt("{x;B[y]}", 80), "{\n  x;[y]}");
     }

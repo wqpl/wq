@@ -34,13 +34,7 @@ pub(crate) fn escape_string_inner(s: &str, quote: char) -> String {
     out
 }
 
-/// Convenience: returns a fully quoted string literal using the given `quote`.
-///
-/// Not currently called (the old AST-based formatter used it; the CST
-/// formatter pulls string text verbatim from the source). Kept as a public
-/// primitive for callers that need to synthesize quoted string literals
-/// without duplicating escape rules.
-#[allow(dead_code)]
+/// Return a fully quoted string literal using the given quote character.
 pub(crate) fn quote_string(s: &str, quote: char) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push(quote);
