@@ -1,5 +1,4 @@
-// Moonshot Delivery
-// A pocket-sized terminal lander game ported from Chez Scheme.
+// Moonshot Delivery, a pocket-sized terminal lander game
 
 screen_width:45
 sky_height:13
@@ -7,10 +6,7 @@ gravity:1.20
 main_thrust:3.05
 side_thrust:0.35
 
-positive_int:{[s]
-  n:int s
-  $.[n<=0;raise "expected a positive integer"]
-  n}
+positive_int:{[s]n:int s;$.[n<=0;raise"expected a positive integer"];n}
 
 spec:(
   `name:"wq e/moonshot.wq --";
@@ -82,13 +78,13 @@ advance:{[state;requested_command]
   command:$[cost<=state`fuel;requested_command;"."]
   new_vx:0.985*(state`vx+lateral_burn command)
   new_vy:state`vy+gravity+$[main_burn? command;-main_thrust;0.0]
-  state[`x]:state`x+new_vx
-  state[`y]:state`y-new_vy
-  state[`vx]:new_vx
-  state[`vy]:new_vy
-  state[`fuel]:state`fuel-command_cost command
-  state[`turn]:state`turn+1
-  state[`message]:$$[and[cost>0;command="."];"Fuel tank coughed: burn cancelled."
+  state`x:state`x+new_vx
+  state`y:state`y-new_vy
+  state`vx:new_vx
+  state`vy:new_vy
+  state`fuel:state`fuel-command_cost command
+  state`turn:state`turn+1
+  state`message:$$[and[cost>0;command="."];"Fuel tank coughed: burn cancelled."
                       command=".";"Coasting through the silver quiet."
                       main_burn? command;"Main engine paints a blue-white plume."
                       "Side thruster nudges the cargo home."]
@@ -101,24 +97,18 @@ star_at?:{[row;column;turn](row*37+column*17+turn*3+seed)%67=0}
 
 sky_line:{[state;row;lander_row;lander_column]
   line:repeat[" ";screen_width]
-  N[screen_width;$.[star_at?[row;_n;state`turn];line[_n]:@u"."]]
+  N[screen_width;$.[star_at?[row;_n;state`turn];line _n:@u"."]]
   $.[row=lander_row
     left:clamp[lander_column-1;0;screen_width-3]
     line[left]:@u"/"
     line[left+1]:@u"A"
-    line[left+2]:@u"\\"]
-  line}
+    line[left+2]:@u"\\"];line}
 
-ground_line:{[state]
-  line:repeat["_";screen_width]
-  left:state`pad-3
-  N[7
-    column:left+_n
-    $.[and[column>=0;column<screen_width];line[column]:@u"="]]
-  line}
+ground_line:{[state]line:repeat["_";screen_width];left:state`pad-3
+  N[7;column:left+_n
+    $.[and[column>=0;column<screen_width];line[column]:@u"="]];line}
 
-render:{[state]
-  $.[not plain;print[esc;"[2J";esc;"[H"]]
+render:{[state]$.[not plain;print[esc;"[2J";esc;"[H"]]
   progress:1.0-max[0.0;state`y]/state`initial_y
   lander_row:int round clamp[progress*(sky_height-1);0;sky_height-1]
   lander_column:int round clamp[state`x;1;screen_width-2]
@@ -130,12 +120,10 @@ render:{[state]
     echo("+",ansi["1;33";ground_line state],"+")
     echo(" ",state`message)]}
 
-lower_ascii:{[s]
-  s|map{c:x;o:ord c;$[and[o>=65;o<=90];chr[o+32];c]}}
+lower_ascii:{[s]s|map{c:x;o:ord c;$[and[o>=65;o<=90];chr[o+32];c]}}
 
 read_command:{[]
-  W[T
-    line:input "burn [w/a/d/wa/wd/. or q] > "
+  W[T;line:input "burn [w/a/d/wa/wd/. or q] > "
     $.[#line=0;@r "q"]
     command:lower_ascii line
     $.[valid_command? command;@r $[command="";".";command]]
@@ -143,11 +131,9 @@ read_command:{[]
 
 landed_on_pad?:{[state]abs[state`x-state`pad]<=3.5}
 
-safe_landing?:{[state]
-  and[landed_on_pad? state;state`vy<=3.5;abs state`vx<=2.0]}
+safe_landing?:{[state]and[landed_on_pad? state;state`vy<=3.5;abs state`vx<=2.0]}
 
-mission_result:{[state]
-  safe?:safe_landing? state
+mission_result:{[state]safe?:safe_landing? state
   gentle?:and[safe?;state`vy<=1.8;abs state`vx<=0.8]
   accuracy:max[0;int round(250-45*abs[state`x-state`pad])]
   score:$[safe?;500+15*state`fuel+accuracy+$[gentle?;350;0];0]
@@ -160,10 +146,8 @@ mission_result:{[state]
   echo@f"Final: x {[.2]state`x} / pad {state`pad}, fall {[.2]state`vy}, drift {[.2]state`vx}, fuel {state`fuel}, score {score}"
   $[safe?;0;1]}
 
-run_mission:{[]
-  state:make_mission[]
-  W[T
-    render state
+run_mission:{[]state:make_mission[]
+  W[T;render state
     $$[state`y<=0.0;@r mission_result state
        state`turn>=max_turns;[echo "\nMission timed out in orbit.";@r 1]
        or[state`x< -8.0;state`x>screen_width+8.0];[echo "\nThe lander drifted beyond the tracking horizon.";@r 1]

@@ -1,5 +1,4 @@
-// Moonshot Delivery
-// A pocket-sized terminal lander game ported from Chez Scheme.
+// Moonshot Delivery, a pocket-sized terminal lander game
 
 screen_width:45
 sky_height:13
@@ -8,9 +7,7 @@ main_thrust:3.05
 side_thrust:0.35
 
 positive_int:{[s]
-  n:int s
-  $.[n<=0;raise "expected a positive integer"]
-  n}
+  n:int s;$.[n<=0;raise "expected a positive integer"];n}
 
 spec:(
   `name:"wq e/moonshot.wq --";
@@ -117,15 +114,13 @@ sky_line:{[state;row;lander_row;lander_column]
     left:clamp[lander_column-1;0;screen_width-3]
     line left:@u"/"
     line[left+1]:@u"A"
-    line[left+2]:@u"\\"]
+    line[left+2]:@u"\\"];
   line}
 
 ground_line:{[state]
-  line:repeat["_";screen_width]
-  left:state `pad-3
-  N[7
-    column:left+_n
-    $.[and[column>=0;column<screen_width];line column:@u"="]]
+  line:repeat["_";screen_width];left:state `pad-3
+  N[7;column:left+_n
+    $.[and[column>=0;column<screen_width];line column:@u"="]];
   line}
 
 render:{[state]
@@ -146,8 +141,7 @@ lower_ascii:{[s]
     c:x;o:ord c;$[and[o>=65;o<=90];chr[o+32];c]}}
 
 read_command:{[]
-  W[T
-    line:input "burn [w/a/d/wa/wd/. or q] > "
+  W[T;line:input "burn [w/a/d/wa/wd/. or q] > "
     $.[#line=0;@r "q"]
     command:lower_ascii line
     $.[valid_command? command;@r $[command="";".";command]]
@@ -174,8 +168,7 @@ mission_result:{[state]
 
 run_mission:{[]
   state:make_mission[]
-  W[T
-    render state
+  W[T;render state
     $$[state `y<=0.0;@r mission_result state
       state `turn>=max_turns;[echo "\nMission timed out in orbit.";@r 1]
       or[state `x<-8.0;state `x>screen_width+8.0];
