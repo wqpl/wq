@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The wq Programming Language, for wasm"
+description = "The wq Programming Language for WebAssembly"
+
+[package.metadata.wasm-pack.profile.custom]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

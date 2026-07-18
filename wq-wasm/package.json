@@ -1,0 +1,47 @@
+{
+  "name": "wq-wasm",
+  "version": "0.9.0-preview1",
+  "description": "The wq Programming Language for WebAssembly",
+  "type": "module",
+  "main": "./browser.js",
+  "browser": "./browser.js",
+  "types": "./browser.d.ts",
+  "exports": {
+    ".": {
+      "types": "./browser.d.ts",
+      "import": "./browser.js",
+      "default": "./browser.js"
+    }
+  },
+  "files": [
+    "browser.d.ts",
+    "browser.js",
+    "pkg/"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target web --profile R -- --locked && node scripts/prepare-package.mjs",
+    "check": "node scripts/check-package.mjs",
+    "test": "node --test ../wqide/js/wasm-session-contract.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wqpl/wq.git",
+    "directory": "wq-wasm"
+  },
+  "bugs": {
+    "url": "https://github.com/wqpl/wq/issues"
+  },
+  "homepage": "https://wq-pl.com",
+  "keywords": [
+    "programming-language",
+    "wasm",
+    "webassembly",
+    "wq"
+  ],
+  "license": "MIT",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
