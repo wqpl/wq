@@ -8,6 +8,7 @@ edition = "2024"
 license = "MIT"
 repository = "https://codeberg.org/wqpl/wq"
 description = "The wq Programming Language"
+readme = "README.md"
 publish = ["crates-io"]
 
 [profile.R]
