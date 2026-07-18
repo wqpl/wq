@@ -6,6 +6,7 @@ license = "MIT"
 repository.workspace = true
 readme = "README.md"
 description = "wq's internal fork of `emmy_dap_types`"
+publish.workspace = true
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }

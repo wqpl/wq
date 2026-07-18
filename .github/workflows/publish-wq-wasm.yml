@@ -1,8 +1,9 @@
 name: Publish wq-wasm
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -10,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: publish-wq-wasm-${{ github.event.release.tag_name || github.ref }}
+  group: publish-wq-wasm-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -45,7 +46,7 @@ jobs:
         id: package
         working-directory: wq-wasm
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
         run: npm run check
 
       - name: Test browser package
@@ -57,6 +58,6 @@ jobs:
         run: npm pack --dry-run
 
       - name: Publish package
-        if: github.event_name == 'release'
+        if: github.event_name == 'push'
         working-directory: wq-wasm
         run: npm publish --access public --tag "${{ steps.package.outputs.npm_tag }}"

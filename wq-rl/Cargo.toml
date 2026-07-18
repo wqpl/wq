@@ -5,6 +5,7 @@ edition.workspace = true
 license = "MIT"
 repository.workspace = true
 description = "wq's internal fork of `rustyline`"
+publish.workspace = true
 
 [features]
 case_insensitive_history_search = ["regex"]

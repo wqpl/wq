@@ -2,7 +2,7 @@
 wq (c)tttiw (l)MIT
 https://wq-pl.com
 https://codeberg.org/wqpl
-cargo install wqpl
+cargo install wq-cli
 ```
 
 ```wq

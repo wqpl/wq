@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "wq language server"
+publish.workspace = true
 
 [[bin]]
 name = "wqls"

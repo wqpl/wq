@@ -8,6 +8,7 @@ edition = "2024"
 license = "MIT"
 repository = "https://codeberg.org/wqpl/wq"
 description = "The wq Programming Language"
+publish = ["crates-io"]
 
 [profile.R]
 inherits = "release"
@@ -19,3 +20,4 @@ strip = true
 rand = "0.10.2"
 wqpl = { version = "0.9.0-preview1", path = "wqpl" }
 wq-dap = { version = "0.9.0-preview1", path = "wq-dap" }
+wq-rl = { version = "0.9.0-preview1", path = "wq-rl" }

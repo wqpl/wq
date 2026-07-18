@@ -12,14 +12,14 @@ The official site for wq, [wq-pl.com](https://wq-pl.com), hosts **wqide**, the w
 
 wqide is useful for learning, experimenting, and quick mobile access.
 
-However, it currently lacks support for advanced features such as REPL magic commands, file I/O, and advanced debugging.
+However, it currently lacks support for advanced features such as advanced REPL commands, file I/O, and wqdb.
 
 ## Install with Cargo
 
 If you use Rust:
 
 ```sh
-cargo install wqpl
+cargo install wq-cli
 wq -h
 ```
 
@@ -30,5 +30,5 @@ You can also clone the repository and build wq yourself:
 ```sh
 git clone https://codeberg.org/wqpl/wq
 cd wq
-cargo build --release
+cargo build -p wq-cli --profile R
 ```
