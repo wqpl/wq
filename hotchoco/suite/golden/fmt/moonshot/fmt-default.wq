@@ -114,13 +114,13 @@ sky_line:{[state;row;lander_row;lander_column]
     left:clamp[lander_column-1;0;screen_width-3]
     line left:@u"/"
     line[left+1]:@u"A"
-    line[left+2]:@u"\\"];
+    line[left+2]:@u"\\"]
   line}
 
 ground_line:{[state]
   line:repeat["_";screen_width];left:state `pad-3
   N[7;column:left+_n
-    $.[and[column>=0;column<screen_width];line column:@u"="]];
+    $.[and[column>=0;column<screen_width];line column:@u"="]]
   line}
 
 render:{[state]

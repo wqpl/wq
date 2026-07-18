@@ -15,7 +15,7 @@ tokenize:{[s]
       ch=@u"^";t,:mkleaf[OP_XOR;""];ch=@u"~";t,:mkleaf[OP_NOT;""]
       ch=@u"(";t,:mkleaf[OP_LPAR;""];ch=@u")";t,:mkleaf[OP_RPAR;""]
       ch=@u">";t,:mkleaf[OP_IMPLY;""];ch=@u"=";t,:mkleaf[OP_EQUAL;""]
-      alpha? ch;t,:mkleaf[OP_VAR;ch];raise@f"Illegal character: {ch}"]];
+      alpha? ch;t,:mkleaf[OP_VAR;ch];raise@f"Illegal character: {ch}"]]
   t,:mkleaf[OP_END;""]}
 parse:{[toks]
   (ops;nodes):2|alloc ();
@@ -39,11 +39,11 @@ parse:{[toks]
             more:F;
             top~OP_LPAR;
             [pt:prec top
-              $[pt<p;more:F;ops!;right:nodes!;left:nodes!;nodes,:mknode[top;left;right;""]]]]];
+              $[pt<p;more:F;ops!;right:nodes!;left:nodes!;nodes,:mknode[top;left;right;""]]]]]
         ops,:t `op]]]
   W[#ops>0;top:ops!;$.[top=OP_LPAR;raise "Mismatched Parentheses"]
     $.[top=OP_NOT;nodes,:mknode[top;nodes!;();""]]
-    $.[top~OP_LPAR;right:nodes!;left:nodes!;nodes,:mknode[top;left;right;""]]];
+    $.[top~OP_LPAR;right:nodes!;left:nodes!;nodes,:mknode[top;left;right;""]]]
   nodes!}
 collect_vars:{[node;vars]
   $.[#node=0;@r vars];

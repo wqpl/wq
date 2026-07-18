@@ -10,8 +10,8 @@ fft_radix2:{
   a:bitrevcpy {x+0.0i} x;l:2;
   W[l<=(n:#x);ang:-2*PI/l;b:0;
     W[b<n;h:l/%2;j:iota h;u:a[b+j];v:j|M{x*ang|{complex[cos x;sin x]}|* a[b+x+h]}
-      (a[b+j];a[b+h+j]):(u+v;u-v);b+:l];
-    l*:2];
+      (a[b+j];a[b+h+j]):(u+v;u-v);b+:l]
+    l*:2]
   a}
 ifft_radix2:{
   i:1.0/#x;x|M{conj x}|fft_radix2|M{i*conj x}}

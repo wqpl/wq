@@ -40,9 +40,9 @@ make_deque:{[]
     check[];$.[idx<0;idx+:sz];$.[or[idx<0;idx>=sz];raise "index out of bounds"]
     data[(head+idx)%cap]:val;check[]}
   deque_len:'{[]
-    check[];sz};
+    check[];sz}
   empty?:'{[]
-    check[];sz=0};
+    check[];sz=0}
   capacity:'{[]
     check[];cap}
   to_list:'{[]

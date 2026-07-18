@@ -6,7 +6,7 @@ ch:{
   bn:10;
   N[81;
     $.[x[r:_n/%9][c:_n%9]=0;ca:()
-      til 11|M{[y]$.[va[x;r;c;y];'ca,:y]};$.[(n:#ca)<bn;(b;bn):((r;c;ca);n)]]];
+      til 11|M{[y]$.[va[x;r;c;y];'ca,:y]};$.[(n:#ca)<bn;(b;bn):((r;c;ca);n)]]]
   b}
 s:{
   $.[#(p:ch x)=0;@r x];(r;c;ca):p 0..=2

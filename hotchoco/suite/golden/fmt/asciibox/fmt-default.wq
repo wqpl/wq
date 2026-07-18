@@ -1,9 +1,8 @@
 asciibox_:{[lines]
   (maxlen;i):alloc 2;
   N[#lines;len_:#lines i
-    $.[len_>maxlen;maxlen:len_];i+:1];
-  pad:1;
-  width:maxlen+pad*2
+    $.[len_>maxlen;maxlen:len_];i+:1]
+  pad:1;width:maxlen+pad*2
   border:"+",repeat["-";width],"+";echo border;i:0
   N[#lines;l:lines i;spaces:maxlen-#l
     echo ("|",repeat[" ";pad],l,repeat[" ";pad+spaces],"|");i+:1]

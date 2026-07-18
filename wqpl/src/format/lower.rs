@@ -176,9 +176,16 @@ impl<'a> LowerCtx<'a> {
                     let stmt = self.node(&n);
                     let sep =
                         Self::pending_stmt_sep(newlines_since_payload, semicolon_since_payload);
-                    if !row_items.is_empty() && sep != PendingStmtSep::Semicolon {
+                    let drop_semicolon = sep == PendingStmtSep::Semicolon
+                        && row_items.iter().any(Doc::has_forced_break);
+                    if !row_items.is_empty() && (sep != PendingStmtSep::Semicolon || drop_semicolon)
+                    {
                         self.finish_stmt_row(&mut rows, &mut row_items, sep_before_row);
-                        sep_before_row = sep;
+                        sep_before_row = if drop_semicolon {
+                            PendingStmtSep::Line
+                        } else {
+                            sep
+                        };
                     } else if row_items.is_empty() && !rows.is_empty() {
                         sep_before_row = sep;
                     }
@@ -1437,6 +1444,11 @@ mod tests {
         assert_eq!(fmt("{a:1;b:2\nc:3}", 80), "{\n  a:1;b:2\n  c:3}");
         assert_eq!(fmt("N[10;i:0;j:1]", 80), "N[10;i:0;j:1]");
         assert_eq!(fmt("N[10\ni:0;j:1]", 80), "N[10\n  i:0;j:1]");
+    }
+
+    #[test]
+    fn statement_sequence_drops_semicolon_after_multiline_statement() {
+        assert_eq!(fmt("$[T;1\nF;2\n3];1", 80), "$[T;1\n  F;2\n  3]\n1");
     }
 
     #[test]
