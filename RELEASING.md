@@ -34,8 +34,9 @@ patch version. Pass an explicit version when needed:
 npm run release -- 0.10.0-preview1
 ```
 
-The command verifies a clean worktree, updates Cargo and npm versions, runs the
-release checks, creates a commit and annotated tag, then asks before pushing.
+The command verifies a clean worktree, updates Cargo and npm versions, performs
+a full Cargo workspace publish dry run, runs the remaining release checks,
+creates a commit and annotated tag, then asks before pushing.
 Use the manual dispatch for `publish-crates.yml` to run a crates.io dry run
 without publishing.
 

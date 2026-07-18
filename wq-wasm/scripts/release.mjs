@@ -273,6 +273,13 @@ async function main() {
     run("cargo", ["+nightly", "fmt", "--check"]);
     run("cargo", ["clippy", "--all-targets", "--", "-D", "warnings"]);
     run("cargo", ["test", "-p", "wq-wasm"]);
+    run("cargo", [
+      "publish",
+      "--workspace",
+      "--locked",
+      "--dry-run",
+      "--allow-dirty",
+    ]);
     run("npm", ["run", "build"], { cwd: crateDirectory });
     run("npm", ["run", "check"], {
       cwd: crateDirectory,

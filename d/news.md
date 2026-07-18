@@ -10,13 +10,14 @@
 - wq-dap
 - backtrace/wqdb improvements
 - More pipes: `|.` `||` `||.`
-- wqdb: `@d` `@p` `@a`
+- wqdb: `@d` `@p`
 - Mutating-index: `[!]`
 - F-string: `@f{[..]...}`
 - Lazy bool: `A[]` `O[]`
-- Range -> (`1..3..10`)
+- Range: `1..3..10`
+- Block: `[...]`
 - TCE
-- Default box mode
+- box mode as default
 - Aug-assign `+:`
 - Asciiplot rework
 

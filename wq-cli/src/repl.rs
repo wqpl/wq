@@ -505,7 +505,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                 );
                             }
                         } else {
-                            let refcard = include_str!("../../d/refcard");
+                            let refcard = include_str!("../assets/refcard");
                             let lines: Vec<&str> = refcard.lines().collect();
                             let width = lines.iter().map(|l| vis_width(l)).max().unwrap_or(0);
                             println!("{}", repl_card_rule(width));
@@ -1038,7 +1038,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         .flat_map(|&ch| palette.iter().map(|(r, g, b)| repl_rgb(ch, *r, *g, *b)))
         .collect();
 
-    let cat_rows: Vec<Vec<char>> = include_str!("../../d/wqcat")
+    let cat_rows: Vec<Vec<char>> = include_str!("../assets/wqcat")
         .lines()
         .skip_while(|l| l.trim().is_empty())
         .map(|l| l.chars().collect())
