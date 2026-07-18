@@ -436,6 +436,7 @@ impl Renderer for ConsoleRenderer {
     fn refresh_line<P: Prompt + ?Sized>(
         &mut self,
         prompt: &P,
+        _continuation_prompt: Option<&str>,
         line: &LineBuffer,
         hint: Option<&str>,
         old_layout: Option<&Layout>,
