@@ -103,6 +103,48 @@ class HotchocoHarnessTests(unittest.TestCase):
         self.assertNotIn("\n--golden", diff)
         self.assertNotIn("\n++actual", diff)
 
+    def test_compute_diff_keeps_repeated_lines_as_context(self) -> None:
+        expected_lines = ["repeated"] * 250
+        actual_lines = expected_lines.copy()
+        actual_lines[125] = "changed"
+
+        diff = hotchoco.strip_ansi(
+            hotchoco.compute_diff(
+                "\n".join(expected_lines) + "\n",
+                "\n".join(actual_lines) + "\n",
+                "wq/repeated/exec",
+            )
+        )
+
+        self.assertEqual(diff.count("- | repeated"), 1)
+        self.assertEqual(diff.count("+ | changed"), 1)
+
+    def test_similar_changed_lines_are_matched_across_an_insertion(self) -> None:
+        matches = hotchoco.match_similar_lines(
+            ["value alpha 1", "value beta 2"],
+            ["inserted note", "value alpha 10", "value beta 20"],
+        )
+
+        self.assertEqual(matches, [(0, 1), (1, 2)])
+
+    def test_compute_diff_tracks_golden_and_actual_line_numbers(self) -> None:
+        diff = hotchoco.strip_ansi(
+            hotchoco.compute_diff(
+                "before\nafter\n",
+                "before\ninserted\nafter\n",
+                "wq/tiny/exec",
+            )
+        )
+
+        self.assertIn("    1     1   | before", diff)
+        self.assertIn("          2 + | inserted", diff)
+        self.assertIn("    2     3   | after", diff)
+
+    def test_compute_diff_labels_an_empty_hunk_range(self) -> None:
+        diff = hotchoco.strip_ansi(hotchoco.compute_diff("", "new\n", "wq/tiny/exec"))
+
+        self.assertIn("@@ golden empty / actual 1 @@", diff)
+
     def test_create_output_dir_handles_timestamp_collision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             suite_dir = Path(tmp_dir) / "suite"

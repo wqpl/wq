@@ -36,6 +36,8 @@ SUITE_DIR = Path(__file__).resolve().parent / "hotchoco" / "suite"
 PROJECT_ROOT = SUITE_DIR.parent.parent  # hotchoco/suite -> project root
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_DIFF_CONTEXT_LINES = 3
+MIN_DIFF_LINE_SIMILARITY = 0.5
+MAX_DIFF_LINE_COMPARISONS = 100_000
 WQ_CLI_DEBUG_BUILD_CMD = ["cargo", "build", "-p", "wq-cli"]
 DEFAULT_EXPECTED_EXIT_CODE = 0
 SUMMARY_JSON = "summary.json"
@@ -331,56 +333,59 @@ def run_tests(tests: list[dict], config: dict) -> tuple[Path, dict[str, dict]]:
 def compute_diff(expected: str, actual: str, label: str) -> str:
     lines_expected = diff_lines(expected)
     lines_actual = diff_lines(actual)
-    matcher = difflib.SequenceMatcher(None, lines_expected, lines_actual)
+    matcher = difflib.SequenceMatcher(
+        None,
+        lines_expected,
+        lines_actual,
+        autojunk=False,
+    )
     groups = list(matcher.get_grouped_opcodes(DEFAULT_DIFF_CONTEXT_LINES))
     if not groups:
         return ""
 
     result = [ansi(f"golden: {label}", ANSI_BOLD), ansi(f"actual: {label}", ANSI_BOLD)]
     for group in groups:
-        old_start = group[0][1] + 1
-        old_end = group[-1][2]
-        new_start = group[0][3] + 1
-        new_end = group[-1][4]
+        golden_range = format_diff_range(group[0][1], group[-1][2])
+        actual_range = format_diff_range(group[0][3], group[-1][4])
         result.append(
             ansi(
-                f"@@ golden {old_start}-{old_end} / actual {new_start}-{new_end} @@",
+                f"@@ golden {golden_range} / actual {actual_range} @@",
                 ANSI_CYAN,
             )
         )
 
         for tag, i1, i2, j1, j2 in group:
             if tag == "equal":
-                for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
-                    result.append(format_diff_line("=", line_no, line))
+                for offset, line in enumerate(lines_expected[i1:i2]):
+                    result.append(
+                        format_diff_line(" ", i1 + offset + 1, j1 + offset + 1, line)
+                    )
             elif tag == "replace":
                 expected_lines = lines_expected[i1:i2]
                 actual_lines = lines_actual[j1:j2]
-                expected_result = []
-                actual_result = []
-                paired = min(len(expected_lines), len(actual_lines))
-                for offset in range(paired):
+                expected_result = expected_lines.copy()
+                actual_result = actual_lines.copy()
+                for expected_index, actual_index in match_similar_lines(
+                    expected_lines,
+                    actual_lines,
+                ):
                     old_line, new_line = highlight_word_diff(
-                        expected_lines[offset],
-                        actual_lines[offset],
+                        expected_lines[expected_index],
+                        actual_lines[actual_index],
                     )
-                    expected_result.append((i1 + offset + 1, old_line))
-                    actual_result.append((j1 + offset + 1, new_line))
-                for offset in range(paired, len(expected_lines)):
-                    expected_result.append((i1 + offset + 1, expected_lines[offset]))
-                for offset in range(paired, len(actual_lines)):
-                    actual_result.append((j1 + offset + 1, actual_lines[offset]))
+                    expected_result[expected_index] = old_line
+                    actual_result[actual_index] = new_line
 
-                for line_no, line in expected_result:
-                    result.append(format_diff_line("-", line_no, line))
-                for line_no, line in actual_result:
-                    result.append(format_diff_line("+", line_no, line))
+                for offset, line in enumerate(expected_result):
+                    result.append(format_diff_line("-", i1 + offset + 1, None, line))
+                for offset, line in enumerate(actual_result):
+                    result.append(format_diff_line("+", None, j1 + offset + 1, line))
             elif tag == "delete":
                 for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
-                    result.append(format_diff_line("-", line_no, line))
+                    result.append(format_diff_line("-", line_no, None, line))
             elif tag == "insert":
                 for line_no, line in enumerate(lines_actual[j1:j2], start=j1 + 1):
-                    result.append(format_diff_line("+", line_no, line))
+                    result.append(format_diff_line("+", None, line_no, line))
     return "\n".join(result)
 
 
@@ -391,8 +396,24 @@ def diff_lines(text: str) -> list[str]:
     return lines
 
 
-def format_diff_line(kind: str, line_no: int, line: str) -> str:
-    rendered = f"{kind:>4} {line_no:>5} | {line}"
+def format_diff_range(start: int, end: int) -> str:
+    length = end - start
+    if length == 0:
+        return "empty"
+    if length == 1:
+        return str(start + 1)
+    return f"{start + 1}-{end}"
+
+
+def format_diff_line(
+    kind: str,
+    golden_line_no: int | None,
+    actual_line_no: int | None,
+    line: str,
+) -> str:
+    golden_column = f"{golden_line_no:>5}" if golden_line_no is not None else " " * 5
+    actual_column = f"{actual_line_no:>5}" if actual_line_no is not None else " " * 5
+    rendered = f"{golden_column} {actual_column} {kind} | {line}"
     if kind == "-":
         return ansi(rendered, ANSI_RED)
     if kind == "+":
@@ -400,10 +421,79 @@ def format_diff_line(kind: str, line_no: int, line: str) -> str:
     return rendered
 
 
+def match_similar_lines(
+    golden_lines: list[str],
+    actual_lines: list[str],
+) -> list[tuple[int, int]]:
+    golden_count = len(golden_lines)
+    actual_count = len(actual_lines)
+    if (
+        not golden_lines
+        or not actual_lines
+        or golden_count * actual_count > MAX_DIFF_LINE_COMPARISONS
+    ):
+        return []
+
+    match = 1
+    skip_actual = 2
+    skip_golden = 3
+    directions = [bytearray(golden_count + 1) for _ in range(actual_count + 1)]
+    previous_scores = [0.0] * (golden_count + 1)
+    matcher = difflib.SequenceMatcher(None, autojunk=False)
+
+    for actual_index, actual_line in enumerate(actual_lines, start=1):
+        matcher.set_seq2(actual_line)
+        current_scores = [0.0]
+        current_directions = directions[actual_index]
+        for golden_index, golden_line in enumerate(golden_lines, start=1):
+            matcher.set_seq1(golden_line)
+            similarity = 0.0
+            if (
+                matcher.real_quick_ratio() > MIN_DIFF_LINE_SIMILARITY
+                and matcher.quick_ratio() > MIN_DIFF_LINE_SIMILARITY
+            ):
+                similarity = matcher.ratio()
+
+            match_score = previous_scores[golden_index - 1] + similarity
+            skip_actual_score = previous_scores[golden_index]
+            skip_golden_score = current_scores[golden_index - 1]
+            if (
+                similarity > MIN_DIFF_LINE_SIMILARITY
+                and match_score >= skip_actual_score
+                and match_score >= skip_golden_score
+            ):
+                current_scores.append(match_score)
+                current_directions[golden_index] = match
+            elif skip_actual_score >= skip_golden_score:
+                current_scores.append(skip_actual_score)
+                current_directions[golden_index] = skip_actual
+            else:
+                current_scores.append(skip_golden_score)
+                current_directions[golden_index] = skip_golden
+        previous_scores = current_scores
+
+    matches = []
+    golden_index = golden_count
+    actual_index = actual_count
+    while golden_index > 0 and actual_index > 0:
+        direction = directions[actual_index][golden_index]
+        if direction == match:
+            matches.append((golden_index - 1, actual_index - 1))
+            golden_index -= 1
+            actual_index -= 1
+        elif direction == skip_actual:
+            actual_index -= 1
+        else:
+            golden_index -= 1
+
+    matches.reverse()
+    return matches
+
+
 def highlight_word_diff(old_line: str, new_line: str) -> tuple[str, str]:
     old_tokens = DIFF_TOKEN_RE.findall(old_line)
     new_tokens = DIFF_TOKEN_RE.findall(new_line)
-    matcher = difflib.SequenceMatcher(None, old_tokens, new_tokens)
+    matcher = difflib.SequenceMatcher(None, old_tokens, new_tokens, autojunk=False)
     old_result = []
     new_result = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
