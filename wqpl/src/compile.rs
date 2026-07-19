@@ -1770,7 +1770,7 @@ impl Compiler {
                     && *n >= 0
                     && !has_ctrl(body)
                 {
-                    let limit = 16;
+                    let limit = 64;
                     if *n <= limit {
                         if *n == 0 {
                             self.emit_load_const(Value::empty_list());
@@ -1791,47 +1791,6 @@ impl Compiler {
                                 }
                             }
                             self.finish_loop_var_restore("_n", &restore)?;
-                        }
-                        return Ok(());
-                    } else if *n <= 64 {
-                        let restore = self.begin_loop_var_restore("_n")?;
-                        let full_chunks = *n / 8;
-                        let remainder = *n % 8;
-                        for c in 0..full_chunks {
-                            for i in 0..8 {
-                                let idx = c * 8 + i;
-                                let iter_start = self.instructions.len();
-                                self.emit_load_const(Value::Int(idx));
-                                self.emit_store("_n")?;
-                                self.mark_current_stmt_pc(iter_start);
-                                self.compile_stmt_sequence_with_spans(
-                                    body,
-                                    self.value_needed,
-                                    &body_spans,
-                                )?;
-                                self.instructions.push(Instruction::Pop);
-                            }
-                        }
-                        for i in 0..remainder {
-                            let idx = full_chunks * 8 + i;
-                            let iter_start = self.instructions.len();
-                            self.emit_load_const(Value::Int(idx));
-                            self.emit_store("_n")?;
-                            self.mark_current_stmt_pc(iter_start);
-                            self.compile_stmt_sequence_with_spans(
-                                body,
-                                self.value_needed,
-                                &body_spans,
-                            )?;
-                            if i < remainder - 1 {
-                                self.instructions.push(Instruction::Pop);
-                            }
-                        }
-                        if *n > 0 {
-                            self.instructions.pop();
-                            self.finish_loop_var_restore("_n", &restore)?;
-                        } else {
-                            self.emit_load_const(Value::empty_list());
                         }
                         return Ok(());
                     }
@@ -2802,16 +2761,25 @@ fn has_ctrl(node: &AstNode) -> bool {
         AstNode::Break(_) | AstNode::Continue(_) | AstNode::Return(..) => true,
         AstNode::Debug { expr, .. } => has_ctrl(expr),
         AstNode::Pause { .. } => true,
-        AstNode::Block(stmts, _) => stmts.iter().any(has_ctrl),
-        AstNode::BlockExpr(stmts, _) => stmts.iter().any(has_ctrl),
+        AstNode::Block(stmts, _)
+        | AstNode::BlockExpr(stmts, _)
+        | AstNode::Cat(stmts, _)
+        | AstNode::List(stmts, _) => stmts.iter().any(has_ctrl),
         AstNode::Conditional {
+            condition,
             true_branch,
             false_branch,
             ..
-        } => has_ctrl(true_branch) || false_branch.as_ref().is_some_and(|b| has_ctrl(b)),
-        AstNode::WLoop { body, .. }
-        | AstNode::NLoop { body, .. }
-        | AstNode::Function { body, .. } => has_ctrl(body),
+        } => {
+            has_ctrl(condition)
+                || has_ctrl(true_branch)
+                || false_branch.as_ref().is_some_and(|branch| has_ctrl(branch))
+        }
+        AstNode::WLoop {
+            condition, body, ..
+        } => has_ctrl(condition) || has_ctrl(body),
+        AstNode::NLoop { count, body, .. } => has_ctrl(count) || has_ctrl(body),
+        AstNode::Function { body, .. } => has_ctrl(body),
         AstNode::UnaryOp { operand, .. } => has_ctrl(operand),
         AstNode::Pipe { input, effect, .. } => has_ctrl(input) || has_ctrl(effect),
         AstNode::PipeTap { input, effect, .. } => has_ctrl(input) || has_ctrl(effect),
@@ -2821,10 +2789,10 @@ fn has_ctrl(node: &AstNode) -> bool {
         AstNode::ComparisonChain { first, rest, .. } => {
             has_ctrl(first) || rest.iter().any(|(_, node)| has_ctrl(node))
         }
-        AstNode::CallName { args, .. }
-        | AstNode::CallAnonymous { args, .. }
-        | AstNode::Cat(args, _)
-        | AstNode::List(args, _) => args.iter().any(has_ctrl),
+        AstNode::CallName { args, .. } => args.iter().any(has_ctrl),
+        AstNode::CallAnonymous { object, args, .. } => {
+            has_ctrl(object) || args.iter().any(has_ctrl)
+        }
         AstNode::Dict(pairs, _) => pairs.iter().any(|(_, v)| has_ctrl(v)),
         AstNode::ConditionalChain { .. } => {
             unreachable!("ConditionalChain should have been resolved before compilation")
@@ -2832,7 +2800,9 @@ fn has_ctrl(node: &AstNode) -> bool {
         AstNode::ConditionalDot { .. } => {
             unreachable!("ConditionalDot should have been resolved before compilation")
         }
-        AstNode::Index { object, index, .. } => has_ctrl(object) || has_ctrl(index),
+        AstNode::Index { object, index, .. } | AstNode::MutatingIndex { object, index, .. } => {
+            has_ctrl(object) || has_ctrl(index)
+        }
         AstNode::Assignment { value, .. } | AstNode::OuterAssignment { value, .. } => {
             has_ctrl(value)
         }
@@ -2841,13 +2811,31 @@ fn has_ctrl(node: &AstNode) -> bool {
             index,
             value,
             ..
+        }
+        | AstNode::MutatingIndexAssign {
+            object,
+            index,
+            value,
+            ..
         } => has_ctrl(object) || has_ctrl(index) || has_ctrl(value),
         AstNode::Range {
             start, end, step, ..
         } => has_ctrl(start) || has_ctrl(end) || step.as_ref().is_some_and(|s| has_ctrl(s)),
-        AstNode::OuterVariable(_, _) => false,
+        AstNode::NamedArg { value, .. } => has_ctrl(value),
+        AstNode::Try(expr, _) => has_ctrl(expr),
         AstNode::Group { expr, .. } => has_ctrl(expr),
-        _ => false,
+        AstNode::UnpackAssignment { .. } => {
+            unreachable!("UnpackAssignment should have been resolved before compilation")
+        }
+        AstNode::FString { .. } => {
+            unreachable!("FString should have been resolved before compilation")
+        }
+        AstNode::Error(..)
+        | AstNode::Literal(..)
+        | AstNode::Variable(..)
+        | AstNode::OuterVariable(..)
+        | AstNode::Ellipsis(_)
+        | AstNode::PipeInput => false,
     }
 }
 

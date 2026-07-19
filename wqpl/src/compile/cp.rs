@@ -1034,8 +1034,62 @@ fn replace_stack_top(state: &mut State, value: Option<Value>) {
 
 fn meet_const(left: Option<&Value>, right: Option<&Value>) -> Option<Value> {
     match (left, right) {
-        (Some(left), Some(right)) if left == right => Some(left.clone()),
+        (Some(left), Some(right)) if same_constant(left, right) => Some(left.clone()),
         _ => None,
+    }
+}
+
+fn same_constant(left: &Value, right: &Value) -> bool {
+    use Value as V;
+
+    match (left, right) {
+        (V::Int(left), V::Int(right)) => left == right,
+        (V::BigInt(left), V::BigInt(right)) => left == right,
+        (V::Float(left), V::Float(right)) => left.to_bits() == right.to_bits(),
+        (V::Complex(left), V::Complex(right)) => {
+            left.re.to_bits() == right.re.to_bits() && left.im.to_bits() == right.im.to_bits()
+        }
+        (V::Fraction(left), V::Fraction(right)) => left == right,
+        (V::Algebraic(left), V::Algebraic(right)) => Arc::ptr_eq(left, right),
+        (V::Char(left), V::Char(right)) => left == right,
+        (V::Tag(left), V::Tag(right)) => left == right,
+        (V::Bool(left), V::Bool(right)) => left == right,
+        (V::IntList(left), V::IntList(right)) => left == right,
+        (V::IntRange(left), V::IntRange(right)) => left == right,
+        (V::FloatList(left), V::FloatList(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| left.to_bits() == right.to_bits())
+        }
+        (V::BoolList(left), V::BoolList(right)) => left == right,
+        (V::List(left), V::List(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| same_constant(left, right))
+        }
+        (V::String(left), V::String(right)) => left == right,
+        (V::Cas(left), V::Cas(right)) => Arc::ptr_eq(left, right),
+        (V::Dict(left), V::Dict(right)) => {
+            left.len() == right.len()
+                && left.iter().zip(right.iter()).all(
+                    |((left_key, left_value), (right_key, right_value))| {
+                        left_key == right_key && same_constant(left_value, right_value)
+                    },
+                )
+        }
+        (V::CompiledFunction(left), V::CompiledFunction(right)) => Arc::ptr_eq(left, right),
+        (V::Closure(left), V::Closure(right)) => Arc::ptr_eq(left, right),
+        (V::BuiltinFunction { id: left, .. }, V::BuiltinFunction { id: right, .. }) => {
+            left == right
+        }
+        (V::LiftedCallable(left), V::LiftedCallable(right)) => Arc::ptr_eq(left, right),
+        (V::Rng(left), V::Rng(right)) => Arc::ptr_eq(left, right),
+        (V::Stream(left), V::Stream(right)) => Arc::ptr_eq(left, right),
+        _ => false,
     }
 }
 

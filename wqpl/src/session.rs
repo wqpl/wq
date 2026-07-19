@@ -1106,6 +1106,48 @@ mod tests {
     }
 
     #[test]
+    fn unrolled_n_loop_returns_final_remainder_iteration() {
+        let mut session = Session::new();
+
+        assert_eq!(session.eval_string("N[17;_n]").unwrap(), Value::Int(16));
+        assert_eq!(session.eval_string("N[63;_n]").unwrap(), Value::Int(62));
+    }
+
+    #[test]
+    fn n_loop_control_in_conditional_condition_disables_unrolling() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("N[2;$[(@b;T);1;2]]")
+            .expect("break in a conditional condition should compile");
+
+        assert_eq!(result, Value::empty_list());
+    }
+
+    #[test]
+    fn const_propagation_preserves_branch_dependent_dict_order() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:{[c]d:$[c;(`a:1;`b:2);(`b:2;`a:1)];d 0};(f T;f F)")
+            .expect("branch-dependent dicts should eval");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![1, 2])));
+    }
+
+    #[test]
+    fn const_propagation_preserves_branch_dependent_signed_zero() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:{[c]z:$[c;0.0;-0.0];z};(f T;f F)")
+            .expect("branch-dependent signed zeros should eval");
+
+        let Value::FloatList(values) = result else {
+            panic!("expected a float list");
+        };
+        assert_eq!(values[0].to_bits(), 0.0f64.to_bits());
+        assert_eq!(values[1].to_bits(), (-0.0f64).to_bits());
+    }
+
+    #[test]
     fn pipe_into_tilde_uses_unary_not() {
         let mut session = Session::new();
         assert_eq!(session.eval_string("true|~").unwrap(), Value::Bool(false));
