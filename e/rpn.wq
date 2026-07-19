@@ -24,10 +24,10 @@ eval_rpn:{[program]
         $[and[symbol=@u"-";#sta=1]
           [value:sta[!];sta,:fn value]
           [$.[#sta<2;raise "rpn: verb needs two operands"]
-            values:sta[!-2;-1];sta,:fold[values;fn]]]]
+            operands:sta[!-2;-1];sta,:fold[operands;fn]]]]
       kind=`adverb;
       [$.[#sta<1;raise "rpn: adverb needs an operand"]
-        fn:verb instruction 2;values:sta[!0..#sta];sta,:fold[values;fn]]]]
+        fn:verb instruction 2;operands:sta[!0..#sta];sta,:fold[operands;fn]]]]
   $.[#sta=1;@r sta 0]
   raise@f"rpn: expected one result, stack has {#sta}"}
 rpn:{eval_rpn parse_rpn x}

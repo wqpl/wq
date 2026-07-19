@@ -7,6 +7,12 @@ const KEYS_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("`a"),
 }];
 
+const VALUES_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "List values in dict order",
+    code: "values (`a:1;`b:2)",
+    expectation: ExampleExpectation::ResultContains("(1;2)"),
+}];
+
 const IDX_TO_KEY_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Find the last key",
     code: "itk[(`a:1;`b:2);-1]",
@@ -24,7 +30,15 @@ pub(super) const KEYS: BuiltinDoc = BuiltinDoc {
     summary: "Return a dict's keys in order.",
     details: "`keys[dct]` requires a dict and returns a list of its keys as tags. The order is the dict's stored order, so it matches positional dict indexing and the positions used by `itk` and `kti`.",
     examples: KEYS_EXAMPLES,
-    related: &["dict", "itk", "kti"],
+    related: &["values", "dict", "itk", "kti"],
+};
+
+pub(super) const VALUES: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Values,
+    summary: "Return a dict's values in order.",
+    details: "`values[dct]` requires a dict and returns its values in stored order. The result matches positional dict indexing and pairs item-for-item with `keys[dct]`.",
+    examples: VALUES_EXAMPLES,
+    related: &["keys", "list", "dict", "sort"],
 };
 
 pub(super) const IDX_TO_KEY: BuiltinDoc = BuiltinDoc {
@@ -32,7 +46,7 @@ pub(super) const IDX_TO_KEY: BuiltinDoc = BuiltinDoc {
     summary: "Return the key at a dict position.",
     details: "`itk[dct;i]` maps a zero-based dict position to its tag key. Negative positions count from the end, so `-1` is the last key. Out-of-range positions return an empty list instead of raising.",
     examples: IDX_TO_KEY_EXAMPLES,
-    related: &["keys", "kti", "dict"],
+    related: &["keys", "values", "kti", "dict"],
 };
 
 pub(super) const KEY_TO_IDX: BuiltinDoc = BuiltinDoc {
@@ -40,5 +54,5 @@ pub(super) const KEY_TO_IDX: BuiltinDoc = BuiltinDoc {
     summary: "Return a key's position in a dict.",
     details: "`kti[dct;k]` requires `k` to be a tag and returns the zero-based position of that key in the dict's stored order. Missing keys return an empty list instead of raising.",
     examples: KEY_TO_IDX_EXAMPLES,
-    related: &["keys", "itk", "dict"],
+    related: &["keys", "values", "itk", "dict"],
 };

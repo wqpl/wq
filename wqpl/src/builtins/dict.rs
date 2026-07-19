@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use num_traits::ToPrimitive;
+
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity, type_mismatch};
 use crate::value::{IntoWqValue, Value, WqResult};
 use crate::wqerror::Requirement;
@@ -24,6 +26,19 @@ pub(super) fn keys(args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
+pub(super) fn values(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BuiltinEnum::Values, [1], &args)?;
+    match &args[0] {
+        Value::Dict(map) => Ok(Value::from_items(map.values().cloned().collect())),
+        value => Err(type_mismatch(
+            BuiltinEnum::Values,
+            0,
+            Requirement::DICT,
+            value,
+        )),
+    }
+}
+
 /// Returns the key at the given positional index, supporting negative indices.
 pub(super) fn idx_to_key(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::IdxToKey, [2], &args)?;
@@ -39,7 +54,8 @@ pub(super) fn idx_to_key(args: BuiltinFnArgs) -> WqResult<Value> {
         }
     };
     let idx = match &args[1] {
-        Value::Int(i) => i,
+        Value::Int(i) => Some(*i),
+        Value::BigInt(i) => i.to_i64(),
         other => {
             return Err(type_mismatch(
                 BuiltinEnum::IdxToKey,
@@ -49,7 +65,7 @@ pub(super) fn idx_to_key(args: BuiltinFnArgs) -> WqResult<Value> {
             ));
         }
     };
-    let Some(norm_idx) = normalize_idx(*idx, dict.len()) else {
+    let Some(norm_idx) = idx.and_then(|idx| normalize_idx(idx, dict.len())) else {
         return Ok(Value::empty_list());
     };
     match dict.get_index(norm_idx) {
@@ -86,5 +102,50 @@ pub(super) fn key_to_idx(args: BuiltinFnArgs) -> WqResult<Value> {
     match dict.get_index_of(key.as_ref()) {
         Some(idx) => Ok(idx.into_wq_value()),
         None => Ok(Value::empty_list()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use indexmap::IndexMap;
+    use num_bigint::BigInt;
+    use smallvec::smallvec;
+
+    use super::*;
+
+    fn sample_dict() -> Value {
+        Value::Dict(Arc::new(IndexMap::from([
+            (Arc::from("a"), Value::Int(10)),
+            (Arc::from("b"), Value::Int(20)),
+        ])))
+    }
+
+    #[test]
+    fn values_follow_stored_order() {
+        assert_eq!(
+            values(BuiltinFnArgs::from(sample_dict())).expect("values succeeds"),
+            Value::IntList(Arc::new(vec![10, 20]))
+        );
+    }
+
+    #[test]
+    fn idx_to_key_accepts_all_int_representations() {
+        assert_eq!(
+            idx_to_key(BuiltinFnArgs::from(smallvec![
+                sample_dict(),
+                Value::BigInt(Arc::new(BigInt::from(1)))
+            ]))
+            .expect("fitting bigint-backed position succeeds"),
+            Value::Tag(Arc::from("b"))
+        );
+
+        assert_eq!(
+            idx_to_key(BuiltinFnArgs::from(smallvec![
+                sample_dict(),
+                Value::BigInt(Arc::new(BigInt::from(u128::MAX)))
+            ]))
+            .expect("out-of-range bigint-backed position succeeds"),
+            Value::empty_list()
+        );
     }
 }

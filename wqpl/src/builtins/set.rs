@@ -7,6 +7,21 @@ use crate::builtins::{
 };
 use crate::value::seq::ListStorageSeq;
 use crate::value::{IntoWqValue, Value, WqResult};
+use crate::wqerror::Requirement;
+
+fn require_explicit_dict_projection(src: BE, args: &[Value]) -> WqResult<()> {
+    for (index, value) in args.iter().enumerate() {
+        if value.is_dict() {
+            return Err(type_mismatch(
+                src,
+                index,
+                Requirement::one_of([Requirement::ATOM, Requirement::LIST]),
+                value,
+            ));
+        }
+    }
+    Ok(())
+}
 
 fn seq_items(v: &Value) -> Vec<Value> {
     if let Some(items) = ListStorageSeq::from_value(v) {
@@ -52,6 +67,7 @@ fn list_value(items: Vec<Value>) -> Value {
 
 pub(super) fn unique(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Unique, [1], &args)?;
+    require_explicit_dict_projection(BE::Unique, &args)?;
     if let Value::IntList(items) = &args[0] {
         return Ok(Value::IntList(Arc::new(unique_int_items(
             items.iter().copied(),
@@ -62,6 +78,7 @@ pub(super) fn unique(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn union(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Union, [2], &args)?;
+    require_explicit_dict_projection(BE::Union, &args)?;
     if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
         return Ok(Value::IntList(Arc::new(unique_int_items(
             lhs.iter().chain(rhs.iter()).copied(),
@@ -74,6 +91,7 @@ pub(super) fn union(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn intersect(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Intersect, [2], &args)?;
+    require_explicit_dict_projection(BE::Intersect, &args)?;
     if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
         let rhs: IndexSet<i64> = rhs.iter().copied().collect();
         let mut seen = IndexSet::new();
@@ -94,6 +112,7 @@ pub(super) fn intersect(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn without(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Without, [2], &args)?;
+    require_explicit_dict_projection(BE::Without, &args)?;
     if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
         let rhs: IndexSet<i64> = rhs.iter().copied().collect();
         return Ok(Value::IntList(Arc::new(
@@ -114,6 +133,7 @@ pub(super) fn without(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn symdiff(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Symdiff, [2], &args)?;
+    require_explicit_dict_projection(BE::Symdiff, &args)?;
     if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
         let lhs_set: IndexSet<i64> = lhs.iter().copied().collect();
         let rhs_set: IndexSet<i64> = rhs.iter().copied().collect();
@@ -146,26 +166,31 @@ pub(super) fn symdiff(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn subset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::SubQ, [2], &args)?;
+    require_explicit_dict_projection(BE::SubQ, &args)?;
     Ok(Value::Bool(is_subset(&args[0], &args[1])))
 }
 
 pub(super) fn proper_subset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::PSubQ, [2], &args)?;
+    require_explicit_dict_projection(BE::PSubQ, &args)?;
     Ok(Value::Bool(is_proper_subset(&args[0], &args[1])))
 }
 
 pub(super) fn superset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::SuperQ, [2], &args)?;
+    require_explicit_dict_projection(BE::SuperQ, &args)?;
     Ok(Value::Bool(is_subset(&args[1], &args[0])))
 }
 
 pub(super) fn proper_superset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::PSuperQ, [2], &args)?;
+    require_explicit_dict_projection(BE::PSuperQ, &args)?;
     Ok(Value::Bool(is_proper_subset(&args[1], &args[0])))
 }
 
 pub(super) fn member(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::MemberQ, [2], &args)?;
+    require_explicit_dict_projection(BE::MemberQ, &args)?;
     if let Value::IntList(rhs) = &args[1] {
         let rhs: IndexSet<i64> = rhs.iter().copied().collect();
         return match &args[0] {
@@ -225,6 +250,7 @@ fn is_proper_subset(lhs: &Value, rhs: &Value) -> bool {
 
 pub(super) fn carproduct(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Cart, [2], &args)?;
+    require_explicit_dict_projection(BE::Cart, &args)?;
     let a = seq_items(&args[0]);
     let b = seq_items(&args[1]);
     let mut result = Vec::new();
@@ -318,6 +344,7 @@ pub(super) fn has(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn disjoint(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::DisjointQ, [2], &args)?;
+    require_explicit_dict_projection(BE::DisjointQ, &args)?;
     if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
         let rhs: IndexSet<i64> = rhs.iter().copied().collect();
         return Ok(Value::Bool(!lhs.iter().any(|item| rhs.contains(item))));
@@ -333,6 +360,7 @@ pub(super) fn disjoint(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn counts(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Counts, [1], &args)?;
+    require_explicit_dict_projection(BE::Counts, &args)?;
     if let Value::IntList(items) = &args[0] {
         let mut counts = IndexMap::<i64, i64>::new();
         for item in items.iter().copied() {
@@ -405,6 +433,27 @@ mod tests {
 
     use super::*;
     use crate::value::seq::IntRangeData;
+
+    #[test]
+    fn set_algebra_requires_explicit_dict_projection() {
+        let dict = Value::Dict(Arc::new(IndexMap::from([(Arc::from("a"), Value::Int(1))])));
+
+        let unique_error = unique(BuiltinFnArgs::from(dict.clone()))
+            .expect_err("unique should reject an implicit dict projection");
+        assert_eq!(unique_error.msg.as_deref(), Some("expected atom or list"));
+        assert_eq!(
+            unique_error.notes.as_slice(),
+            ["at argument 1", "got (`a:1) (dict)", "usage: unique[xs]"]
+        );
+
+        let union_error = union(BuiltinFnArgs::from(smallvec![dict, Value::empty_list()]))
+            .expect_err("union should reject an implicit dict projection");
+        assert_eq!(union_error.msg.as_deref(), Some("expected atom or list"));
+        assert_eq!(
+            union_error.notes.as_slice(),
+            ["at argument 1", "got (`a:1) (dict)", "usage: union[xs;ys]"]
+        );
+    }
 
     #[test]
     fn carproduct_basic() {

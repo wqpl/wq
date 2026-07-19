@@ -100,7 +100,7 @@ const MULTIPLICITY_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const UNIQUE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Unique,
     summary: "Return unique items in first-seen order.",
-    details: "`unique` views lists as their items, strings as chars, dicts as keys, and atoms as singleton values. It returns the first occurrence of each distinct item.",
+    details: "`unique` views lists as their items, strings as chars, and atoms as singleton values. It returns the first occurrence of each distinct item. Project a dict explicitly with `keys` or `values` before calling it.",
     examples: UNIQUE_EXAMPLES,
     related: &["union", "multiplicity"],
 };
@@ -108,7 +108,7 @@ pub(super) const UNIQUE: BuiltinDoc = BuiltinDoc {
 pub(super) const COUNTS: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Counts,
     summary: "Count distinct items in first-seen order.",
-    details: "`counts[xs]` returns a list of `(item;count)` pairs. Lists contribute items, strings contribute chars, dicts contribute keys, and atoms behave as singletons.",
+    details: "`counts[xs]` returns a list of `(item;count)` pairs. Lists contribute items, strings contribute chars, and atoms behave as singletons. Project a dict explicitly with `keys` or `values` before calling it.",
     examples: COUNTS_EXAMPLES,
     related: &["unique", "multiplicity", "member?"],
 };
@@ -116,7 +116,7 @@ pub(super) const COUNTS: BuiltinDoc = BuiltinDoc {
 pub(super) const UNION: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Union,
     summary: "Return the ordered set union of two values.",
-    details: "`union[xs;ys]` emits unique items seen in `xs` followed by new items from `ys`. Lists contribute items, strings contribute chars, dicts contribute keys, and atoms behave as singletons.",
+    details: "`union[xs;ys]` emits unique items seen in `xs` followed by new items from `ys`. Lists contribute items, strings contribute chars, and atoms behave as singletons. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: UNION_EXAMPLES,
     related: &["intersect", "symdiff", "unique"],
 };
@@ -124,7 +124,7 @@ pub(super) const UNION: BuiltinDoc = BuiltinDoc {
 pub(super) const INTERSECT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Intersect,
     summary: "Return items from the left that also occur on the right.",
-    details: "`intersect[xs;ys]` treats the right argument as a set and returns unique matching left items in first-seen left order. Duplicate matches in the left are collapsed.",
+    details: "`intersect[xs;ys]` treats the right argument as a set and returns unique matching left items in first-seen left order. Duplicate matches in the left are collapsed. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: INTERSECT_EXAMPLES,
     related: &["union", "without", "disjoint?"],
 };
@@ -132,7 +132,7 @@ pub(super) const INTERSECT: BuiltinDoc = BuiltinDoc {
 pub(super) const WITHOUT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Without,
     summary: "Return left items that are absent from the right.",
-    details: "`without[xs;ys]` treats `ys` as a set of values to remove from `xs`. Unlike most set algebra builtins, duplicate left items that survive the removal are preserved.",
+    details: "`without[xs;ys]` treats `ys` as a set of values to remove from `xs`. Unlike most set algebra builtins, duplicate left items that survive the removal are preserved. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: WITHOUT_EXAMPLES,
     related: &["intersect", "symdiff"],
 };
@@ -140,7 +140,7 @@ pub(super) const WITHOUT: BuiltinDoc = BuiltinDoc {
 pub(super) const SYMDIFF: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Symdiff,
     summary: "Return items present on exactly one side.",
-    details: "`symdiff[xs;ys]` keeps values that occur in `xs` or `ys`, but not both. Results are unique, ordered by first-seen left-only items followed by first-seen right-only items.",
+    details: "`symdiff[xs;ys]` keeps values that occur in `xs` or `ys`, but not both. Results are unique, ordered by first-seen left-only items followed by first-seen right-only items. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: SYMDIFF_EXAMPLES,
     related: &["union", "without", "intersect"],
 };
@@ -148,7 +148,7 @@ pub(super) const SYMDIFF: BuiltinDoc = BuiltinDoc {
 pub(super) const SUB_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SubQ,
     summary: "Test whether the left set is contained in the right set.",
-    details: "`sub?[xs;ys]` ignores multiplicity and returns true when every distinct item in `xs` is also present in `ys`.",
+    details: "`sub?[xs;ys]` ignores multiplicity and returns true when every distinct item in `xs` is also present in `ys`. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: SUB_Q_EXAMPLES,
     related: &["psub?", "super?", "member?"],
 };
@@ -156,7 +156,7 @@ pub(super) const SUB_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const SUPER_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SuperQ,
     summary: "Test whether the left set contains the right set.",
-    details: "`super?[xs;ys]` is the reverse of `sub?`: it returns true when every distinct item in `ys` is present in `xs`.",
+    details: "`super?[xs;ys]` is the reverse of `sub?`: it returns true when every distinct item in `ys` is present in `xs`. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: SUPER_Q_EXAMPLES,
     related: &["psuper?", "sub?", "has?"],
 };
@@ -164,7 +164,7 @@ pub(super) const SUPER_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const P_SUB_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::PSubQ,
     summary: "Test whether the left set is a proper subset of the right set.",
-    details: "`psub?[xs;ys]` returns true when `xs` is contained in `ys` and `ys` has at least one additional distinct item. Multiplicity is ignored.",
+    details: "`psub?[xs;ys]` returns true when `xs` is contained in `ys` and `ys` has at least one additional distinct item. Multiplicity is ignored. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: P_SUB_Q_EXAMPLES,
     related: &["sub?", "psuper?"],
 };
@@ -172,7 +172,7 @@ pub(super) const P_SUB_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const P_SUPER_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::PSuperQ,
     summary: "Test whether the left set is a proper superset of the right set.",
-    details: "`psuper?[xs;ys]` returns true when `xs` contains `ys` and `xs` has at least one additional distinct item. Multiplicity is ignored.",
+    details: "`psuper?[xs;ys]` returns true when `xs` contains `ys` and `xs` has at least one additional distinct item. Multiplicity is ignored. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: P_SUPER_Q_EXAMPLES,
     related: &["super?", "psub?"],
 };
@@ -180,7 +180,7 @@ pub(super) const P_SUPER_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const MEMBER_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::MemberQ,
     summary: "Test left-side items for membership in a right-hand set.",
-    details: "`member?[xs;ys]` returns a bool for each item of `xs`, using `ys` as the membership set. When `xs` is an atom, the result is a single bool instead of a one-item list.",
+    details: "`member?[xs;ys]` returns a bool for each item of `xs`, using `ys` as the membership set. When `xs` is an atom, the result is a single bool instead of a one-item list. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: MEMBER_Q_EXAMPLES,
     related: &["in?", "has?", "sub?"],
 };
@@ -188,7 +188,7 @@ pub(super) const MEMBER_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const CART: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Cart,
     summary: "Return the Cartesian product of two values.",
-    details: "`cart[xs;ys]` pairs every item from `xs` with every item from `ys`, returning a list of two-item lists in left-major order.",
+    details: "`cart[xs;ys]` pairs every item from `xs` with every item from `ys`, returning a list of two-item lists in left-major order. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: CART_EXAMPLES,
     related: &["zip", "map"],
 };
@@ -212,7 +212,7 @@ pub(super) const HAS_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const DISJOINT_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::DisjointQ,
     summary: "Test whether two sets share no items.",
-    details: "`disjoint?[xs;ys]` returns true when no distinct item from `xs` is present in `ys`. Multiplicity is ignored.",
+    details: "`disjoint?[xs;ys]` returns true when no distinct item from `xs` is present in `ys`. Multiplicity is ignored. Project dict arguments explicitly with `keys` or `values` before calling it.",
     examples: DISJOINT_Q_EXAMPLES,
     related: &["intersect", "member?"],
 };

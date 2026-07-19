@@ -139,7 +139,7 @@ pub(super) const ALL: BuiltinDoc = BuiltinDoc {
 pub(super) const FILTER: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Filter,
     summary: "Keep items whose predicate result is true.",
-    details: "`filter[xs;f]` calls `f` for each item and returns the matching values. Predicates must return bools; atoms are returned unchanged, and dicts are filtered by value rather than by key.",
+    details: "`filter[xs;f]` calls `f` for each item and returns the matching values. Predicates must return bools and atoms are returned unchanged. Dict predicates receive values, and matching entries retain their keys in the returned dict.",
     examples: FILTER_EXAMPLES,
     related: &["any", "all", "findw"],
 };

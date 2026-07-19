@@ -37,11 +37,18 @@ const REVERSE_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(3;2;1)"),
 }];
 
-const SORT_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Sort comparable values",
-    code: "sort (3;1;2)",
-    expectation: ExampleExpectation::ResultContains("(1;2;3)"),
-}];
+const SORT_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Sort comparable values",
+        code: "sort (3;1;2)",
+        expectation: ExampleExpectation::ResultContains("(1;2;3)"),
+    },
+    DocExample {
+        title: "Sort a dict by key",
+        code: "sort[(`b:1;`a:2);`by:`key]",
+        expectation: ExampleExpectation::ResultContains("(`a:2;`b:1)"),
+    },
+];
 
 const SPLIT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Limit delimiter splits",
@@ -118,9 +125,9 @@ pub(super) const REVERSE: BuiltinDoc = BuiltinDoc {
 pub(super) const SORT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Sort,
     summary: "Sort a list or dict.",
-    details: "`sort` sorts lists of ints numerically and strings by Unicode scalar. General lists and dicts sort by string form when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
+    details: "`sort` sorts lists of ints numerically and strings by Unicode scalar. General lists sort by string form when available, otherwise by atom comparison where possible. Dicts sort entries by value while preserving key-value associations. Use ``sort[dct;`by:`key]`` to sort a dict by key or ``sort[dct;`by:`value]`` to request the default explicitly. The `by` option requires a dict when set to the `` `key `` tag. Other values are returned unchanged.",
     examples: SORT_EXAMPLES,
-    related: &["min", "max", "reverse"],
+    related: &["min", "max", "reverse", "keys", "values"],
 };
 
 pub(super) const SPLIT: BuiltinDoc = BuiltinDoc {

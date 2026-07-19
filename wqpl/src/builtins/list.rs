@@ -464,9 +464,35 @@ pub(super) fn reverse(args: BuiltinFnArgs) -> WqResult<Value> {
     })
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SortBy {
+    Value,
+    Key,
+}
+
+fn parse_sort_by(args: &BuiltinFnArgs) -> WqResult<SortBy> {
+    match args.named("by") {
+        None => Ok(SortBy::Value),
+        Some(Value::Tag(mode)) if mode.as_ref() == "value" => Ok(SortBy::Value),
+        Some(Value::Tag(mode)) if mode.as_ref() == "key" => Ok(SortBy::Key),
+        Some(value) => Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Sort)
+            .expected(Requirement::one_of([
+                Requirement::literal("`value"),
+                Requirement::literal("`key"),
+            ]))
+            .at_named_arg("by")
+            .got1(value)),
+    }
+}
+
 pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Sort, [1], &args)?;
+    check_arity_named(BE::Sort, [1], &args, &["by"])?;
+    let sort_by = parse_sort_by(&args)?;
     let v = args.into_iter().next().unwrap();
+    if sort_by == SortBy::Key && !matches!(v, Value::Dict(_)) {
+        return Err(type_mismatch(BE::Sort, 0, Requirement::DICT, &v));
+    }
     let res = match v {
         Value::IntRange(range) if range.step() > 0 => Value::IntRange(range),
         Value::IntRange(range) => {
@@ -517,12 +543,19 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
             Value::String(Arc::new(chars.into_iter().collect()))
         }
         Value::Dict(mut items) => {
-            Arc::make_mut(&mut items).sort_by(|_ka, va, _kb, vb| {
-                if let (Some(sa), Some(sb)) = (va.try_to_rust_string(), vb.try_to_rust_string()) {
-                    return sa.cmp(&sb);
+            match sort_by {
+                SortBy::Key => Arc::make_mut(&mut items).sort_keys(),
+                SortBy::Value => {
+                    Arc::make_mut(&mut items).sort_by(|_ka, va, _kb, vb| {
+                        if let (Some(sa), Some(sb)) =
+                            (va.try_to_rust_string(), vb.try_to_rust_string())
+                        {
+                            return sa.cmp(&sb);
+                        }
+                        cmp_atom(va, vb).unwrap_or(Ordering::Equal)
+                    });
                 }
-                cmp_atom(va, vb).unwrap_or(Ordering::Equal)
-            });
+            }
             Value::Dict(items)
         }
 
@@ -874,6 +907,49 @@ mod tests {
     use crate::value::IntoWqValue as _;
     use crate::value::access::{insert_in_place, pop_in_place, remove_in_place};
     use crate::vm::Vm;
+
+    fn sample_unsorted_dict() -> Value {
+        Value::Dict(Arc::new(IndexMap::from([
+            (Arc::from("b"), Value::Int(2)),
+            (Arc::from("a"), Value::Int(3)),
+            (Arc::from("c"), Value::Int(1)),
+        ])))
+    }
+
+    #[test]
+    fn sort_dict_defaults_to_values_and_accepts_explicit_axes() {
+        let by_value = Value::Dict(Arc::new(IndexMap::from([
+            (Arc::from("c"), Value::Int(1)),
+            (Arc::from("b"), Value::Int(2)),
+            (Arc::from("a"), Value::Int(3)),
+        ])));
+        assert_eq!(
+            sort(BuiltinFnArgs::from(sample_unsorted_dict())).expect("default sort succeeds"),
+            by_value
+        );
+
+        assert_eq!(
+            sort(BuiltinFnArgs::with_named(
+                smallvec![sample_unsorted_dict()],
+                vec![(Arc::from("by"), Value::Tag(Arc::from("value")))]
+            ))
+            .expect("value sort succeeds"),
+            by_value
+        );
+
+        assert_eq!(
+            sort(BuiltinFnArgs::with_named(
+                smallvec![sample_unsorted_dict()],
+                vec![(Arc::from("by"), Value::Tag(Arc::from("key")))]
+            ))
+            .expect("key sort succeeds"),
+            Value::Dict(Arc::new(IndexMap::from([
+                (Arc::from("a"), Value::Int(3)),
+                (Arc::from("b"), Value::Int(2)),
+                (Arc::from("c"), Value::Int(1)),
+            ])))
+        );
+    }
 
     #[test]
     fn alloc_with_fill_value() {

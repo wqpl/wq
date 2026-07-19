@@ -28,11 +28,18 @@ const ASSIGNMENT_EXAMPLES: &[DocExample] = &[
     },
 ];
 
-const EQUALITY_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Compare two values",
-    code: "1=1",
-    expectation: ExampleExpectation::ResultContains("T"),
-}];
+const EQUALITY_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Compare two values",
+        code: "1=1",
+        expectation: ExampleExpectation::ResultContains("T"),
+    },
+    DocExample {
+        title: "Compare dict order",
+        code: "(`a:1;`b:2)=(`b:2;`a:1)",
+        expectation: ExampleExpectation::ResultContains("F"),
+    },
+];
 
 const LIST_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Create and index a list",
@@ -76,6 +83,7 @@ If the target is callable, that form is a call.
 If the target is a list or dict, it is an index.
 This shared shape is deliberate: a list or dict can be read as a discrete function from indexes or keys to values, so functions, builtins, lists, and dicts all use `target[...]` and the one-argument postfix form `target arg`.
 Multiple bracket entries on an indexable target are a bulk index: `xs[0;2]` returns positions 0 and 2, and ``d[`a;`b]`` returns both dict keys.
+Dicts also accept zero-based integer positions in stored order, with negative positions counting from the end.
 An explicit list key such as `xs[(0;2)]` is one argument that ordinary lists also treat as multiple positions.
 Index paths are deep: `xs[1][0]` and `xs[1] 0` first read `xs[1]`, then index that result.
 For assignment, only the final path segment may be bulk; see `index-mutation`.
@@ -384,7 +392,7 @@ pub(super) const EQUALITY: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["=", "equality", "equal"],
     summary: "Compare values with `=`.",
-    details: "`a=b` is equality. Use `a:b` for assignment.",
+    details: "`a=b` is equality. Use `a:b` for assignment. List order and dict entry order participate in equality, so ``(`a:1;`b:2)`` differs from ``(`b:2;`a:1)``.",
     examples: EQUALITY_EXAMPLES,
     related: &["assignment-forms"],
 };
@@ -408,9 +416,9 @@ pub(super) const DICTS: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["dict", "dicts", "dictionary"],
     summary: "Create dicts with tag keys.",
-    details: "Dict keys are tags, written with a leading backtick. The empty dict is (`).",
+    details: "Dict keys are tags, written with a leading backtick. The empty dict is ``(`)``. Entry order participates in equality and hashing. Dicts can be indexed by tag or by zero-based integer position, with negative positions counting from the end.",
     examples: DICT_EXAMPLES,
-    related: &["keys", "named-arguments"],
+    related: &["keys", "values", "named-arguments", "index-mutation"],
 };
 
 pub(super) const COMMENTS: StaticDoc = StaticDoc {
@@ -469,8 +477,8 @@ pub(super) const INDEX_MUTATION: StaticDoc = StaticDoc {
     kind: DocKind::Syntax,
     group: "Syntax",
     aliases: &["index assignment", "mutation", "mutating index", "[!]"],
-    summary: "Mutate list contents through index assignment and bang indexing.",
-    details: "`xs i:v` assigns through ordinary postfix indexing, and `xs i+:v` reads, updates, and writes the indexed element. Index chains assign through nested containers, so `xs[0][1]:v` and `xs[0] 1:v` descend into `xs[0]` and write index `1`; semicolons stay bulk assignment at that depth, so `xs[0;1]:v` still writes top-level positions while `xs[0][0;1]:v` writes multiple positions inside `xs[0]`. Bang indexing mutates list shape: `xs[!]` or `xs!` pops the last item, `xs[!i]` removes the item at `i`, `xs[!]:v` or `xs!:v` inserts between items, and `xs[!i]:v` inserts `v` at that position. These forms are useful for stack-like and in-place list workflows.",
+    summary: "Mutate list or dict contents through index assignment and bang indexing.",
+    details: "`xs i:v` assigns through ordinary postfix indexing, and `xs i+:v` reads, updates, and writes the indexed element. Dict assignment accepts a tag key or an integer position; assigning a missing tag appends a new entry. Index chains assign through nested containers, so `xs[0][1]:v` and `xs[0] 1:v` descend into `xs[0]` and write index `1`; semicolons stay bulk assignment at that depth, so `xs[0;1]:v` still writes top-level positions while `xs[0][0;1]:v` writes multiple positions inside `xs[0]`. Bang indexing mutates container shape: `xs[!]` or `xs!` pops the last item, `xs[!i]` removes the item at `i`, `xs[!]:v` or `xs!:v` inserts between items, and `xs[!i]:v` inserts `v` at that position. Dict bang indexing also accepts tag keys where the operation supports a named entry.",
     examples: INDEX_MUTATION_EXAMPLES,
     related: &["assignment-forms", "calls", "lists", "ranges"],
 };

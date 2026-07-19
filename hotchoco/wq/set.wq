@@ -31,9 +31,9 @@ union["ab";"bc"]|echo
 intersect["banana";"can"]|echo
 without["banana";"an"]|echo
 
-// Dicts participate by keys
-unique[(`a:1;`b:2;`a:3)]|echo
-intersect[(`a:1;`b:2);(`b:0;`c:0)]|echo
+// Dicts require an explicit key or value projection
+unique[keys (`a:1;`b:2;`a:3)]|echo
+intersect[keys (`a:1;`b:2);keys (`b:0;`c:0)]|echo
 
 // Type, count, indexing, and cartesian product stay list-native
 type[unique[(1;2;3)]]|echo

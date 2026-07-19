@@ -87,9 +87,7 @@ impl std::hash::Hash for Value {
             Value::Dict(m) => {
                 7u8.hash(state);
                 m.len().hash(state);
-                let mut entries: Vec<_> = m.iter().collect();
-                entries.sort_by_key(|(k, _)| *k);
-                for (k, v) in entries {
+                for (k, v) in m.iter() {
                     k.hash(state);
                     v.hash(state);
                 }
@@ -255,7 +253,12 @@ impl PartialEq for Value {
                     .zip(b.iter())
                     .all(|(x, y)| matches!(y, Int(n) if *n == *x))
             }
-            (Dict(a), Dict(b)) => a.len() == b.len() && a.iter().all(|(k, v)| b.get(k) == Some(v)),
+            (Dict(a), Dict(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|((ak, av), (bk, bv))| ak == bk && av == bv)
+            }
 
             (CompiledFunction(a), CompiledFunction(b)) => Arc::ptr_eq(a, b),
             (Closure(a), Closure(b)) => {
@@ -445,7 +448,7 @@ mod hash_tests {
     }
 
     #[test]
-    fn dict_unordered_eq_and_hash() {
+    fn dict_order_affects_eq_and_hash() {
         let mut map_a = IndexMap::new();
         map_a.insert(Arc::from("a"), Value::Int(1));
         map_a.insert(Arc::from("b"), Value::Int(2));
@@ -456,8 +459,8 @@ mod hash_tests {
         map_b.insert(Arc::from("a"), Value::Int(1));
         let dict_b = Value::Dict(Arc::new(map_b));
 
-        assert_eq!(dict_a, dict_b);
-        assert_eq!(hash_value(&dict_a), hash_value(&dict_b));
+        assert_ne!(dict_a, dict_b);
+        assert_ne!(hash_value(&dict_a), hash_value(&dict_b));
     }
 
     #[test]

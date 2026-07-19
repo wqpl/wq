@@ -526,13 +526,13 @@ pub(super) fn filter(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
 
     match xs {
         Value::Dict(map) => {
-            let mut result = Vec::new();
-            for item in map.values() {
+            let mut result = indexmap::IndexMap::with_capacity(map.len());
+            for (key, item) in map.iter() {
                 if filter_predicate(vm, &func, pure.as_ref(), item)? {
-                    result.push(item.clone());
+                    result.insert(key.clone(), item.clone());
                 }
             }
-            Ok(Value::from_items(result))
+            Ok(Value::Dict(Arc::new(result)))
         }
         other => Ok(other),
     }
@@ -1242,6 +1242,35 @@ mod tests {
         let result =
             filter(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("filter succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![3, 4])));
+    }
+
+    #[test]
+    fn filter_dict_preserves_matching_entries() {
+        let mut vm = Vm::new(vec![]);
+        let xs = Value::Dict(Arc::new(indexmap::IndexMap::from([
+            (Arc::from("low"), Value::Int(1)),
+            (Arc::from("high"), Value::Int(3)),
+        ])));
+        let f = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Gt,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(2))),
+                ),
+                Instruction::Return,
+            ],
+        );
+
+        assert_eq!(
+            filter(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("dict filter succeeds"),
+            Value::Dict(Arc::new(indexmap::IndexMap::from([(
+                Arc::from("high"),
+                Value::Int(3),
+            )])))
+        );
     }
 
     #[test]

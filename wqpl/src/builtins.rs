@@ -1036,7 +1036,7 @@ declare_builtins! {
     (FLATTEN, Flatten, "flatten", "flatten[xs]", sig!(arity!(1)), plain(list::flatten), builtin_metadata!(List, PURE)),
     (REVERSE, Reverse, "reverse", "reverse[xs]", sig!(arity!(1)), plain(list::reverse), builtin_metadata!(List, PURE)),
     (V, V, "V", "V[xs]", sig!(arity!(1), alias Reverse), plain(list::reverse), builtin_metadata!(List, PURE)), // alias of reverse
-    (SORT, Sort, "sort", "sort[xs]", sig!(arity!(1)), plain(list::sort), builtin_metadata!(List, PURE)),
+    (SORT, Sort, "sort", "sort[xs;`by]", sig!(arity!(1), named SORT_NAMED_ARGS), plain(list::sort), builtin_metadata!(List, PURE)),
     (SPLIT, Split, "split", "split[xs;opts?]", sig!(arity!(1, 2), named MAXSPLIT_NAMED_ARGS), plain(list::split), builtin_metadata!(List, PURE)),
     (FIND, Find, "find", "find[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::find), builtin_metadata!(List, PURE), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
     (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::rfind), builtin_metadata!(List, PURE), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
@@ -1076,6 +1076,7 @@ declare_builtins! {
 
     // Dict =========================================================
     (KEYS, Keys, "keys", "keys[dct]", sig!(arity!(1)), plain(dict::keys), builtin_metadata!(Dict, PURE)),
+    (VALUES, Values, "values", "values[dct]", sig!(arity!(1)), plain(dict::values), builtin_metadata!(Dict, PURE)),
     (IDX_TO_KEY, IdxToKey, "itk", "itk[dct;i]", sig!(arity!(2)), plain(dict::idx_to_key), builtin_metadata!(Dict, PURE)),
     (KEY_TO_IDX, KeyToIdx, "kti", "kti[dct;k]", sig!(arity!(2)), plain(dict::key_to_idx), builtin_metadata!(Dict, PURE)),
 
@@ -1250,6 +1251,7 @@ declare_builtins! {
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
 const ASSERT_NAMED_ARGS: &[&str] = &["context"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
+const SORT_NAMED_ARGS: &[&str] = &["by"];
 const LIMIT_NAMED_ARGS: &[&str] = &["d"];
 const SOLVE_NAMED_ARGS: &[&str] = &["assuming", "domain"];
 const SOLVE_SYSTEM_NAMED_ARGS: &[&str] = &["assuming"];
@@ -1764,6 +1766,7 @@ mod tests {
             (BuiltinEnum::FindW, "2 3 4"),
             (BuiltinEnum::RFindW, "2 3 4"),
             (BuiltinEnum::Keys, "1"),
+            (BuiltinEnum::Values, "1"),
             (BuiltinEnum::IdxToKey, "2"),
             (BuiltinEnum::KeyToIdx, "2"),
             (BuiltinEnum::Unique, "1"),
