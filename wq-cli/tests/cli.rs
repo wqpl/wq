@@ -12,6 +12,8 @@ mod help;
 mod print_box;
 #[path = "cli/random.rs"]
 mod random;
+#[path = "cli/repl.rs"]
+mod repl;
 #[path = "cli/script_directives.rs"]
 mod script_directives;
 

@@ -1275,6 +1275,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
         help.set_argv(vec!["--help".into()]);
         help.eval_string(&format!("@t cliargs[{SPEC}];after:1"))
             .expect("help halts without an error");
+        assert!(!help.take_interrupt());
         assert_eq!(help.halt_status(), Some(0));
         assert!(!help.bindings().contains_key("after"));
 

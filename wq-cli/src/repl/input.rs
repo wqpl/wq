@@ -4,6 +4,7 @@ use wq_rl::Editor;
 use wq_rl::error::ReadlineError;
 use wq_rl::history::FileHistory;
 use wqpl::builtins::BuiltinPreset;
+use wqpl::session::SessionInterruptHandle;
 use wqpl::session::stdio::{WqInput, WqIoError};
 
 use crate::repl::editor::WqReplHighlighter;
@@ -165,6 +166,27 @@ impl WqInput for RustylineInput {
     }
 }
 
+pub(crate) struct InterruptingInput<I> {
+    input: I,
+    interrupt: SessionInterruptHandle,
+}
+
+impl<I> InterruptingInput<I> {
+    pub(crate) fn new(input: I, interrupt: SessionInterruptHandle) -> Self {
+        Self { input, interrupt }
+    }
+}
+
+impl<I: WqInput> WqInput for InterruptingInput<I> {
+    fn read_line(&mut self, prompt: &str) -> Result<String, WqIoError> {
+        let result = self.input.read_line(prompt);
+        if let Err(WqIoError::Interrupted) = &result {
+            self.interrupt.interrupt();
+        }
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +219,28 @@ mod tests {
         });
 
         assert_eq!(input.input_mode(), WqInputMode::Wq);
+    }
+
+    struct InterruptedInput;
+
+    impl WqInput for InterruptedInput {
+        fn read_line(&mut self, _prompt: &str) -> Result<String, WqIoError> {
+            Err(WqIoError::Interrupted)
+        }
+    }
+
+    #[test]
+    fn runtime_input_interrupts_the_session() {
+        let mut session = wqpl::session::Session::new();
+        let mut input = InterruptingInput::new(InterruptedInput, session.interrupt_handle());
+
+        assert!(matches!(
+            input.read_line("prompt"),
+            Err(WqIoError::Interrupted)
+        ));
+        session
+            .eval_string("W[T;0]")
+            .expect("input interruption should halt evaluation cleanly");
+        assert!(session.take_interrupt());
     }
 }

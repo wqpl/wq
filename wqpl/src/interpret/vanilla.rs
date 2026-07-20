@@ -80,7 +80,7 @@ impl VanillaInterpreter {
             }
             while vm.pc < limit {
                 vm.poll_interrupt();
-                if vm.halt_status.is_some() {
+                if vm.is_halted() {
                     break 'exec;
                 }
                 if Self::finish_try_boundary(vm) {
@@ -109,7 +109,7 @@ impl VanillaInterpreter {
                             reason,
                         });
                         vm.poll_interrupt();
-                        if vm.halt_status.is_some() {
+                        if vm.is_halted() {
                             break 'exec;
                         }
                         paused_before_instruction = true;

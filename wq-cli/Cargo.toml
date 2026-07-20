@@ -24,6 +24,12 @@ wq-dap.workspace = true
 terminal_size = "0.4"
 unicode-width = "0.2.2"
 
+[target.'cfg(unix)'.dependencies]
+signal-hook.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+ctrlc.workspace = true
+
 [dev-dependencies]
 assert_cmd = "2"
 anyhow = "1"

@@ -34,6 +34,12 @@ use crate::wqerror::{WqError, WqErrorType};
 pub(crate) type GlobalMap = crate::session::Bindings;
 pub type GlobalSlotMap = AHashMap<String, usize>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HaltReason {
+    Status(i32),
+    Interrupted,
+}
+
 pub(crate) struct Vm {
     pub(crate) instructions: Arc<[Instruction]>,
     pub(crate) owned_consts: Vec<Option<Value>>,
@@ -46,7 +52,7 @@ pub(crate) struct Vm {
     pub(crate) builtins_preset: BuiltinPreset,
     pub(crate) default_rng: RngState,
     pub(crate) argv: Arc<[String]>,
-    pub(crate) halt_status: Option<i32>,
+    pub(crate) halt_reason: Option<HaltReason>,
     pub(crate) interrupt_requested: Arc<AtomicBool>,
     pub(crate) runtime_io: RuntimeIo,
     pub(crate) debug_log: DebugLog,
@@ -242,7 +248,7 @@ impl Vm {
             builtins_preset: BuiltinPreset::DEFAULT,
             default_rng: RngState::from_entropy(),
             argv: Arc::from([]),
-            halt_status: None,
+            halt_reason: None,
             interrupt_requested: Arc::new(AtomicBool::new(false)),
             runtime_io,
             debug_log,
@@ -403,8 +409,41 @@ impl Vm {
     #[inline]
     pub(crate) fn poll_interrupt(&mut self) {
         if self.interrupt_requested.swap(false, Ordering::AcqRel) {
-            self.halt_status.get_or_insert(0);
+            self.halt_reason.get_or_insert(HaltReason::Interrupted);
         }
+    }
+
+    pub(crate) fn is_halted(&self) -> bool {
+        self.halt_reason.is_some()
+    }
+
+    pub(crate) fn halt_status(&self) -> Option<i32> {
+        match self.halt_reason {
+            Some(HaltReason::Status(status)) => Some(status),
+            Some(HaltReason::Interrupted) | None => None,
+        }
+    }
+
+    pub(crate) fn take_halt_status(&mut self) -> Option<i32> {
+        let status = self.halt_status()?;
+        self.halt_reason = None;
+        Some(status)
+    }
+
+    pub(crate) fn take_interrupt(&mut self) -> bool {
+        let pending = self.interrupt_requested.swap(false, Ordering::AcqRel);
+        match self.halt_reason {
+            Some(HaltReason::Interrupted) => {
+                self.halt_reason = None;
+                true
+            }
+            Some(HaltReason::Status(_)) => false,
+            None => pending,
+        }
+    }
+
+    pub(crate) fn request_halt(&mut self, status: i32) {
+        self.halt_reason = Some(HaltReason::Status(status));
     }
 
     #[inline]

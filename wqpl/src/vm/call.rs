@@ -810,7 +810,7 @@ impl BuiltinContext for Vm {
     }
 
     fn request_halt(&mut self, status: i32) {
-        self.halt_status = Some(status);
+        Vm::request_halt(self, status);
     }
 
     fn read_line(&self, prompt: &str) -> Result<String, crate::session::stdio::WqIoError> {

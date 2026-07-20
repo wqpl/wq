@@ -448,12 +448,20 @@ impl Session {
 
     /// Return the status requested by a controlled `cliargs` halt.
     pub fn halt_status(&self) -> Option<i32> {
-        self.vm.halt_status
+        self.vm.halt_status()
     }
 
     /// Take the status requested by a controlled `cliargs` halt.
     pub fn take_halt_status(&mut self) -> Option<i32> {
-        self.vm.halt_status.take()
+        self.vm.take_halt_status()
+    }
+
+    /// Take a pending or observed interruption request.
+    ///
+    /// Interruption is distinct from a controlled `cliargs` halt and does not
+    /// carry a process exit status.
+    pub fn take_interrupt(&mut self) -> bool {
+        self.vm.take_interrupt()
     }
 
     /// Return a handle which can interrupt this session from another thread.
@@ -476,7 +484,7 @@ impl Session {
     pub fn reset_execution_state(&mut self) {
         self.vm
             .reset_with_prepared_instructions(PreparedInstructions::new(Vec::new()));
-        self.vm.halt_status = None;
+        self.vm.halt_reason = None;
         self.vm.interrupt_requested.store(false, Ordering::Release);
         self.vm.wqdb.reset_execution_state();
         self.vm.current_chunk = None;
@@ -719,7 +727,7 @@ impl Session {
     ) -> Result<Option<Value>, ScriptRunError<DirectiveFailure<DirectiveError>>> {
         let mut last_value = None;
         for item in items {
-            if self.halt_status().is_some() {
+            if self.vm.is_halted() {
                 break;
             }
             match item {
@@ -1511,19 +1519,35 @@ mod tests {
     }
 
     #[test]
-    fn interrupt_handle_requests_a_controlled_halt() {
+    fn interrupt_handle_reports_a_distinct_interruption() {
         let mut session = Session::new();
         session.interrupt_handle().interrupt();
 
         session
-            .eval_string("W[true;0]")
+            .eval_string("W[T;0]")
             .expect("an interrupted evaluation should halt cleanly");
 
-        assert_eq!(session.take_halt_status(), Some(0));
+        assert!(session.take_interrupt());
+        assert!(!session.take_interrupt());
+        assert_eq!(session.take_halt_status(), None);
         assert_eq!(
             session
                 .eval_string("1")
                 .expect("a consumed interrupt should not affect the next evaluation"),
+            Value::Int(1)
+        );
+    }
+
+    #[test]
+    fn pending_interrupt_can_be_consumed_without_poisoning_the_next_evaluation() {
+        let mut session = Session::new();
+        session.interrupt_handle().interrupt();
+
+        assert!(session.take_interrupt());
+        assert_eq!(
+            session
+                .eval_string("1")
+                .expect("a consumed pending interrupt should not affect evaluation"),
             Value::Int(1)
         );
     }

@@ -1,6 +1,7 @@
 mod command;
 pub mod editor;
 pub mod input;
+mod interrupt;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -30,7 +31,8 @@ use crate::msg::{
     system_msg_err as raw_system_msg_err, system_msg_out as raw_system_msg_out,
 };
 use crate::repl::editor::WqReplHighlighter;
-use crate::repl::input::{RustylineInput, WqGlobalHint};
+use crate::repl::input::{InterruptingInput, RustylineInput, WqGlobalHint};
+use crate::repl::interrupt::ReplInterrupts;
 use crate::wqdb::{enter_wqdb_after_err, wqdb_shell};
 use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag};
 
@@ -205,7 +207,12 @@ impl InteractiveOutputSpacing {
 pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut session = Session::new();
     let editor = RustylineInput::new().expect("REPL editor should initialize");
-    session.set_input(Box::new(editor.clone()));
+    let session_interrupt = session.interrupt_handle();
+    session.set_input(Box::new(InterruptingInput::new(
+        editor.clone(),
+        session_interrupt,
+    )));
+    let interrupts = ReplInterrupts::install().expect("REPL Ctrl-C handler should initialize");
     let debugger_editor = editor.clone();
     session.set_pause_handler(move |_event, debugger| wqdb_shell(debugger, &debugger_editor));
     let mut time_mode = false;
@@ -683,13 +690,20 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                 let t = input_for_eval.trim_start();
                 if t.starts_with("\\") {
                     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                    match eval_inline_with_load(
+                    let interrupt_guard = interrupts.arm(session.interrupt_handle());
+                    let attempt = eval_inline_with_load(
                         &mut session,
                         input_for_eval,
                         &cwd,
                         &repl_loading,
                         false,
-                    ) {
+                    );
+                    drop(interrupt_guard);
+                    if report_interrupted_turn(&mut session) {
+                        sync_global_hints(&session, &editor);
+                        continue;
+                    }
+                    match attempt {
                         Ok(report) => {
                             print_load_report(&report);
                             maybe_dump_formatted_input(&fmt_state, &highlighter, input_for_eval);
@@ -737,7 +751,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                 let wqdb_active_for_eval = session.is_wqdb_enabled() || oneshot_wqdb;
 
                 let start_t = Instant::now();
+                let interrupt_guard = interrupts.arm(session.interrupt_handle());
                 let attempt = session.eval_source(SourceUnit::named(&source_label, src_eval));
+                drop(interrupt_guard);
                 let elapsed_t = start_t.elapsed();
 
                 // reset one-time cmds and wqdb
@@ -747,6 +763,12 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                 }
                 // reset one-time dbg level
                 session.set_debug_flags(prev_dbg_flags);
+                if report_interrupted_turn(&mut session) {
+                    oneshot_time = false;
+                    sync_global_hints(&session, &editor);
+                    line_number += 1;
+                    continue;
+                }
                 // handle eval result
                 match attempt {
                     Ok(result) => {
@@ -808,6 +830,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
             }
         }
     }
+}
+
+fn report_interrupted_turn(session: &mut Session) -> bool {
+    if !session.take_interrupt() {
+        return false;
+    }
+    system_msg_err("Interrupted", MsgType::Error);
+    true
 }
 
 fn sync_builtin_state(
@@ -902,9 +932,10 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
     );
     lines.push(repl_card_row(title, INNER));
     let hints = format!(
-        "{}  {}",
+        "{}  {}  {}",
         repl_color(r"\help", AnsiColor::Green),
-        repl_color(r"\exit", AnsiColor::Green)
+        repl_dim("Ctrl-C interrupt"),
+        repl_dim("Ctrl-D exit")
     );
     lines.push(repl_card_row(hints, INNER));
     lines.push(sep);
