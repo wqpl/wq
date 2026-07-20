@@ -86,6 +86,7 @@ sort[rgb;`by:`key]|echo
 Set algebra does not guess whether a dict means its keys or values. Project it first.
 
 ```wq
+rgb:(`r:80;`g:120;`b:200)
 unique keys rgb|echo
 unique values rgb|echo
 ```

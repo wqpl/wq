@@ -143,3 +143,16 @@ mod unix {
         Ok(())
     }
 }
+
+#[test]
+fn runtime_input_keeps_a_blank_line_before_the_result() -> anyhow::Result<()> {
+    let mut command = assert_cmd::Command::cargo_bin("wq")?;
+    let assert = command.write_stdin("input[]\nhello\n").assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    assert!(
+        stdout.contains("wq[1] \n\n▍ \"hello\""),
+        "missing runtime input spacing:\n{stdout}"
+    );
+    Ok(())
+}

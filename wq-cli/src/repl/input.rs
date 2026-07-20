@@ -166,22 +166,25 @@ impl WqInput for RustylineInput {
     }
 }
 
-pub(crate) struct InterruptingInput<I> {
+/// Adapts nested runtime input to the REPL's interruption and spacing rules.
+pub(crate) struct RuntimeInput<I> {
     input: I,
     interrupt: SessionInterruptHandle,
 }
 
-impl<I> InterruptingInput<I> {
+impl<I> RuntimeInput<I> {
     pub(crate) fn new(input: I, interrupt: SessionInterruptHandle) -> Self {
         Self { input, interrupt }
     }
 }
 
-impl<I: WqInput> WqInput for InterruptingInput<I> {
+impl<I: WqInput> WqInput for RuntimeInput<I> {
     fn read_line(&mut self, prompt: &str) -> Result<String, WqIoError> {
         let result = self.input.read_line(prompt);
-        if let Err(WqIoError::Interrupted) = &result {
-            self.interrupt.interrupt();
+        match &result {
+            Ok(line) if !line.is_empty() => println!(),
+            Err(WqIoError::Interrupted) => self.interrupt.interrupt(),
+            Ok(_) | Err(_) => {}
         }
         result
     }
@@ -232,7 +235,7 @@ mod tests {
     #[test]
     fn runtime_input_interrupts_the_session() {
         let mut session = wqpl::session::Session::new();
-        let mut input = InterruptingInput::new(InterruptedInput, session.interrupt_handle());
+        let mut input = RuntimeInput::new(InterruptedInput, session.interrupt_handle());
 
         assert!(matches!(
             input.read_line("prompt"),

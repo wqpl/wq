@@ -31,7 +31,7 @@ use crate::msg::{
     system_msg_err as raw_system_msg_err, system_msg_out as raw_system_msg_out,
 };
 use crate::repl::editor::WqReplHighlighter;
-use crate::repl::input::{InterruptingInput, RustylineInput, WqGlobalHint};
+use crate::repl::input::{RuntimeInput, RustylineInput, WqGlobalHint};
 use crate::repl::interrupt::ReplInterrupts;
 use crate::wqdb::{enter_wqdb_after_err, wqdb_shell};
 use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag};
@@ -208,7 +208,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut session = Session::new();
     let editor = RustylineInput::new().expect("REPL editor should initialize");
     let session_interrupt = session.interrupt_handle();
-    session.set_input(Box::new(InterruptingInput::new(
+    session.set_input(Box::new(RuntimeInput::new(
         editor.clone(),
         session_interrupt,
     )));
