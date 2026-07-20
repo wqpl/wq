@@ -166,6 +166,13 @@
 
 - Do not omit representative tag or dict examples, or rewrite an example merely to avoid handling the delimiters. Verify the rendered Markdown whenever a code span contains backticks.
 
+## Audit policy
+
+- `cargo deny check`
+- Treat `multiple-versions` warnings as informational by default. Do not spend significant time trying to eliminate them, since duplicate versions are often caused by transitive dependency constraints and are not necessarily actionable.
+  - Fix a warning only when the solution is obvious, low risk, and narrowly scoped, such as updating a direct dependency, refreshing the lockfile, or removing an unnecessary dependency. Do not add dependency overrides, patch transitive crates, downgrade unrelated packages, or make broad dependency changes solely to remove a warning.
+  - If no straightforward fix is available, leave the warning in place and continue.
+
 ## Commit messages
 
 At the final handoff only, recommend one commit message when this session produced an actual change that is ready to commit.
