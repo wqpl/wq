@@ -17,8 +17,8 @@ use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
 use wqpl::session::stdio::{WqInput, WqIoError, WqOutput};
 use wqpl::session::{
-    EvaluationFailure, EvaluationPoll as SessionEvaluationPoll, ScriptEvaluation, Session,
-    SourceUnit,
+    EvaluationFailure, EvaluationPoll as SessionEvaluationPoll, ScriptEvaluation,
+    ScriptInputResponse, Session, SourceUnit,
 };
 use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
@@ -65,7 +65,8 @@ export interface RenderedValue {
 }
 
 export type EvaluationSlice =
-    | { status: "yielded"; instructions: number }
+    | { status: "yielded"; work_units: number }
+    | { status: "awaiting_input"; request_id: string; prompt: string }
     | { status: "ready"; value: RenderedValue };
 
 export interface GlobalBinding {
@@ -388,13 +389,13 @@ impl WasmWqSession {
         }
     }
 
-    /// Run one bounded instruction slice of the active evaluation.
+    /// Run one bounded work slice of the active evaluation.
     #[wasm_bindgen(unchecked_return_type = "EvaluationSlice")]
-    pub fn run_eval_wq_slice(&self, instruction_budget: usize) -> Result<JsValue, JsValue> {
-        if instruction_budget == 0 {
+    pub fn run_eval_wq_slice(&self, work_budget: usize) -> Result<JsValue, JsValue> {
+        if work_budget == 0 {
             return Err(api_error_js(
                 "invalid-evaluation-budget",
-                "evaluation instruction budget must be greater than 0",
+                "evaluation work budget must be greater than 0",
             ));
         }
 
@@ -408,13 +409,16 @@ impl WasmWqSession {
         let (result, color_mode) = {
             let mut session = self.try_session_mut()?;
             let color_mode = session.stderr_color_mode();
-            let result = session.poll_script_evaluation(active, instruction_budget);
+            let result = session.poll_script_evaluation(active, work_budget);
             (result, color_mode)
         };
 
         match result {
-            Ok(SessionEvaluationPoll::Yielded { instructions }) => {
-                Ok(evaluation_yielded_to_js(instructions).into())
+            Ok(SessionEvaluationPoll::Yielded { work_units }) => {
+                Ok(evaluation_yielded_to_js(work_units).into())
+            }
+            Ok(SessionEvaluationPoll::AwaitingInput { request_id, prompt }) => {
+                Ok(evaluation_awaiting_input_to_js(request_id, &prompt).into())
             }
             Ok(SessionEvaluationPoll::Ready(value)) => {
                 evaluation.take();
@@ -440,6 +444,57 @@ impl WasmWqSession {
         let cancelled = self.try_session_mut()?.cancel_script_evaluation(active);
         evaluation.take();
         Ok(cancelled)
+    }
+
+    pub fn resume_eval_wq_input(
+        &self,
+        request_id: &str,
+        response_kind: &str,
+        value: Option<String>,
+    ) -> Result<(), JsValue> {
+        let request_id = request_id.parse::<u64>().map_err(|_| {
+            api_error_js(
+                "invalid-input-request",
+                "input request identifier must be an unsigned decimal integer",
+            )
+        })?;
+        let response = match response_kind {
+            "line" => ScriptInputResponse::Line(value.ok_or_else(|| {
+                api_error_js(
+                    "invalid-input-response",
+                    "line input response requires a string value",
+                )
+            })?),
+            "eof" => ScriptInputResponse::Eof,
+            "interrupted" => ScriptInputResponse::Interrupted,
+            "error" => ScriptInputResponse::Error(value.ok_or_else(|| {
+                api_error_js(
+                    "invalid-input-response",
+                    "error input response requires a message",
+                )
+            })?),
+            _ => {
+                return Err(api_error_js(
+                    "invalid-input-response",
+                    "input response kind must be 'line', 'eof', 'interrupted', or 'error'",
+                ));
+            }
+        };
+
+        let mut evaluation = self
+            .evaluation
+            .try_borrow_mut()
+            .map_err(|_| reentrant_session_error_js())?;
+        let active = evaluation
+            .as_mut()
+            .ok_or_else(no_active_evaluation_error_js)?;
+        let (result, color_mode) = {
+            let mut session = self.try_session_mut()?;
+            let color_mode = session.stderr_color_mode();
+            let result = session.resume_script_input(active, request_id, response);
+            (result, color_mode)
+        };
+        result.map_err(|failure| evaluation_failure_js(&failure, color_mode))
     }
 
     /// Configure ANSI styling for runtime output and diagnostics.
@@ -864,10 +919,22 @@ fn rendered_value_to_js(value: &RenderedValueData) -> Object {
     object
 }
 
-fn evaluation_yielded_to_js(instructions: usize) -> Object {
+fn evaluation_yielded_to_js(work_units: usize) -> Object {
     let object = Object::new();
     set_js_property(&object, "status", &JsValue::from_str("yielded"));
-    set_js_property(&object, "instructions", &usize_js(instructions));
+    set_js_property(&object, "work_units", &usize_js(work_units));
+    object
+}
+
+fn evaluation_awaiting_input_to_js(request_id: u64, prompt: &str) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "status", &JsValue::from_str("awaiting_input"));
+    set_js_property(
+        &object,
+        "request_id",
+        &JsValue::from_str(&request_id.to_string()),
+    );
+    set_js_property(&object, "prompt", &JsValue::from_str(prompt));
     object
 }
 

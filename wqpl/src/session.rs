@@ -237,8 +237,17 @@ pub type EvaluationResult<T> = Result<T, EvaluationFailure>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EvaluationPoll {
-    Yielded { instructions: usize },
+    Yielded { work_units: usize },
+    AwaitingInput { request_id: u64, prompt: String },
     Ready(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptInputResponse {
+    Line(String),
+    Eof,
+    Interrupted,
+    Error(String),
 }
 
 /// Owned state for one cooperatively evaluated script.
@@ -387,6 +396,7 @@ pub struct Session {
     dry_mode: bool,
     // Arm entering the wqdb on the next eval call
     wqdb_arm_next: bool,
+    sample: SampleInterpreter,
     profiler: ProfilerInterpreter,
     active_script_evaluation: Option<Arc<()>>,
 }
@@ -401,6 +411,7 @@ impl Session {
             // debug_flags: DebugFlags::empty(),
             dry_mode: false,
             wqdb_arm_next: false,
+            sample: SampleInterpreter::default(),
             profiler: ProfilerInterpreter::default(),
             active_script_evaluation: None,
         }
@@ -517,6 +528,7 @@ impl Session {
         self.vm.debug_src_offset = 0;
         self.vm.last_crash = None;
         self.wqdb_arm_next = self.vm.wqdb.is_enabled();
+        self.sample = SampleInterpreter::default();
         self.profiler = ProfilerInterpreter::default();
     }
 
@@ -735,15 +747,15 @@ impl Session {
         })
     }
 
-    /// Execute at most one instruction budget from a cooperative script.
+    /// Execute at most one work budget from a cooperative script.
     ///
-    /// Context builtins and non-vanilla interpreters execute atomically. A
-    /// budget therefore bounds vanilla VM instruction dispatch but not the
-    /// work performed inside one builtin or alternate interpreter.
+    /// Higher-order context builtins and every interpreter kind consume the
+    /// same work budget. Other context builtin algorithms still execute as one
+    /// work unit until they provide their own resumable state.
     pub fn poll_script_evaluation(
         &mut self,
         evaluation: &mut ScriptEvaluation,
-        instruction_budget: usize,
+        work_budget: usize,
     ) -> EvaluationResult<EvaluationPoll> {
         if evaluation.finished {
             return Err(EvaluationFailure::new(
@@ -762,19 +774,22 @@ impl Session {
                 EvaluationPhase::Execute,
             ));
         }
-        if instruction_budget == 0 {
+        if work_budget == 0 {
             return Err(EvaluationFailure::new(
                 WqError::new(WqErrorType::Vm)
-                    .msg("script evaluation instruction budget must be greater than 0"),
+                    .msg("script evaluation work budget must be greater than 0"),
                 EvaluationPhase::Execute,
             ));
         }
 
         loop {
             if evaluation.active_fragment {
-                match self.execute_prepared_slice(instruction_budget) {
-                    Ok(InterpretPoll::Yielded { instructions }) => {
-                        return Ok(EvaluationPoll::Yielded { instructions });
+                match self.execute_prepared_slice(work_budget) {
+                    Ok(InterpretPoll::Yielded { work_units }) => {
+                        return Ok(EvaluationPoll::Yielded { work_units });
+                    }
+                    Ok(InterpretPoll::AwaitingInput { request_id, prompt }) => {
+                        return Ok(EvaluationPoll::AwaitingInput { request_id, prompt });
                     }
                     Ok(InterpretPoll::Ready(value)) => {
                         let result = if let Some(error) = self.vm.debug_log.take_error() {
@@ -811,7 +826,7 @@ impl Session {
                             ));
                         }
                         if evaluation.next_item < evaluation.items.len() {
-                            return Ok(EvaluationPoll::Yielded { instructions: 0 });
+                            return Ok(EvaluationPoll::Yielded { work_units: 0 });
                         }
                     }
                     Err(error) => {
@@ -923,6 +938,35 @@ impl Session {
         evaluation.finished = true;
         self.reset_execution_state();
         true
+    }
+
+    pub fn resume_script_input(
+        &mut self,
+        evaluation: &mut ScriptEvaluation,
+        request_id: u64,
+        response: ScriptInputResponse,
+    ) -> EvaluationResult<()> {
+        if evaluation.finished
+            || !self
+                .active_script_evaluation
+                .as_ref()
+                .is_some_and(|token| Arc::ptr_eq(token, &evaluation.token))
+        {
+            return Err(EvaluationFailure::new(
+                WqError::new(WqErrorType::Vm)
+                    .msg("script evaluation is not active for this session"),
+                EvaluationPhase::Execute,
+            ));
+        }
+        let response = match response {
+            ScriptInputResponse::Line(line) => Ok(line),
+            ScriptInputResponse::Eof => Err(WqIoError::Eof),
+            ScriptInputResponse::Interrupted => Err(WqIoError::Interrupted),
+            ScriptInputResponse::Error(error) => Err(WqIoError::Other(error)),
+        };
+        self.vm
+            .resume_input(request_id, response)
+            .map_err(|error| EvaluationFailure::new(error, EvaluationPhase::Execute))
     }
 
     /// Evaluate a script while delegating loader directives to the host.
@@ -1261,11 +1305,9 @@ impl Session {
     }
 
     fn execute_prepared(&mut self) -> WqResult<Value> {
+        self.vm.cooperative_execution = false;
         let result = match self.vm.interpreter_kind {
-            InterpreterKind::Sample => {
-                let mut sample = SampleInterpreter::default();
-                self.vm.run_with_interpreter(&mut sample)
-            }
+            InterpreterKind::Sample => self.vm.run_with_interpreter(&mut self.sample),
             InterpreterKind::Vanilla => self.vm.run_with_interpreter(&mut VanillaInterpreter),
             InterpreterKind::Profiler => {
                 let result = self.vm.run_with_interpreter(&mut self.profiler);
@@ -1282,12 +1324,28 @@ impl Session {
         result
     }
 
-    fn execute_prepared_slice(&mut self, instruction_budget: usize) -> WqResult<InterpretPoll> {
-        if self.vm.interpreter_kind != InterpreterKind::Vanilla {
-            return self.execute_prepared().map(InterpretPoll::Ready);
-        }
-        let limit = self.vm.instructions.len();
-        let result = VanillaInterpreter.interpret_slice(&mut self.vm, limit, instruction_budget)?;
+    fn execute_prepared_slice(&mut self, work_budget: usize) -> WqResult<InterpretPoll> {
+        self.vm.cooperative_execution = true;
+        let limit = self.vm.root_instruction_limit();
+        let result = match self.vm.interpreter_kind {
+            InterpreterKind::Vanilla => {
+                VanillaInterpreter.interpret_slice(&mut self.vm, limit, work_budget)
+            }
+            InterpreterKind::Sample => {
+                self.sample
+                    .interpret_slice(&mut self.vm, limit, work_budget)
+            }
+            InterpreterKind::Profiler => {
+                let result = self
+                    .profiler
+                    .interpret_slice(&mut self.vm, limit, work_budget);
+                if matches!(result, Ok(InterpretPoll::Ready(_)) | Err(_)) {
+                    self.profiler
+                        .finish_report(self.vm.stderr_color_mode(), &self.vm.debug_log);
+                }
+                result
+            }
+        }?;
         if self.vm.debug_log.enabled(DebugLogFlags::VALUE)
             && let InterpretPoll::Ready(value) = &result
         {
@@ -1371,6 +1429,24 @@ mod tests {
 
     use super::*;
     use crate::debugger::{DebugResume, PauseReason};
+    use crate::session::stdio::{WqInput, WqOutput};
+
+    struct CaptureOutput(Arc<Mutex<String>>);
+
+    struct FixedInput(&'static str);
+
+    impl WqInput for FixedInput {
+        fn read_line(&mut self, _prompt: &str) -> Result<String, WqIoError> {
+            Ok(self.0.to_string())
+        }
+    }
+
+    impl WqOutput for CaptureOutput {
+        fn write(&mut self, text: &str) -> Result<(), WqIoError> {
+            self.0.lock().expect("capture output lock").push_str(text);
+            Ok(())
+        }
+    }
 
     #[test]
     fn debug_header_renders_with_explicit_color_mode() {
@@ -1864,9 +1940,12 @@ mod tests {
                 .poll_script_evaluation(&mut evaluation, 3)
                 .expect("poll cooperative evaluation")
             {
-                EvaluationPoll::Yielded { instructions } => {
-                    assert!(instructions <= 3);
+                EvaluationPoll::Yielded { work_units } => {
+                    assert!(work_units <= 3);
                     yields += 1;
+                }
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("test program should not request input")
                 }
                 EvaluationPoll::Ready(value) => break value,
             }
@@ -1932,6 +2011,451 @@ mod tests {
         first
             .start_script_evaluation("replacement.wq", "3")
             .expect("cancellation should release the session");
+    }
+
+    #[test]
+    fn cooperative_script_suspends_for_input_and_resumes_once() {
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("input.wq", "input[\"name> \"]")
+            .expect("start input evaluation");
+
+        let (request_id, prompt) = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 2)
+                .expect("poll input evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { request_id, prompt } => {
+                    break (request_id, prompt);
+                }
+                EvaluationPoll::Ready(_) => panic!("input should suspend before completion"),
+            }
+        };
+        assert_eq!(prompt, "name> ");
+
+        session
+            .resume_script_input(
+                &mut evaluation,
+                request_id,
+                ScriptInputResponse::Line("Ada".to_string()),
+            )
+            .expect("resume input");
+        let duplicate = session
+            .resume_script_input(
+                &mut evaluation,
+                request_id,
+                ScriptInputResponse::Line("Grace".to_string()),
+            )
+            .expect_err("input request should accept exactly one response");
+        assert!(
+            duplicate
+                .to_string()
+                .contains("input request is not pending")
+        );
+
+        let value = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 2)
+                .expect("finish input evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("resumed input should not request another line")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+        assert_eq!(value.try_to_rust_string().as_deref(), Some("Ada"));
+    }
+
+    #[test]
+    fn alternate_interpreters_yield_cooperatively() {
+        for kind in [InterpreterKind::Sample, InterpreterKind::Profiler] {
+            let mut session = Session::new();
+            session.set_interpreter(kind);
+            let mut evaluation = session
+                .start_script_evaluation("alternate.wq", "i:0;W[i<20;i+:1];i")
+                .expect("start alternate interpreter evaluation");
+            let mut yields = 0;
+
+            let value = loop {
+                match session
+                    .poll_script_evaluation(&mut evaluation, 2)
+                    .expect("poll alternate interpreter")
+                {
+                    EvaluationPoll::Yielded { work_units } => {
+                        assert!(work_units <= 2);
+                        yields += 1;
+                    }
+                    EvaluationPoll::AwaitingInput { .. } => {
+                        panic!("test program should not request input")
+                    }
+                    EvaluationPoll::Ready(value) => break value,
+                }
+            };
+
+            assert_eq!(value, Value::Int(20));
+            assert!(yields > 2, "{} should yield repeatedly", kind.name());
+        }
+    }
+
+    #[test]
+    fn cooperative_map_charges_callback_work() {
+        let source = "map[til 200;{[x]x+1}]";
+        let expected = Session::new()
+            .eval_script(SourceUnit::named("map-sync.wq", source))
+            .expect("synchronous map evaluation");
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("map-sliced.wq", source)
+            .expect("start cooperative map evaluation");
+        let mut yields = 0;
+
+        let actual = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("poll cooperative map evaluation")
+            {
+                EvaluationPoll::Yielded { work_units } => {
+                    assert_eq!(work_units, 1);
+                    yields += 1;
+                }
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("map callback should not request input")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(actual, expected);
+        assert!(yields >= 200, "each mapped item should consume work");
+    }
+
+    #[test]
+    fn cooperative_map_can_suspend_in_stdin_callback() {
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("map-input.wq", "map[(\"first> \";\"second> \");input]")
+            .expect("start cooperative map input evaluation");
+        let responses = ["Ada", "Grace"];
+        let mut response_index = 0;
+
+        let value = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("poll cooperative map input evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { request_id, prompt } => {
+                    let expected_prompt = if response_index == 0 {
+                        "first> "
+                    } else {
+                        "second> "
+                    };
+                    assert_eq!(prompt, expected_prompt);
+                    session
+                        .resume_script_input(
+                            &mut evaluation,
+                            request_id,
+                            ScriptInputResponse::Line(responses[response_index].to_string()),
+                        )
+                        .expect("resume map callback input");
+                    response_index += 1;
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(response_index, 2);
+        assert_eq!(
+            value,
+            Value::from_items(
+                responses
+                    .into_iter()
+                    .map(crate::value::into_wq_string)
+                    .collect()
+            )
+        );
+    }
+
+    #[test]
+    fn cooperative_composed_callback_uses_atomic_nested_call() {
+        let source = r#"f:{[x]int input[x]};g:f+1;map[,"value> ";g]"#;
+        let mut synchronous = Session::new();
+        synchronous.set_input(Box::new(FixedInput("3")));
+        let expected = synchronous
+            .eval_script(SourceUnit::named("composed-sync.wq", source))
+            .expect("synchronous composed callback evaluation");
+
+        let mut session = Session::new();
+        session.set_input(Box::new(FixedInput("3")));
+        let mut evaluation = session
+            .start_script_evaluation("composed-sliced.wq", source)
+            .expect("start cooperative composed callback evaluation");
+        let actual = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("poll cooperative composed callback evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("composed callback should use the synchronous input adapter")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn cooperative_linear_context_builtins_yield_and_match_sync() {
+        let source = r#"
+            xs:til 40;
+            mapper:map;
+            (
+                apply[({[x]x+1};{[x]x*2});5];
+                fold[xs;{[a;b]a+b};0];
+                scan[xs;{[a;b]a+b};0];
+                rscan[xs;{[a;b]a+b};0];
+                any[xs;{[x]x=20}];
+                all[xs;{[x]x<40}];
+                filter[xs;{[x]x%2=0}];
+                zipw[xs;reverse xs;{[x;y]x+y}];
+                splitw[xs;{[x]x%7=0}];
+                findw[((1;2);(3;4));{[x]x=3};3;2];
+                rfindw[((1;2);(3;4));{[x]x=3};3;2];
+                mapper[xs;{[x]x+1}];
+                argparse[
+                    (`name:"tool";`args:,(`name:`value;`kind:`positional;`multiple:T;`parse:{[s]int s}));
+                    ("1";"2";"3";"4";"5";"6";"7";"8")
+                ];
+                argparse[
+                    (`name:"tool";`args:,(`name:`value;`kind:`positional;`parse:{[s]1/0}));
+                    ,"bad"
+                ]
+            )
+        "#;
+        let expected = Session::new()
+            .eval_script(SourceUnit::named("linear-sync.wq", source))
+            .expect("synchronous higher-order evaluation");
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("linear-sliced.wq", source)
+            .expect("start cooperative higher-order evaluation");
+        let mut yields = 0;
+
+        let actual = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 2)
+                .expect("poll cooperative higher-order evaluation")
+            {
+                EvaluationPoll::Yielded { work_units } => {
+                    assert!(work_units <= 2);
+                    yields += 1;
+                }
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("linear callbacks should not request input")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(actual, expected);
+        assert!(yields >= 100, "higher-order items should consume work");
+    }
+
+    #[test]
+    fn cooperative_context_frames_nest_and_unwind_into_try() {
+        let source = r#"
+            nested:map[((1;2);(3;4));{[row]fold[row;{[a;b]a+b};0]}];
+            caught:@t map[(1;2);{[x]1/0}];
+            (nested;caught 0)
+        "#;
+        let expected = Session::new()
+            .eval_script(SourceUnit::named("frames-sync.wq", source))
+            .expect("synchronous nested context evaluation");
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("frames-sliced.wq", source)
+            .expect("start nested context evaluation");
+
+        let actual = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("poll nested context evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("nested context callbacks should not request input")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            session
+                .eval_string("1+1")
+                .expect("session should be reusable after callback unwind"),
+            Value::Int(2)
+        );
+    }
+
+    #[test]
+    fn cooperative_broadcast_callback_errors_keep_builtin_path_context() {
+        for source in [
+            "map[((1;2);(3;4));{[x]1/0};2]",
+            "zipw[((1;2);(3;4));10;{[x;y]1/0};2]",
+        ] {
+            let expected = Session::new()
+                .eval_script(SourceUnit::named("error-sync.wq", source))
+                .expect_err("synchronous callback should fail");
+            let mut session = Session::new();
+            let mut evaluation = session
+                .start_script_evaluation("error-sliced.wq", source)
+                .expect("start cooperative callback failure");
+            let actual = loop {
+                match session.poll_script_evaluation(&mut evaluation, 1) {
+                    Ok(EvaluationPoll::Yielded { .. }) => {}
+                    Ok(EvaluationPoll::AwaitingInput { .. }) => {
+                        panic!("failing callback should not request input")
+                    }
+                    Ok(EvaluationPoll::Ready(_)) => panic!("callback should fail"),
+                    Err(failure) => break failure,
+                }
+            };
+
+            assert_eq!(actual.error.err_type, expected.error.err_type);
+            assert_eq!(actual.error.src, expected.error.src);
+            assert_eq!(actual.error.notes, expected.error.notes);
+        }
+    }
+
+    #[test]
+    fn cooperative_callback_input_error_unwinds_builtin_frame() {
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("input-error.wq", "@t map[(\"value> \";\"unused> \");input]")
+            .expect("start callback input error evaluation");
+        let request_id = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("poll callback input error evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { request_id, prompt } => {
+                    assert_eq!(prompt, "value> ");
+                    break request_id;
+                }
+                EvaluationPoll::Ready(_) => panic!("callback input should suspend"),
+            }
+        };
+        session
+            .resume_script_input(
+                &mut evaluation,
+                request_id,
+                ScriptInputResponse::Error("stdin failed".to_string()),
+            )
+            .expect("inject callback input error");
+
+        let value = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("finish caught callback input error")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("failed callback input should not remain pending")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+        assert_eq!(
+            value.index(&Value::Int(0)),
+            Some(Value::Tag(Arc::from("error")))
+        );
+        assert_eq!(
+            session
+                .eval_string("6*7")
+                .expect("session should be reusable after input failure"),
+            Value::Int(42)
+        );
+    }
+
+    #[test]
+    fn cooperative_cliargs_custom_parser_yields_and_matches_sync() {
+        let source = r#"
+            cliargs[(`name:"tool";`args:,(`name:`value;`kind:`positional;`multiple:T;`parse:{[s]int s}))]
+        "#;
+        let argv = (0..20).map(|value| value.to_string()).collect::<Vec<_>>();
+        let mut synchronous = Session::new();
+        synchronous.set_argv(argv.clone());
+        let expected = synchronous
+            .eval_script(SourceUnit::named("cliargs-sync.wq", source))
+            .expect("synchronous cliargs evaluation");
+
+        let mut session = Session::new();
+        session.set_argv(argv);
+        let mut evaluation = session
+            .start_script_evaluation("cliargs-sliced.wq", source)
+            .expect("start cooperative cliargs evaluation");
+        let mut yields = 0;
+        let actual = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("poll cooperative cliargs evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => yields += 1,
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("cliargs parser should not request input")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(actual, expected);
+        assert!(yields >= 20, "each custom parser call should consume work");
+        assert_eq!(session.take_halt_status(), None);
+    }
+
+    #[test]
+    fn cooperative_asciiplot_callable_sampling_yields_and_matches_sync() {
+        let source = "asciiplot[{[x]x*x};`samples:20;`size:(20;8);`color:F]";
+        let expected_output = Arc::new(Mutex::new(String::new()));
+        let mut synchronous = Session::new();
+        synchronous.set_stdout(Box::new(CaptureOutput(Arc::clone(&expected_output))));
+        let expected = synchronous
+            .eval_script(SourceUnit::named("plot-sync.wq", source))
+            .expect("synchronous asciiplot evaluation");
+
+        let actual_output = Arc::new(Mutex::new(String::new()));
+        let mut session = Session::new();
+        session.set_stdout(Box::new(CaptureOutput(Arc::clone(&actual_output))));
+        let mut evaluation = session
+            .start_script_evaluation("plot-sliced.wq", source)
+            .expect("start cooperative asciiplot evaluation");
+        let mut yields = 0;
+        let actual = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 1)
+                .expect("poll cooperative asciiplot evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => yields += 1,
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("plot callback should not request input")
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            *actual_output.lock().expect("actual output lock"),
+            *expected_output.lock().expect("expected output lock")
+        );
+        assert!(yields >= 20, "each callable sample should consume work");
     }
 
     #[test]

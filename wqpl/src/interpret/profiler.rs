@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::builtins::Builtins;
-use crate::interpret::vanilla::VanillaInterpreter;
+use crate::interpret::vanilla::{InterpretPoll, VanillaInterpreter};
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::session::dbglog::DebugLog;
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
@@ -204,6 +204,25 @@ impl ProfilerInterpreter {
         }
 
         emit_sequence_outputs(&stats.sequence_outputs, color_mode, debug_log);
+    }
+
+    pub(crate) fn interpret_slice(
+        &mut self,
+        vm: &mut Vm,
+        limit: usize,
+        work_budget: usize,
+    ) -> WqResult<InterpretPoll> {
+        let mut delegate = VanillaInterpreter;
+        let previous_interpreter = vm.interpreter_kind;
+        vm.interpreter_kind = InterpreterKind::Vanilla;
+        vm.set_hooks(Some(self));
+        let result = delegate.interpret_slice(vm, limit, work_budget);
+        vm.set_hooks(None);
+        vm.interpreter_kind = previous_interpreter;
+        if matches!(result, Ok(InterpretPoll::Ready(_)) | Err(_)) {
+            self.stats.borrow_mut().final_stack_len = vm.stack.len();
+        }
+        result
     }
 }
 

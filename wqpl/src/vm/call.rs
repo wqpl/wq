@@ -10,6 +10,7 @@ use crate::session::dbglog::DebugLogFlags;
 use crate::value::cell::ValueCell;
 use crate::value::func::{CallableExpr, LiftedCallableData};
 use crate::value::{Value, WqResult, eval_binary, eval_unary};
+use crate::vm::builtin_frame::{BuiltinFrame, BuiltinFrameAction};
 use crate::vm::inst::{Instruction, NamedArgMeta};
 use crate::vm::slot::Slot;
 use crate::vm::{
@@ -428,6 +429,9 @@ impl Vm {
         if !self.restore_user_call() {
             return Some(value);
         }
+        if self.accept_builtin_callback_result(value.clone()) {
+            return None;
+        }
         if push_result {
             self.stack.push(value);
             None
@@ -437,7 +441,61 @@ impl Vm {
     }
 
     pub(crate) fn unwind_user_call(&mut self) -> bool {
-        self.restore_user_call()
+        if !self.restore_user_call() {
+            return false;
+        }
+        if self.builtin_frames.last().is_some_and(|frame| {
+            frame.owner_call_depth == self.execution_frames.len()
+                && frame.is_waiting_for_user_function()
+        }) {
+            self.builtin_frames.pop();
+        }
+        true
+    }
+
+    fn accept_builtin_callback_result(&mut self, value: Value) -> bool {
+        let Some(frame) = self.builtin_frames.last_mut() else {
+            return false;
+        };
+        if frame.owner_call_depth != self.execution_frames.len()
+            || !frame.is_waiting_for_user_function()
+        {
+            return false;
+        }
+        frame.accept_callback_result(value);
+        true
+    }
+
+    pub(crate) fn capture_builtin_callback_error(&mut self, error: &WqError) -> bool {
+        let captures = self.builtin_frames.last().is_some_and(|frame| {
+            frame.owner_call_depth + 1 == self.execution_frames.len()
+                && frame.is_waiting_for_user_function()
+                && frame.captures_callback_errors()
+        });
+        if !captures {
+            return false;
+        }
+        let restored = self.restore_user_call();
+        debug_assert!(restored);
+        self.builtin_frames
+            .last_mut()
+            .expect("capturing builtin frame should exist")
+            .accept_callback_error(error.clone());
+        true
+    }
+
+    pub(crate) fn is_builtin_callback_boundary(&self) -> bool {
+        self.builtin_frames.last().is_some_and(|frame| {
+            frame.owner_call_depth + 1 == self.execution_frames.len()
+                && frame.is_waiting_for_user_function()
+        })
+    }
+
+    pub(crate) fn decorate_builtin_callback_error(&self, error: WqError) -> WqError {
+        let Some(frame) = self.builtin_frames.last() else {
+            return error;
+        };
+        frame.decorate_callback_error(error)
     }
 
     fn restore_user_call(&mut self) -> bool {
@@ -677,6 +735,255 @@ impl Vm {
         }
     }
 
+    pub(crate) fn try_start_resumable_builtin(
+        &mut self,
+        id: u16,
+        argc: u16,
+        discard: bool,
+    ) -> WqResult<bool> {
+        if !self.cooperative_execution || !self.builtins.is_enabled_id(id) {
+            return Ok(false);
+        }
+        let Some(builtin) = BuiltinEnum::from_id(id) else {
+            return Err(vm_err("invalid builtin id"));
+        };
+        let canonical = builtin.canonical();
+        if !matches!(
+            canonical,
+            BuiltinEnum::Apply
+                | BuiltinEnum::Map
+                | BuiltinEnum::Fold
+                | BuiltinEnum::Scan
+                | BuiltinEnum::RScan
+                | BuiltinEnum::Any
+                | BuiltinEnum::All
+                | BuiltinEnum::Filter
+                | BuiltinEnum::ZipW
+                | BuiltinEnum::SplitW
+                | BuiltinEnum::FindW
+                | BuiltinEnum::RFindW
+                | BuiltinEnum::Argparse
+                | BuiltinEnum::Cliargs
+                | BuiltinEnum::Asciiplot
+        ) {
+            return Ok(false);
+        }
+
+        let argc = usize::from(argc);
+        let mut taken = self.take_builtin_args_from_stack(argc)?;
+        if self.builtins.validate_runtime_call_args(id, &taken.args)? {
+            taken.args.mark_runtime_validated();
+        }
+        let owner_call_depth = self.execution_frames.len();
+        let frame = match canonical {
+            BuiltinEnum::Apply => {
+                BuiltinFrame::apply(id, argc, discard, owner_call_depth, taken.args)
+            }
+            BuiltinEnum::Map => BuiltinFrame::map(id, argc, discard, owner_call_depth, taken.args)?,
+            BuiltinEnum::Fold | BuiltinEnum::Scan | BuiltinEnum::RScan => {
+                BuiltinFrame::fold_scan(id, argc, discard, owner_call_depth, canonical, taken.args)
+            }
+            BuiltinEnum::Any | BuiltinEnum::All => {
+                BuiltinFrame::predicate(id, argc, discard, owner_call_depth, canonical, taken.args)?
+            }
+            BuiltinEnum::Filter => {
+                BuiltinFrame::filter(id, argc, discard, owner_call_depth, taken.args)
+            }
+            BuiltinEnum::ZipW => {
+                BuiltinFrame::zip(id, argc, discard, owner_call_depth, taken.args)?
+            }
+            BuiltinEnum::SplitW => {
+                BuiltinFrame::split(id, argc, discard, owner_call_depth, taken.args)?
+            }
+            BuiltinEnum::FindW | BuiltinEnum::RFindW => {
+                BuiltinFrame::find(id, argc, discard, owner_call_depth, canonical, taken.args)?
+            }
+            BuiltinEnum::Argparse => {
+                BuiltinFrame::argparse(id, argc, discard, owner_call_depth, taken.args)?
+            }
+            BuiltinEnum::Cliargs => BuiltinFrame::cliargs(
+                id,
+                argc,
+                discard,
+                owner_call_depth,
+                taken.args,
+                self.argv.to_vec(),
+            )?,
+            BuiltinEnum::Asciiplot => BuiltinFrame::asciiplot(
+                id,
+                argc,
+                discard,
+                owner_call_depth,
+                taken.args,
+                self.stdout_terminal_size(),
+                self.stdout_color_mode(),
+            )?,
+            _ => unreachable!("resumable builtin was filtered above"),
+        };
+        self.builtin_frames.push(frame);
+        Ok(true)
+    }
+
+    pub(crate) fn try_start_resumable_builtin_value(
+        &mut self,
+        id: u16,
+        argc: usize,
+    ) -> WqResult<bool> {
+        let argc = u16::try_from(argc)
+            .map_err(|_| arity_err_vm("builtin call has too many arguments".to_string()))?;
+        self.try_start_resumable_builtin(id, argc, false)
+    }
+
+    pub(crate) fn builtin_frame_is_runnable(&self) -> bool {
+        let Some(frame) = self.builtin_frames.last() else {
+            return false;
+        };
+        if frame.owner_call_depth != self.execution_frames.len() {
+            return false;
+        }
+        if frame.is_waiting_for_user_function() {
+            return false;
+        }
+        !frame.is_waiting_for_input_result() || self.pending_input_request.is_none()
+    }
+
+    pub(crate) fn builtin_frame_at_current_depth(&self) -> bool {
+        self.builtin_frames
+            .last()
+            .is_some_and(|frame| frame.owner_call_depth == self.execution_frames.len())
+    }
+
+    pub(crate) fn step_builtin_frame(&mut self) -> WqResult<()> {
+        if self
+            .builtin_frames
+            .last()
+            .is_some_and(BuiltinFrame::is_waiting_for_input_result)
+        {
+            let value = self
+                .stack
+                .pop()
+                .ok_or_else(|| vm_err("pending builtin callback input has no result"))?;
+            self.builtin_frames
+                .last_mut()
+                .expect("builtin frame was checked")
+                .accept_callback_result(value);
+            return Ok(());
+        }
+
+        let action = match self
+            .builtin_frames
+            .last_mut()
+            .expect("runnable builtin frame should exist")
+            .step()
+        {
+            Ok(action) => action,
+            Err(error) => {
+                self.builtin_frames.pop();
+                return Err(error);
+            }
+        };
+
+        match action {
+            BuiltinFrameAction::Continue => {}
+            BuiltinFrameAction::Call { func, args } => {
+                if matches!(func, Value::CompiledFunction(_) | Value::Closure(_)) {
+                    let argc = args.len();
+                    debug_assert!(!args.has_named());
+                    self.stack.extend(args);
+                    let spec = CallSpec::from_user_callable(&func, argc, None)
+                        .expect("matched user function");
+                    if let Err(error) = self.enter_spec(spec) {
+                        let error = self.decorate_builtin_callback_error(error);
+                        self.builtin_frames.pop();
+                        return Err(error);
+                    }
+                    self.builtin_frames
+                        .last_mut()
+                        .expect("callback builtin frame should exist")
+                        .wait_for_user_function();
+                } else {
+                    let atomic_callback = match &func {
+                        Value::LiftedCallable(_) => true,
+                        Value::BuiltinFunction { id, .. } => BuiltinEnum::from_id(*id)
+                            .is_some_and(|builtin| builtin.canonical() != BuiltinEnum::Input),
+                        _ => false,
+                    };
+                    let cooperative_execution = self.cooperative_execution;
+                    if atomic_callback {
+                        self.cooperative_execution = false;
+                    }
+                    let result = self.call(&func, args);
+                    self.cooperative_execution = cooperative_execution;
+                    let result = match result {
+                        Ok(result) => result,
+                        Err(error) => {
+                            let error = self.decorate_builtin_callback_error(error);
+                            self.builtin_frames.pop();
+                            return Err(error);
+                        }
+                    };
+                    let frame = self
+                        .builtin_frames
+                        .last_mut()
+                        .expect("callback builtin frame should exist");
+                    if self.pending_input_request.is_some() {
+                        self.stack.push(result);
+                        frame.wait_for_input_result();
+                    } else {
+                        frame.wait_for_user_function();
+                        frame.accept_callback_result(result);
+                    }
+                }
+            }
+            BuiltinFrameAction::HostComplete {
+                text,
+                stderr,
+                status,
+            } => {
+                let write_result = if stderr {
+                    self.write_stderr_line(&text)
+                } else {
+                    self.write_stdout_line(&text)
+                };
+                if let Err(error) = write_result {
+                    let source = self
+                        .builtin_frames
+                        .last()
+                        .and_then(|frame| BuiltinEnum::from_id(frame.id))
+                        .map(BuiltinEnum::canonical)
+                        .unwrap_or(BuiltinEnum::Cliargs);
+                    self.builtin_frames.pop();
+                    return Err(WqError::new(WqErrorType::Io)
+                        .src(source)
+                        .attach_note(format!("host I/O error: {error}")));
+                }
+                if let Some(status) = status {
+                    self.request_halt(status);
+                }
+                let value = Value::empty_list();
+                let frame = self
+                    .builtin_frames
+                    .pop()
+                    .expect("completed cliargs frame should exist");
+                self.record_builtin_result(frame.id, frame.argc, &value);
+                self.stack.push(value);
+            }
+            BuiltinFrameAction::Ready(value) => {
+                let frame = self
+                    .builtin_frames
+                    .pop()
+                    .expect("completed builtin frame should exist");
+                self.record_builtin_result(frame.id, frame.argc, &value);
+                self.stack.push(if frame.discard {
+                    Value::empty_list()
+                } else {
+                    value
+                });
+            }
+        }
+        Ok(())
+    }
+
     #[inline]
     pub(crate) fn invoke_builtin_value(&mut self, id: u16, argc: usize) -> WqResult<Value> {
         let taken = self.take_builtin_args_from_stack(argc)?;
@@ -738,7 +1045,11 @@ impl Vm {
             args.mark_runtime_validated();
         }
         let result = func.invoke(self, args)?;
-        self.record_builtin_result(id, argc, &result);
+        if let Some(request) = self.pending_input_request.as_mut() {
+            request.builtin = Some((id, argc, false));
+        } else {
+            self.record_builtin_result(id, argc, &result);
+        }
         Ok(result)
     }
 
@@ -762,12 +1073,16 @@ impl Vm {
             } else {
                 func.invoke(self, args).map(|_| Value::empty_list())?
             };
-        self.record_builtin_result(id, argc, &result);
+        if let Some(request) = self.pending_input_request.as_mut() {
+            request.builtin = Some((id, argc, true));
+        } else {
+            self.record_builtin_result(id, argc, &result);
+        }
         Ok(result)
     }
 
     #[inline]
-    fn record_builtin_result(&self, id: u16, argc: usize, result: &Value) {
+    pub(crate) fn record_builtin_result(&self, id: u16, argc: usize, result: &Value) {
         if let Some(hooks) = self.hooks
             && let Some(name) = Builtins::name_from_id(id)
         {
@@ -812,7 +1127,11 @@ impl BuiltinContext for Vm {
     }
 
     fn read_line(&self, prompt: &str) -> Result<String, crate::session::stdio::WqIoError> {
-        Vm::read_line(self, prompt)
+        self.runtime_io.read_line(prompt)
+    }
+
+    fn poll_read_line(&mut self, prompt: &str) -> crate::session::stdio::WqInputPoll {
+        Vm::poll_read_line(self, prompt)
     }
 
     fn write_stdout(&self, text: &str) -> Result<(), crate::session::stdio::WqIoError> {

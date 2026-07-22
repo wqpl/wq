@@ -142,6 +142,9 @@ pub(super) fn dispatch_postfix<const TAIL: bool>(
 ) -> WqResult<bool> {
     match target {
         Value::BuiltinFunction { id, .. } => {
+            if vm.try_start_resumable_builtin_value(*id, argc)? {
+                return Ok(true);
+            }
             let result = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(result);
             Ok(false)
@@ -201,6 +204,9 @@ pub(super) fn dispatch_anon_call<const TAIL: bool>(
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction { id, .. } => {
+            if vm.try_start_resumable_builtin_value(*id, argc)? {
+                return Ok(true);
+            }
             let out = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(out);
             Ok(false)
@@ -289,6 +295,9 @@ pub(super) fn dispatch_loaded_local_call<const TAIL: bool>(
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction { id, .. } => {
+            if vm.try_start_resumable_builtin_value(*id, argc)? {
+                return Ok(true);
+            }
             let out = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(out);
             Ok(false)
@@ -315,6 +324,9 @@ pub(super) fn dispatch_loaded_user_call<const TAIL: bool>(
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction { id, .. } => {
+            if vm.try_start_resumable_builtin_value(*id, argc)? {
+                return Ok(true);
+            }
             let out = vm.invoke_builtin_value(*id, argc)?;
             vm.stack.push(out);
             Ok(false)

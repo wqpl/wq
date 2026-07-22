@@ -72,7 +72,13 @@ export class WasmWqSession {
   set_interpreter_by_name(name: string): string;
   set_stderr_callback(callback?: ((chunk: string) => void) | null): void;
   set_stdin_callback(
-    callback?: ((prompt: string) => string | null | undefined) | null,
+    callback?:
+      | ((prompt: string) =>
+          | string
+          | null
+          | undefined
+          | PromiseLike<string | null | undefined>)
+      | null,
   ): void;
   set_stdout_callback(callback?: ((chunk: string) => void) | null): void;
   set_wqdb_mode(on: boolean): void;

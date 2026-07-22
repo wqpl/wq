@@ -18,9 +18,9 @@ export default async function init(moduleOrPath) {
 }
 
 const DEFAULT_TIME_SLICE_MS = 8;
-const INITIAL_INSTRUCTION_BUDGET = 10_000;
-const MIN_INSTRUCTION_BUDGET = 100;
-const MAX_INSTRUCTION_BUDGET = 1_000_000;
+const INITIAL_WORK_BUDGET = 10_000;
+const MIN_WORK_BUDGET = 100;
+const MAX_WORK_BUDGET = 1_000_000;
 
 function now() {
   return globalThis.performance?.now() ?? Date.now();
@@ -46,6 +46,43 @@ async function yieldToHost() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function disposedError() {
+  return new Error("WasmWqSession has been disposed");
+}
+
+async function awaitWithCancellation(value, signal, disposalSignal) {
+  if (signal?.aborted) {
+    throw abortError(signal.reason);
+  }
+  if (disposalSignal.aborted) {
+    throw disposedError();
+  }
+
+  return await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      signal?.removeEventListener("abort", onAbort);
+      disposalSignal.removeEventListener("abort", onDispose);
+    };
+    const resolveOnce = (result) => {
+      cleanup();
+      resolve(result);
+    };
+    const rejectOnce = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => rejectOnce(abortError(signal.reason));
+    const onDispose = () => rejectOnce(disposedError());
+    signal?.addEventListener("abort", onAbort, { once: true });
+    disposalSignal.addEventListener("abort", onDispose, { once: true });
+    Promise.resolve(value).then(resolveOnce, rejectOnce);
+  });
+}
+
+function inputCallbackMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Public browser session facade.
  *
@@ -58,6 +95,8 @@ export class WasmWqSession {
   #activeCalls = 0;
   #activeEvaluation = false;
   #disposeRequested = false;
+  #disposalController = new AbortController();
+  #stdinCallback = null;
 
   constructor() {
     this.#session = new WasmWqSessionCore();
@@ -115,6 +154,7 @@ export class WasmWqSession {
   free() {
     if (!this.#session) return;
     this.#disposeRequested = true;
+    this.#disposalController.abort();
     this.#flushDisposal();
   }
 
@@ -157,7 +197,7 @@ export class WasmWqSession {
     this.#activeEvaluation = true;
     let started = false;
     let finished = false;
-    let instructionBudget = INITIAL_INSTRUCTION_BUDGET;
+    let workBudget = INITIAL_WORK_BUDGET;
     try {
       if (signal?.aborted) {
         throw abortError(signal.reason);
@@ -176,24 +216,85 @@ export class WasmWqSession {
         const sliceStarted = now();
         const result = this.#evaluationCall(
           "run_eval_wq_slice",
-          instructionBudget,
+          workBudget,
         );
         const elapsed = Math.max(now() - sliceStarted, 0.01);
         const adjustment = Math.min(
           4,
           Math.max(0.25, timeSliceMs / elapsed),
         );
-        instructionBudget = Math.min(
-          MAX_INSTRUCTION_BUDGET,
+        workBudget = Math.min(
+          MAX_WORK_BUDGET,
           Math.max(
-            MIN_INSTRUCTION_BUDGET,
-            Math.round(instructionBudget * adjustment),
+            MIN_WORK_BUDGET,
+            Math.round(workBudget * adjustment),
           ),
         );
 
         if (result.status === "ready") {
           finished = true;
           return result.value;
+        }
+        if (result.status === "awaiting_input") {
+          const callback = this.#stdinCallback;
+          if (!callback) {
+            this.#evaluationCall(
+              "resume_eval_wq_input",
+              result.request_id,
+              "error",
+              "stdin is not configured",
+            );
+            continue;
+          }
+
+          let input;
+          try {
+            input = await awaitWithCancellation(
+              callback(result.prompt),
+              signal,
+              this.#disposalController.signal,
+            );
+          } catch (error) {
+            if (this.#disposeRequested) {
+              throw disposedError();
+            }
+            if (signal?.aborted) {
+              throw abortError(signal.reason);
+            }
+            this.#evaluationCall(
+              "resume_eval_wq_input",
+              result.request_id,
+              "error",
+              inputCallbackMessage(error),
+            );
+            continue;
+          }
+
+          if (input === null || input === undefined) {
+            this.#evaluationCall(
+              "resume_eval_wq_input",
+              result.request_id,
+              "eof",
+            );
+          } else if (typeof input === "string") {
+            this.#evaluationCall(
+              "resume_eval_wq_input",
+              result.request_id,
+              "line",
+              input,
+            );
+          } else {
+            this.#evaluationCall(
+              "resume_eval_wq_input",
+              result.request_id,
+              "error",
+              "stdin callback must return a string, null, or undefined",
+            );
+          }
+          continue;
+        }
+        if (result.status !== "yielded") {
+          throw new Error(`Unknown evaluation status '${result.status}'`);
         }
         await yieldToHost();
       }
@@ -287,7 +388,9 @@ export class WasmWqSession {
   }
 
   set_stdin_callback(callback) {
-    return this.#call("set_stdin_callback", callback);
+    const result = this.#call("set_stdin_callback", callback);
+    this.#stdinCallback = callback ?? null;
+    return result;
   }
 
   set_stdout_callback(callback) {

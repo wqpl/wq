@@ -1,3 +1,4 @@
+pub(crate) mod builtin_frame;
 pub mod call;
 pub(crate) mod debug;
 pub mod inst;
@@ -18,7 +19,7 @@ use crate::builtins::{BuiltinPreset, Builtins};
 use crate::debugger::PauseHandler;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
-use crate::session::stdio::{RuntimeIo, WqIoError};
+use crate::session::stdio::{RuntimeIo, WqInputPoll, WqIoError};
 use crate::style::ColorMode;
 use crate::value::cell::ValueCell;
 use crate::value::rng::RngState;
@@ -73,6 +74,7 @@ pub(crate) struct Vm {
     pub(crate) current_closure_stack: Vec<Value>,
     /// Suspended caller execution states for resumable user-function calls.
     pub(crate) execution_frames: Vec<ExecutionFrame>,
+    pub(crate) builtin_frames: Vec<builtin_frame::BuiltinFrame>,
     // args_scratch: Vec<Value>,
     /// Tail-call journal for backtrace when TCE is active.
     pub(crate) tail_call_journal: TailCallJournal,
@@ -116,6 +118,17 @@ pub(crate) struct Vm {
     pub(crate) trace_buf: Vec<TraceRecord>,
     pub(crate) trace_bases: Vec<usize>,
     pub(crate) pending_trace_probe: Option<usize>,
+    pub(crate) cooperative_execution: bool,
+    pub(crate) pending_input_request: Option<PendingInputRequest>,
+    pub(crate) pending_host_error: Option<WqError>,
+    next_input_request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingInputRequest {
+    pub(crate) id: u64,
+    pub(crate) prompt: String,
+    pub(crate) builtin: Option<(u16, usize, bool)>,
 }
 
 #[derive(Clone)]
@@ -275,6 +288,7 @@ impl Vm {
             stack_pool: Vec::new(),
             current_closure_stack: Vec::new(),
             execution_frames: Vec::new(),
+            builtin_frames: Vec::new(),
             // args_scratch: Vec::new(),
             tail_call_journal: TailCallJournal::default(),
             tail_call_depth: 0,
@@ -299,6 +313,10 @@ impl Vm {
             trace_buf: Vec::new(),
             trace_bases: Vec::new(),
             pending_trace_probe: None,
+            cooperative_execution: false,
+            pending_input_request: None,
+            pending_host_error: None,
+            next_input_request_id: 1,
         }
     }
 
@@ -314,6 +332,7 @@ impl Vm {
         self.inline_cache = vec![InlineCache::default(); self.instructions.len()];
         self.current_closure_stack.clear();
         self.execution_frames.clear();
+        self.builtin_frames.clear();
         self.hooks = None;
         self.try_stack.clear();
         self.returned = false;
@@ -326,6 +345,9 @@ impl Vm {
         self.trace_buf.clear();
         self.trace_bases.clear();
         self.pending_trace_probe = None;
+        self.cooperative_execution = false;
+        self.pending_input_request = None;
+        self.pending_host_error = None;
         // Keep debug_src_offset as set by session for current run
     }
 
@@ -381,8 +403,98 @@ impl Vm {
         self.runtime_io.stderr_is_terminal()
     }
 
-    pub(crate) fn read_line(&self, prompt: &str) -> Result<String, WqIoError> {
-        self.runtime_io.read_line(prompt)
+    pub(crate) fn poll_read_line(&mut self, prompt: &str) -> WqInputPoll {
+        if !self.cooperative_execution {
+            return WqInputPoll::Ready(self.runtime_io.read_line(prompt));
+        }
+        if self.pending_input_request.is_some() {
+            return WqInputPoll::Ready(Err(WqIoError::Reentrant("stdin")));
+        }
+        let Some(next_id) = self.next_input_request_id.checked_add(1) else {
+            return WqInputPoll::Ready(Err(WqIoError::Other(
+                "input request identifier exhausted".to_string(),
+            )));
+        };
+        let id = self.next_input_request_id;
+        self.next_input_request_id = next_id;
+        self.pending_input_request = Some(PendingInputRequest {
+            id,
+            prompt: prompt.to_string(),
+            builtin: None,
+        });
+        WqInputPoll::Pending
+    }
+
+    pub(crate) fn pending_input_request(&self) -> Option<&PendingInputRequest> {
+        self.pending_input_request.as_ref()
+    }
+
+    pub(crate) fn root_instruction_limit(&self) -> usize {
+        self.execution_frames
+            .first()
+            .map_or(self.instructions.len(), |frame| frame.instructions.len())
+    }
+
+    pub(crate) fn resume_input(
+        &mut self,
+        request_id: u64,
+        response: Result<String, WqIoError>,
+    ) -> WqResult<()> {
+        let Some(request) = self.pending_input_request.as_ref() else {
+            return Err(vm_err("input request is not pending"));
+        };
+        if request.id != request_id {
+            return Err(vm_err(format!(
+                "input request {request_id} does not match pending request {}",
+                request.id
+            )));
+        }
+        let (_, _, discard) = request
+            .builtin
+            .ok_or_else(|| vm_err("pending input request has no builtin call"))?;
+        let request = self
+            .pending_input_request
+            .take()
+            .expect("pending input request was checked");
+        self.stack
+            .pop()
+            .ok_or_else(|| vm_err("pending input request has no result slot"))?;
+
+        match response {
+            Ok(line) => {
+                let value = if discard {
+                    Value::empty_list()
+                } else {
+                    crate::value::into_wq_string(line)
+                };
+                let (builtin, argc, _) = request
+                    .builtin
+                    .expect("pending input builtin metadata was checked");
+                self.record_builtin_result(builtin, argc, &value);
+                self.stack.push(value);
+            }
+            Err(WqIoError::Eof | WqIoError::Interrupted) => {
+                let value = Value::empty_list();
+                let (builtin, argc, _) = request
+                    .builtin
+                    .expect("pending input builtin metadata was checked");
+                self.record_builtin_result(builtin, argc, &value);
+                self.stack.push(value);
+            }
+            Err(error) => {
+                if self.builtin_frames.last().is_some_and(|frame| {
+                    frame.owner_call_depth == self.execution_frames.len()
+                        && frame.is_waiting_for_input_result()
+                }) {
+                    self.builtin_frames.pop();
+                }
+                self.pending_host_error = Some(crate::builtins::builtin_host_io_error(
+                    crate::builtins::BuiltinEnum::Input,
+                    error,
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

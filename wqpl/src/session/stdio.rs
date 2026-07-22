@@ -20,6 +20,11 @@ pub trait WqInput {
     fn read_line(&mut self, prompt: &str) -> Result<String, WqIoError>;
 }
 
+pub enum WqInputPoll {
+    Ready(Result<String, WqIoError>),
+    Pending,
+}
+
 /// A destination for wq program output and evaluator diagnostics.
 pub trait WqOutput {
     fn write(&mut self, text: &str) -> Result<(), WqIoError>;

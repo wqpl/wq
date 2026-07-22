@@ -10,6 +10,7 @@ use crate::cas::{infer_single_cas_var, substitute_cas};
 use crate::style::{AnsiColor, ColorMode as StyleColorMode, TextStyle, paint};
 use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult};
+use crate::vm::builtin_frame::BuiltinFrameAction;
 use crate::vm::pure::PureCallback;
 use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
@@ -62,6 +63,171 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
             .attach_note(format!("host I/O error: {error}"))
     })?;
     Ok(Value::empty_list())
+}
+
+pub(crate) struct AsciiplotFrame {
+    opts: PlotOptions,
+    configs: Vec<SeriesConfig>,
+    next_config: usize,
+    all_series: Vec<PlotSeries>,
+    active: Option<CallableSeriesFrame>,
+    callback_result: Option<Option<Value>>,
+    color_mode: StyleColorMode,
+}
+
+struct CallableSeriesFrame {
+    config: SeriesConfig,
+    func: Value,
+    xmin: f64,
+    step: f64,
+    count: usize,
+    next: usize,
+    pending_x: Option<f64>,
+    samples: Vec<(f64, Option<Value>)>,
+}
+
+impl AsciiplotFrame {
+    pub(crate) fn new(
+        args: &BuiltinFnArgs,
+        terminal_size: Option<(usize, usize)>,
+        color_mode: StyleColorMode,
+    ) -> WqResult<Self> {
+        check_named_args(args, BE::Asciiplot, super::super::ASCIIPLOT_NAMED_ARGS)?;
+        if args.is_empty() {
+            return Err(at_least_arity_error(BE::Asciiplot, 1, 0));
+        }
+        let mut opts = PlotOptions::default();
+        let explicit_size = opts.apply_from_named(args)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if !explicit_size && let Some((width, height)) = terminal_size {
+            opts.width = width.saturating_sub(8).clamp(40, 200);
+            opts.height = height.saturating_sub(6).clamp(10, 60);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = (explicit_size, terminal_size);
+
+        let mut configs = Vec::new();
+        for arg in args.iter() {
+            configs.extend(parse_series_arg(arg, &opts)?);
+        }
+        if configs.is_empty() {
+            return Err(expected_series_arg_error());
+        }
+        Ok(Self {
+            opts,
+            all_series: Vec::with_capacity(configs.len()),
+            configs,
+            next_config: 0,
+            active: None,
+            callback_result: None,
+            color_mode,
+        })
+    }
+
+    pub(crate) fn accept_callback_result(&mut self, value: Value) {
+        self.callback_result = Some(Some(value));
+    }
+
+    pub(crate) fn accept_callback_error(&mut self) {
+        self.callback_result = Some(None);
+    }
+
+    pub(crate) fn step(&mut self) -> WqResult<BuiltinFrameAction> {
+        if let Some(value) = self.callback_result.take() {
+            let active = self
+                .active
+                .as_mut()
+                .expect("asciiplot callback should have an active series");
+            let x = active
+                .pending_x
+                .take()
+                .expect("asciiplot callback should have a pending sample");
+            active.samples.push((x, value));
+            return Ok(BuiltinFrameAction::Continue);
+        }
+
+        if let Some(active) = &mut self.active {
+            if active.next < active.count {
+                let x = active.xmin + active.step * active.next as f64;
+                active.next += 1;
+                active.pending_x = Some(x);
+                return Ok(BuiltinFrameAction::Call {
+                    func: active.func.clone(),
+                    args: Value::float(x).into(),
+                });
+            }
+            let active = self.active.take().expect("active series was checked");
+            let sampled = if self.opts.complex_mode == ComplexMode::Plane {
+                transform_complex_plane(sampled_from_raw_samples(active.samples, &[]))
+            } else {
+                let samples = active
+                    .samples
+                    .into_iter()
+                    .map(|(x, value)| {
+                        (
+                            x,
+                            value.and_then(|value| {
+                                extract_numeric_component(&value, self.opts.complex_mode)
+                            }),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let breaks = real_discontinuity_breaks(&samples);
+                sampled_from_raw_samples(samples, &breaks)
+            };
+            self.all_series.push(plot_series(active.config, sampled));
+            return Ok(BuiltinFrameAction::Continue);
+        }
+
+        if let Some(config) = self.configs.get(self.next_config).cloned() {
+            self.next_config += 1;
+            match config.data.clone() {
+                SeriesData::Raw(sampled) => {
+                    self.all_series.push(plot_series(config, sampled));
+                }
+                SeriesData::Cas(expr) => {
+                    let sampled = sample_cas_series(&expr, &self.opts, config.xlim)?;
+                    self.all_series.push(plot_series(config, sampled));
+                }
+                SeriesData::Callable(func) => {
+                    let (xmin, xmax) = config.xlim.or(self.opts.xlim).unwrap_or((-10.0, 10.0));
+                    let count = self.opts.samples.unwrap_or(self.opts.width).max(2);
+                    let step = if count > 1 {
+                        (xmax - xmin) / count.saturating_sub(1) as f64
+                    } else {
+                        0.0
+                    };
+                    self.active = Some(CallableSeriesFrame {
+                        config,
+                        func,
+                        xmin,
+                        step,
+                        count,
+                        next: 0,
+                        pending_x: None,
+                        samples: Vec::with_capacity(count),
+                    });
+                }
+            }
+            return Ok(BuiltinFrameAction::Continue);
+        }
+
+        Ok(BuiltinFrameAction::HostComplete {
+            text: render_ascii_plot(&self.all_series, &self.opts, self.color_mode),
+            stderr: false,
+            status: None,
+        })
+    }
+}
+
+fn plot_series(config: SeriesConfig, sampled: SampledSeries<f64>) -> PlotSeries {
+    PlotSeries {
+        points: sampled.points,
+        breaks_after: sampled.breaks_after,
+        symbol: config.symbol,
+        mode: config.mode,
+        label: config.label,
+    }
 }
 
 #[derive(Clone)]

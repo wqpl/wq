@@ -1,12 +1,12 @@
 mod cas;
-mod cli;
+pub(crate) mod cli;
 mod complex;
 mod core;
 mod dict;
 mod encoding;
 mod fold;
 mod fraction;
-mod ho;
+pub(crate) mod ho;
 mod io;
 mod list;
 mod listgen;
@@ -17,9 +17,10 @@ mod op;
 mod random;
 mod set;
 mod string;
-mod viz;
+pub(crate) mod viz;
 mod wqtype;
 
+pub(crate) use core::host_io_error as builtin_host_io_error;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -27,7 +28,7 @@ use ahash::AHashMap;
 use smallvec::SmallVec;
 
 use crate::interpret::vanilla::Sv4;
-use crate::session::stdio::WqIoError;
+use crate::session::stdio::{WqInputPoll, WqIoError};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
 
@@ -349,6 +350,9 @@ pub trait BuiltinContext {
     fn argv(&self) -> &[String];
     fn request_halt(&mut self, status: i32);
     fn read_line(&self, prompt: &str) -> Result<String, WqIoError>;
+    fn poll_read_line(&mut self, prompt: &str) -> WqInputPoll {
+        WqInputPoll::Ready(self.read_line(prompt))
+    }
     fn write_stdout(&self, text: &str) -> Result<(), WqIoError>;
     fn write_stdout_line(&self, text: &str) -> Result<(), WqIoError>;
     fn write_stderr_line(&self, text: &str) -> Result<(), WqIoError>;

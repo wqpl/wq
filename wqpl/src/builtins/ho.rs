@@ -154,11 +154,38 @@ pub(super) fn map_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
 }
 
 fn map_stop(xs: &Value, d: &Value) -> WqResult<Bc1Stop> {
-    let el = match eff_layers(d, xs.depth()) {
-        Some(l) => l,
-        None => return Err(type_mismatch(BE::Map, 2, depth_requirement(), d)),
-    };
-    Ok(Bc1Stop::AtomOrDepth(el))
+    Ok(Bc1Stop::AtomOrDepth(map_effective_layers(xs, d)?))
+}
+
+pub(crate) fn map_effective_layers(xs: &Value, d: &Value) -> WqResult<i64> {
+    eff_layers(d, xs.depth()).ok_or_else(|| type_mismatch(BE::Map, 2, depth_requirement(), d))
+}
+
+pub(crate) fn predicate_effective_layers(builtin: BE, xs: &Value, depth: &Value) -> WqResult<i64> {
+    eff_layers(depth, xs.depth())
+        .ok_or_else(|| type_mismatch(builtin, 2, depth_requirement(), depth))
+}
+
+pub(crate) fn zipw_effective_layers(xs: &Value, ys: &Value, depth: &Value) -> WqResult<i64> {
+    let max_depth = xs.depth().max(ys.depth());
+    eff_layers(depth, max_depth)
+        .ok_or_else(|| type_mismatch(BE::ZipW, 3, depth_requirement(), depth))
+}
+
+pub(crate) fn splitw_maxsplit(args: &BuiltinFnArgs) -> WqResult<Option<usize>> {
+    crate::builtins::list::parse_maxsplit(args.named("m"), BE::SplitW)
+}
+
+pub(crate) fn findw_parameters(args: &BuiltinFnArgs, builtin: BE) -> WqResult<(i64, i64)> {
+    match args.len() {
+        2 => Ok((1, 1)),
+        3 => Ok((parse_non_negative_int_or_inf(&args[2], builtin, 2)?, 1)),
+        4 => Ok((
+            parse_non_negative_int_or_inf(&args[2], builtin, 2)?,
+            parse_non_negative_int_or_inf(&args[3], builtin, 3)?,
+        )),
+        _ => unreachable!("findw arity was validated"),
+    }
 }
 
 fn map_impl(vm: &mut dyn BuiltinContext, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
@@ -265,10 +292,7 @@ pub(super) fn any(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<
         3 => (&args[0], &args[1], &args[2]),
         _ => unreachable!(),
     };
-    let max_depth = match eff_layers(d, xs.depth()) {
-        Some(l) => l,
-        None => return Err(type_mismatch(BE::Any, 2, depth_requirement(), d)),
-    };
+    let max_depth = predicate_effective_layers(BE::Any, xs, d)?;
     Ok(Value::Bool(any_all_at_depth(
         vm,
         f,
@@ -288,10 +312,7 @@ pub(super) fn all(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<
         3 => (&args[0], &args[1], &args[2]),
         _ => unreachable!(),
     };
-    let max_depth = match eff_layers(d, xs.depth()) {
-        Some(l) => l,
-        None => return Err(type_mismatch(BE::All, 2, depth_requirement(), d)),
-    };
+    let max_depth = predicate_effective_layers(BE::All, xs, d)?;
     Ok(Value::Bool(any_all_at_depth(
         vm,
         f,
@@ -561,22 +582,6 @@ pub(super) fn filter_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -
 
 /// zipw[xs;ys;f;d?]
 pub(super) fn zipw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    #[inline]
-    fn eff_layers_2(raw_d: &Value, dx: i64, dy: i64) -> Option<i64> {
-        let dmax = dx.max(dy);
-        match raw_d {
-            // non-negative: go min(d, Dmax) layers
-            Value::Int(n) if *n >= 0 => Some((*n).min(dmax)),
-            // negative: cut |d| from max depth, L = max(0, Dmax + d)
-            Value::Int(n) => Some((dmax + *n).max(0)),
-            // +inf: go fully
-            Value::Float(n) if n.is_infinite() && n.is_sign_positive() => Some(dmax),
-            // -inf: treat as atom (apply at root)
-            Value::Float(n) if n.is_infinite() && n.is_sign_negative() => Some(0),
-            _ => None,
-        }
-    }
-
     fn _zipw(
         vm: &mut dyn BuiltinContext,
         xs: &Value,
@@ -584,10 +589,7 @@ pub(super) fn zipw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         f: &Value,
         d: &Value,
     ) -> WqResult<Value> {
-        let el = match eff_layers_2(d, xs.depth(), ys.depth()) {
-            Some(l) => l,
-            None => return Err(type_mismatch(BE::ZipW, 3, depth_requirement(), d)),
-        };
+        let el = zipw_effective_layers(xs, ys, d)?;
         // atoms are always leaves; stop after traversing L layers from the root
         let stop = Bc2Stop::BothAtomOrDepth(el);
         let pure = pure_callback(vm, f, 2);

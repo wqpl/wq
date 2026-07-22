@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 use crate::builtins::{BuiltinContext, BuiltinEnum, BuiltinFnArgs};
 use crate::value::seq::ListStorageSeq;
 use crate::value::{Value, WqResult};
+use crate::vm::builtin_frame::BuiltinFrameAction;
 use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 const SPEC_FIELDS: &[&str] = &["name", "version", "about", "args"];
@@ -102,6 +103,16 @@ enum ParseOutcome {
     Help,
     Version,
     Error(UsageError),
+}
+
+trait CliCallback {
+    fn call(&mut self, parser: &Value, args: BuiltinFnArgs) -> WqResult<Value>;
+}
+
+impl<T: BuiltinContext + ?Sized> CliCallback for T {
+    fn call(&mut self, parser: &Value, args: BuiltinFnArgs) -> WqResult<Value> {
+        BuiltinContext::call(self, parser, args)
+    }
 }
 
 pub(super) fn argv(vm: &mut dyn BuiltinContext, _args: BuiltinFnArgs) -> WqResult<Value> {
@@ -423,7 +434,7 @@ fn parse_argv_value(value: &Value) -> WqResult<Vec<String>> {
 }
 
 fn parse_args(
-    vm: &mut dyn BuiltinContext,
+    vm: &mut (impl CliCallback + ?Sized),
     spec: &CliSpec,
     argv: &[String],
 ) -> WqResult<ParseOutcome> {
@@ -735,7 +746,7 @@ fn collect_value(
 }
 
 fn convert_value(
-    vm: &mut dyn BuiltinContext,
+    vm: &mut (impl CliCallback + ?Sized),
     arg: &ArgSpec,
     raw: &str,
 ) -> Result<Value, UsageError> {
@@ -776,6 +787,136 @@ fn convert_value(
         ));
     }
     Ok(value)
+}
+
+pub(crate) struct ArgparseFrame {
+    spec: CliSpec,
+    argv: Vec<String>,
+    callback_values: Vec<WqResult<Value>>,
+    callback_result: Option<WqResult<Value>>,
+}
+
+impl ArgparseFrame {
+    pub(crate) fn new(args: &BuiltinFnArgs) -> WqResult<Self> {
+        let spec = parse_cli_spec(&args[0]).map_err(|error| error.src(BuiltinEnum::Argparse))?;
+        let argv = parse_argv_value(&args[1]).map_err(|error| error.src(BuiltinEnum::Argparse))?;
+        Ok(Self {
+            spec,
+            argv,
+            callback_values: Vec::new(),
+            callback_result: None,
+        })
+    }
+
+    pub(crate) fn accept_callback_result(&mut self, value: Value) {
+        self.callback_result = Some(Ok(value));
+    }
+
+    pub(crate) fn accept_callback_error(&mut self, error: WqError) {
+        self.callback_result = Some(Err(error));
+    }
+
+    pub(crate) fn step(&mut self) -> WqResult<BuiltinFrameAction> {
+        if let Some(value) = self.callback_result.take() {
+            self.callback_values.push(value);
+            return Ok(BuiltinFrameAction::Continue);
+        }
+
+        let mut replay = ReplayCliCallbacks {
+            values: &self.callback_values,
+            next: 0,
+            request: None,
+        };
+        let outcome = parse_args(&mut replay, &self.spec, &self.argv)
+            .map_err(|error| error.src(BuiltinEnum::Argparse))?;
+        if let Some((func, args)) = replay.request {
+            return Ok(BuiltinFrameAction::Call { func, args });
+        }
+        Ok(BuiltinFrameAction::Ready(outcome_value(
+            &self.spec, outcome,
+        )))
+    }
+}
+
+struct ReplayCliCallbacks<'a> {
+    values: &'a [WqResult<Value>],
+    next: usize,
+    request: Option<(Value, BuiltinFnArgs)>,
+}
+
+impl CliCallback for ReplayCliCallbacks<'_> {
+    fn call(&mut self, parser: &Value, args: BuiltinFnArgs) -> WqResult<Value> {
+        if let Some(value) = self.values.get(self.next) {
+            self.next += 1;
+            return value.clone();
+        }
+        debug_assert!(self.request.is_none());
+        self.request = Some((parser.clone(), args));
+        Err(WqError::new(WqErrorType::Vm).msg("argparse callback is pending"))
+    }
+}
+
+pub(crate) struct CliargsFrame {
+    spec: CliSpec,
+    argv: Vec<String>,
+    callback_values: Vec<WqResult<Value>>,
+    callback_result: Option<WqResult<Value>>,
+}
+
+impl CliargsFrame {
+    pub(crate) fn new(args: &BuiltinFnArgs, argv: Vec<String>) -> WqResult<Self> {
+        let spec = parse_cli_spec(&args[0]).map_err(|error| error.src(BuiltinEnum::Cliargs))?;
+        Ok(Self {
+            spec,
+            argv,
+            callback_values: Vec::new(),
+            callback_result: None,
+        })
+    }
+
+    pub(crate) fn accept_callback_result(&mut self, value: Value) {
+        self.callback_result = Some(Ok(value));
+    }
+
+    pub(crate) fn accept_callback_error(&mut self, error: WqError) {
+        self.callback_result = Some(Err(error));
+    }
+
+    pub(crate) fn step(&mut self) -> WqResult<BuiltinFrameAction> {
+        if let Some(value) = self.callback_result.take() {
+            self.callback_values.push(value);
+            return Ok(BuiltinFrameAction::Continue);
+        }
+
+        let mut replay = ReplayCliCallbacks {
+            values: &self.callback_values,
+            next: 0,
+            request: None,
+        };
+        let outcome = parse_args(&mut replay, &self.spec, &self.argv)
+            .map_err(|error| error.src(BuiltinEnum::Cliargs))?;
+        if let Some((func, args)) = replay.request {
+            return Ok(BuiltinFrameAction::Call { func, args });
+        }
+        Ok(match outcome {
+            ParseOutcome::Ok(value) => BuiltinFrameAction::Ready(value),
+            ParseOutcome::Help => BuiltinFrameAction::HostComplete {
+                text: render_help(&self.spec),
+                stderr: false,
+                status: Some(0),
+            },
+            ParseOutcome::Version => BuiltinFrameAction::HostComplete {
+                text: render_version(&self.spec),
+                stderr: false,
+                status: Some(0),
+            },
+            ParseOutcome::Error(error) => BuiltinFrameAction::HostComplete {
+                text: render_usage_error(&self.spec, &error),
+                stderr: true,
+                status: Some(2),
+            },
+        })
+    }
 }
 
 fn outcome_value(spec: &CliSpec, outcome: ParseOutcome) -> Value {

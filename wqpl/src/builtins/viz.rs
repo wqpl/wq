@@ -1,4 +1,4 @@
-mod asciiplot;
+pub(crate) mod asciiplot;
 mod showtable;
 
 pub(super) use asciiplot::asciiplot;

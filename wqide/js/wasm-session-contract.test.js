@@ -113,6 +113,16 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     assert.equal(timerRan, true);
     await timer;
 
+    for (const interpreter of ["sample", "profiler"]) {
+      session.set_interpreter_by_name(interpreter);
+      const alternateResult = await session.eval_wq_async(
+        "i:0;W[i<100;i+:1];i",
+        { timeSliceMs: 1 },
+      );
+      assert.equal(alternateResult.display, "100");
+    }
+    session.set_interpreter_by_name("vanilla");
+
     const controller = new AbortController();
     const abortedEvaluation = session.eval_wq_async(
       "before:41;i:0;W[i<10000000;i+:1];after:42",
@@ -126,6 +136,54 @@ test("session callback boundaries return structured diagnostics", async (t) => {
       return true;
     });
     assert.equal(session.eval_wq("2+3").display, "5");
+
+    let receivedPrompt = null;
+    session.set_stdin_callback(async (prompt) => {
+      receivedPrompt = prompt;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return "Ada";
+    });
+    const inputResult = await session.eval_wq_async('input["name> "]');
+    assert.equal(receivedPrompt, "name> ");
+    assert.equal(inputResult.display, '"Ada"');
+
+    const prompts = [];
+    const responses = ["Ada", "Grace"];
+    session.set_stdin_callback(async (prompt) => {
+      prompts.push(prompt);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return responses.shift();
+    });
+    const mappedInput = await session.eval_wq_async(
+      'map[("first> ";"second> ");input]',
+      { timeSliceMs: 1 },
+    );
+    assert.deepEqual(prompts, ["first> ", "second> "]);
+    assert.equal(mappedInput.display, '("Ada";"Grace")');
+
+    const inputController = new AbortController();
+    session.set_stdin_callback(() => new Promise(() => {}));
+    const waitingForInput = session.eval_wq_async("input[]", {
+      signal: inputController.signal,
+    });
+    inputController.abort("input cancelled");
+    await assert.rejects(waitingForInput, (error) => {
+      assert.equal(error.name, "AbortError");
+      assert.match(error.message, /input cancelled/);
+      return true;
+    });
+    assert.equal(session.eval_wq("3+4").display, "7");
+
+    session.set_stdin_callback(async () => {
+      throw new Error("reader failed");
+    });
+    await assert.rejects(session.eval_wq_async("input[]"), (error) => {
+      assert.equal(error.version, 2);
+      assert.equal(error.kind, "io");
+      assert.match(error.notes.join("\n"), /reader failed/);
+      return true;
+    });
+    assert.equal(session.eval_wq("4+5").display, "9");
 
     session.set_stdin_callback(() => 42);
     assert.throws(

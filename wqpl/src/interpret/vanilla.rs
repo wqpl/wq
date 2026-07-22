@@ -41,43 +41,44 @@ pub(crate) type Sv4 = SmallVec<[Value; 4]>;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum InterpretPoll {
     Ready(Value),
-    Yielded { instructions: usize },
+    Yielded { work_units: usize },
+    AwaitingInput { request_id: u64, prompt: String },
 }
 
 struct InterpretControl {
-    instruction_budget: Option<usize>,
-    instructions_executed: usize,
+    work_budget: Option<usize>,
+    work_units: usize,
     stop_call_depth: Option<usize>,
 }
 
 impl InterpretControl {
     fn synchronous() -> Self {
         Self {
-            instruction_budget: None,
-            instructions_executed: 0,
+            work_budget: None,
+            work_units: 0,
             stop_call_depth: None,
         }
     }
 
-    fn sliced(instruction_budget: usize) -> Self {
+    fn sliced(work_budget: usize) -> Self {
         Self {
-            instruction_budget: Some(instruction_budget.max(1)),
-            instructions_executed: 0,
+            work_budget: Some(work_budget.max(1)),
+            work_units: 0,
             stop_call_depth: None,
         }
     }
 
     fn until_call_depth(stop_call_depth: usize) -> Self {
         Self {
-            instruction_budget: None,
-            instructions_executed: 0,
+            work_budget: None,
+            work_units: 0,
             stop_call_depth: Some(stop_call_depth),
         }
     }
 
     fn budget_exhausted(&self) -> bool {
-        self.instruction_budget
-            .is_some_and(|budget| self.instructions_executed >= budget)
+        self.work_budget
+            .is_some_and(|budget| self.work_units >= budget)
     }
 }
 
@@ -87,6 +88,9 @@ impl Interpreter for VanillaInterpreter {
         match self.interpret_with_try_stack(vm, limit, &mut control)? {
             InterpretPoll::Ready(value) => Ok(value),
             InterpretPoll::Yielded { .. } => unreachable!("synchronous interpreter yielded"),
+            InterpretPoll::AwaitingInput { .. } => {
+                unreachable!("synchronous interpreter requested cooperative input")
+            }
         }
     }
 }
@@ -96,9 +100,9 @@ impl VanillaInterpreter {
         &mut self,
         vm: &mut Vm,
         limit: usize,
-        instruction_budget: usize,
+        work_budget: usize,
     ) -> WqResult<InterpretPoll> {
-        let mut control = InterpretControl::sliced(instruction_budget);
+        let mut control = InterpretControl::sliced(work_budget);
         self.interpret_with_try_stack(vm, limit, &mut control)
     }
 
@@ -113,6 +117,9 @@ impl VanillaInterpreter {
             InterpretPoll::Ready(value) => Ok(value),
             InterpretPoll::Yielded { .. } => {
                 unreachable!("unlimited nested interpreter yielded")
+            }
+            InterpretPoll::AwaitingInput { .. } => {
+                unreachable!("nested interpreter requested cooperative input")
             }
         }
     }
@@ -129,15 +136,25 @@ impl VanillaInterpreter {
                     Self::discard_current_try_frames(vm);
                     return Ok(InterpretPoll::Ready(value));
                 }
-                Ok(poll @ InterpretPoll::Yielded { .. }) => return Ok(poll),
+                Ok(
+                    poll @ (InterpretPoll::Yielded { .. } | InterpretPoll::AwaitingInput { .. }),
+                ) => {
+                    return Ok(poll);
+                }
                 Err(err) => {
-                    let err = vm.record_execution_failure(err);
+                    let mut err = vm.record_execution_failure(err);
                     vm.pending_trace_probe = None;
                     loop {
                         if Self::catch_current_try_error(vm, &err) {
                             break;
                         }
                         Self::discard_current_try_frames(vm);
+                        if vm.is_builtin_callback_boundary() {
+                            err = vm.decorate_builtin_callback_error(err);
+                        }
+                        if vm.capture_builtin_callback_error(&err) {
+                            break;
+                        }
                         if !vm.unwind_user_call() {
                             return Err(err);
                         }
@@ -179,15 +196,29 @@ impl VanillaInterpreter {
                 instructions = Arc::clone(&vm.instructions);
                 limit = instructions.len();
             }
-            while vm.pc < limit {
+            while vm.pc < limit || vm.builtin_frame_at_current_depth() {
+                if let Some(error) = vm.pending_host_error.take() {
+                    return Err(error);
+                }
+                if let Some(request) = vm.pending_input_request() {
+                    return Ok(InterpretPoll::AwaitingInput {
+                        request_id: request.id,
+                        prompt: request.prompt.clone(),
+                    });
+                }
                 if control.budget_exhausted() {
                     return Ok(InterpretPoll::Yielded {
-                        instructions: control.instructions_executed,
+                        work_units: control.work_units,
                     });
                 }
                 vm.poll_interrupt();
                 if vm.is_halted() {
                     break;
+                }
+                if vm.builtin_frame_is_runnable() {
+                    control.work_units += 1;
+                    vm.step_builtin_frame()?;
+                    continue 'exec;
                 }
                 if Self::finish_try_boundary(vm) {
                     continue;
@@ -223,7 +254,7 @@ impl VanillaInterpreter {
                 }
                 let idx = vm.pc;
                 vm.pc += 1;
-                control.instructions_executed += 1;
+                control.work_units += 1;
                 let op = &instructions[idx];
                 // Mark the trace probe before dispatch. Some call arms continue after a
                 // synchronous push, so the next loop iteration handles the flush.
@@ -498,10 +529,16 @@ impl VanillaInterpreter {
                     }
 
                     Instruction::CallBuiltinId(id, argc) => {
+                        if vm.try_start_resumable_builtin(*id, *argc, false)? {
+                            continue 'exec;
+                        }
                         let result = vm.invoke_builtin_id(*id, *argc)?;
                         vm.stack.push(result);
                     }
                     Instruction::CallBuiltinDiscardId(id, argc) => {
+                        if vm.try_start_resumable_builtin(*id, *argc, true)? {
+                            continue 'exec;
+                        }
                         let result = vm.invoke_builtin_discard_id(*id, *argc)?;
                         vm.stack.push(result);
                     }
@@ -2748,9 +2785,12 @@ mod call_safety {
                 .interpret_slice(&mut vm, limit, 1)
                 .expect("slice should execute")
             {
-                InterpretPoll::Yielded { instructions } => {
-                    assert_eq!(instructions, 1);
+                InterpretPoll::Yielded { work_units } => {
+                    assert_eq!(work_units, 1);
                     yields += 1;
+                }
+                InterpretPoll::AwaitingInput { .. } => {
+                    panic!("test program should not request input")
                 }
                 InterpretPoll::Ready(value) => break value,
             }
@@ -2790,6 +2830,9 @@ mod call_safety {
                 .expect("try should catch the sliced call error")
             {
                 InterpretPoll::Yielded { .. } => {}
+                InterpretPoll::AwaitingInput { .. } => {
+                    panic!("test program should not request input")
+                }
                 InterpretPoll::Ready(value) => break value,
             }
         };

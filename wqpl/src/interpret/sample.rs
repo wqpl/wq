@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::fmt::Write as _;
 
-use crate::interpret::vanilla::VanillaInterpreter;
+use crate::interpret::vanilla::{InterpretPoll, VanillaInterpreter};
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::session::stdio::WqIoError;
 use crate::value::{Value, WqResult};
@@ -19,6 +19,7 @@ pub(crate) struct SampleInterpreter {
     art: RefCell<InstructionArt>,
     io_error: RefCell<Option<WqIoError>>,
     automatic: bool,
+    running: bool,
 }
 
 impl Default for SampleInterpreter {
@@ -27,12 +28,22 @@ impl Default for SampleInterpreter {
             art: RefCell::new(InstructionArt::new(RenderMode::FinalOnly, false)),
             io_error: RefCell::new(None),
             automatic: true,
+            running: false,
         }
     }
 }
 
 impl Interpreter for SampleInterpreter {
     fn interpret(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
+        self.begin(vm);
+        let result = self.with_hooks(vm, |delegate, vm| delegate.interpret(vm, limit));
+        self.running = false;
+        self.finish(vm, result)
+    }
+}
+
+impl SampleInterpreter {
+    fn begin(&mut self, vm: &Vm) {
         if self.automatic {
             *self.art.get_mut() = InstructionArt::auto(
                 vm.stderr_is_terminal(),
@@ -42,13 +53,25 @@ impl Interpreter for SampleInterpreter {
             self.art.get_mut().color = vm.stderr_color_mode().should_colorize();
         }
         *self.io_error.get_mut() = None;
+        self.running = true;
+    }
+
+    fn with_hooks<T>(
+        &mut self,
+        vm: &mut Vm,
+        run: impl FnOnce(&mut VanillaInterpreter, &mut Vm) -> WqResult<T>,
+    ) -> WqResult<T> {
         let mut delegate = VanillaInterpreter;
         let previous_interpreter = vm.interpreter_kind;
         vm.interpreter_kind = InterpreterKind::Vanilla;
         vm.set_hooks(Some(self));
-        let result = delegate.interpret(vm, limit);
+        let result = run(&mut delegate, vm);
         vm.set_hooks(None);
         vm.interpreter_kind = previous_interpreter;
+        result
+    }
+
+    fn finish<T>(&mut self, vm: &Vm, result: WqResult<T>) -> WqResult<T> {
         if let Err(error) = self.art.get_mut().finish(vm) {
             *self.io_error.get_mut() = Some(error);
         }
@@ -57,6 +80,28 @@ impl Interpreter for SampleInterpreter {
             (Ok(_), Some(error)) => Err(sample_io_error(error)),
             (Ok(value), None) => Ok(value),
         }
+    }
+
+    pub(crate) fn interpret_slice(
+        &mut self,
+        vm: &mut Vm,
+        limit: usize,
+        work_budget: usize,
+    ) -> WqResult<InterpretPoll> {
+        if !self.running {
+            self.begin(vm);
+        }
+        let result = self.with_hooks(vm, |delegate, vm| {
+            delegate.interpret_slice(vm, limit, work_budget)
+        });
+        if matches!(
+            result,
+            Ok(InterpretPoll::Yielded { .. } | InterpretPoll::AwaitingInput { .. })
+        ) {
+            return result;
+        }
+        self.running = false;
+        self.finish(vm, result)
     }
 }
 
@@ -606,6 +651,7 @@ mod tests {
                 art: RefCell::new(InstructionArt::new(mode, false)),
                 io_error: RefCell::new(None),
                 automatic: false,
+                running: false,
             }
         }
     }

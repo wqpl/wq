@@ -22,11 +22,11 @@ use crate::builtins::{
     BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_named, check_named_args,
     type_mismatch,
 };
-use crate::session::stdio::WqIoError;
+use crate::session::stdio::{WqInputPoll, WqIoError};
 use crate::value::{Excerpt, IntoWqValue, Value, WqResult, expected_string1, into_wq_string};
 use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
-fn host_io_error(builtin: BuiltinEnum, error: WqIoError) -> WqError {
+pub(crate) fn host_io_error(builtin: BuiltinEnum, error: WqIoError) -> WqError {
     WqError::new(WqErrorType::Io)
         .src(builtin)
         .attach_note(format!("host I/O error: {error}"))
@@ -99,10 +99,11 @@ pub(super) fn input(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
     } else {
         String::new()
     };
-    match vm.read_line(&prompt) {
-        Ok(line) => Ok(into_wq_string(line)),
-        Err(WqIoError::Eof | WqIoError::Interrupted) => Ok(Value::empty_list()),
-        Err(error) => Err(host_io_error(BuiltinEnum::Input, error)),
+    match vm.poll_read_line(&prompt) {
+        WqInputPoll::Ready(Ok(line)) => Ok(into_wq_string(line)),
+        WqInputPoll::Ready(Err(WqIoError::Eof | WqIoError::Interrupted)) => Ok(Value::empty_list()),
+        WqInputPoll::Ready(Err(error)) => Err(host_io_error(BuiltinEnum::Input, error)),
+        WqInputPoll::Pending => Ok(Value::empty_list()),
     }
 }
 
