@@ -19,10 +19,10 @@
     "pkg/"
   ],
   "scripts": {
-    "build": "wasm-pack build --target web --profile R -- --locked && node scripts/prepare-package.mjs",
-    "check": "node scripts/check-package.mjs",
-    "release": "node scripts/release.mjs",
-    "test": "node --test scripts/release-git.test.mjs scripts/release-version.test.mjs ../wqide/js/wasm-session-contract.test.js"
+    "build": "wasm-pack build --target web --profile R -- --locked && python3 ../publish-scripts/prepare_package.py",
+    "check": "python3 ../publish-scripts/check_package.py",
+    "release": "python3 ../publish-scripts/release.py",
+    "test": "node --test ../wqide/js/wasm-session-contract.test.js"
   },
   "repository": {
     "type": "git",

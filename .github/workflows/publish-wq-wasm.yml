@@ -26,6 +26,11 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -42,12 +47,18 @@ jobs:
         working-directory: wq-wasm
         run: npm run build
 
+      - name: Test publishing scripts
+        run: >-
+          python3 -m unittest discover
+          -s publish-scripts
+          -t publish-scripts
+          -p 'test_*.py'
+
       - name: Verify package metadata
         id: package
-        working-directory: wq-wasm
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
-        run: npm run check
+        run: python3 publish-scripts/check_package.py
 
       - name: Test browser package
         working-directory: wq-wasm

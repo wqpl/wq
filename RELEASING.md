@@ -21,17 +21,17 @@ mirrors accept the release.
 
 ## Cut a release
 
-Run the release command from `wq-wasm`:
+Run the release command from the workspace root:
 
 ```sh
-npm run release
+python3 publish-scripts/release.py
 ```
 
 Without an argument, it increments a trailing prerelease number or a stable
 patch version. Pass an explicit version when needed:
 
 ```sh
-npm run release -- 0.10.0-preview1
+python3 publish-scripts/release.py 0.10.0-preview1
 ```
 
 The command verifies a clean worktree, updates Cargo and npm versions, performs
@@ -39,6 +39,10 @@ a full Cargo workspace publish dry run, runs the remaining release checks,
 creates a commit and annotated tag, then asks before pushing.
 Use the manual dispatch for `publish-crates.yml` to run a crates.io dry run
 without publishing.
+
+See [the publishing scripts guide](publish-scripts/README.md) for requirements,
+all command options, local-only and multi-remote workflows, CI behavior, and
+failure recovery.
 
 Cargo workspace publishing is not atomic. If part of a crates.io release
 succeeds before a later package fails, manually dispatch `publish-crates.yml`
