@@ -71,6 +71,8 @@ pub(crate) struct Vm {
     pub(crate) stack_pool: Vec<Vec<Value>>,
     /// Stack of currently executing functions/closures for LoadSelf
     pub(crate) current_closure_stack: Vec<Value>,
+    /// Suspended caller execution states for resumable user-function calls.
+    pub(crate) execution_frames: Vec<ExecutionFrame>,
     // args_scratch: Vec<Value>,
     /// Tail-call journal for backtrace when TCE is active.
     pub(crate) tail_call_journal: TailCallJournal,
@@ -113,6 +115,7 @@ pub(crate) struct Vm {
     pub(crate) trace_depth: u32,
     pub(crate) trace_buf: Vec<TraceRecord>,
     pub(crate) trace_bases: Vec<usize>,
+    pub(crate) pending_trace_probe: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -132,6 +135,17 @@ pub(crate) struct CallFrame {
     pub tail_frames: Vec<TailFrame>,
     pub tail_frames_overflowed: bool,
     pub tail_depth: usize,
+}
+
+pub(crate) struct ExecutionFrame {
+    pub(crate) instructions: Arc<[Instruction]>,
+    pub(crate) pc: usize,
+    pub(crate) stack: Vec<Value>,
+    pub(crate) inline_cache: Vec<InlineCache>,
+    pub(crate) tail_call_journal: TailCallJournal,
+    pub(crate) tail_call_depth: usize,
+    pub(crate) pushed_debug_frame: bool,
+    pub(crate) pending_trace_probe: Option<usize>,
 }
 
 const TAIL_CALL_JOURNAL_CAP: usize = 128;
@@ -260,6 +274,7 @@ impl Vm {
             locals_pool: AHashMap::new(),
             stack_pool: Vec::new(),
             current_closure_stack: Vec::new(),
+            execution_frames: Vec::new(),
             // args_scratch: Vec::new(),
             tail_call_journal: TailCallJournal::default(),
             tail_call_depth: 0,
@@ -283,6 +298,7 @@ impl Vm {
             trace_depth: 0,
             trace_buf: Vec::new(),
             trace_bases: Vec::new(),
+            pending_trace_probe: None,
         }
     }
 
@@ -297,6 +313,7 @@ impl Vm {
         self.captures.clear();
         self.inline_cache = vec![InlineCache::default(); self.instructions.len()];
         self.current_closure_stack.clear();
+        self.execution_frames.clear();
         self.hooks = None;
         self.try_stack.clear();
         self.returned = false;
@@ -308,6 +325,7 @@ impl Vm {
         self.trace_depth = 0;
         self.trace_buf.clear();
         self.trace_bases.clear();
+        self.pending_trace_probe = None;
         // Keep debug_src_offset as set by session for current run
     }
 

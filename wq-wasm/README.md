@@ -19,7 +19,7 @@ await init();
 
 const session = new WasmWqSession();
 try {
-  const result = session.eval_wq("1+1");
+  const result = await session.eval_wq_async("1+1");
   console.log(result.display);
 } finally {
   session.free();
@@ -28,6 +28,24 @@ try {
 
 The package targets browsers and exposes the stable session facade from
 `browser.js`. TypeScript declarations are included.
+
+`eval_wq_async` runs the default vanilla VM in bounded instruction slices and
+yields to the browser between slices. It accepts an `AbortSignal` and an
+optional target slice duration in milliseconds:
+
+```js
+const controller = new AbortController();
+const result = await session.eval_wq_async(source, {
+  signal: controller.signal,
+  timeSliceMs: 8,
+});
+```
+
+Only one evaluation can use a session at a time. Aborting an evaluation keeps
+bindings completed before cancellation and leaves the session ready for another
+evaluation. `eval_wq` remains available for callers that require synchronous
+execution. Context builtins and alternate interpreters execute atomically, so
+either can take longer than the requested slice duration.
 
 ## Maintainer release
 

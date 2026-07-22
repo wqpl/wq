@@ -1010,7 +1010,7 @@ async function doEval({ recordHistory = true } = {}) {
     const useOneshotTime = oneshotTime;
     const prevDebug = oneshotDebug ? session.get_debug_flags() : null;
     const prevWqdb = oneshotWqdb ? session.get_wqdb_mode() : null;
-    const result = await queueEval(() => {
+    const result = await queueEval(async () => {
       bindRuntimeCallbacks();
       if (oneshotDebug) {
         session.set_debug_flags(oneshotDebug);
@@ -1019,7 +1019,7 @@ async function doEval({ recordHistory = true } = {}) {
         session.set_wqdb_mode(true);
       }
       try {
-        return session.eval_wq(code);
+        return await session.eval_wq_async(code);
       } finally {
         if (prevDebug !== null) {
           session.set_debug_flags(prevDebug);

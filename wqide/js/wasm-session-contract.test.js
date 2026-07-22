@@ -98,6 +98,35 @@ test("session callback boundaries return structured diagnostics", async (t) => {
       },
     );
 
+    let timerRan = false;
+    const timer = new Promise((resolve) => {
+      setTimeout(() => {
+        timerRan = true;
+        resolve();
+      }, 0);
+    });
+    const asyncResult = await session.eval_wq_async(
+      "i:0;inc:{[x]x+1};W[i<50000;i:inc[i]];i",
+      { timeSliceMs: 1 },
+    );
+    assert.equal(asyncResult.display, "50000");
+    assert.equal(timerRan, true);
+    await timer;
+
+    const controller = new AbortController();
+    const abortedEvaluation = session.eval_wq_async(
+      "before:41;i:0;W[i<10000000;i+:1];after:42",
+      { signal: controller.signal, timeSliceMs: 1 },
+    );
+    assert.throws(() => session.globals(), /WasmWqSession is evaluating/);
+    controller.abort("stop requested");
+    await assert.rejects(abortedEvaluation, (error) => {
+      assert.equal(error.name, "AbortError");
+      assert.match(error.message, /stop requested/);
+      return true;
+    });
+    assert.equal(session.eval_wq("2+3").display, "5");
+
     session.set_stdin_callback(() => 42);
     assert.throws(
       () => session.eval_wq("input[]"),
@@ -132,4 +161,16 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     /WasmWqSession has been disposed/,
   );
   disposalSession.free();
+
+  const asyncDisposalSession = new WasmWqSession();
+  const disposedEvaluation = asyncDisposalSession.eval_wq_async(
+    "i:0;W[i<10000000;i+:1];i",
+    { timeSliceMs: 1 },
+  );
+  asyncDisposalSession.free();
+  await assert.rejects(disposedEvaluation, /WasmWqSession has been disposed/);
+  assert.throws(
+    () => asyncDisposalSession.get_debug_flags(),
+    /WasmWqSession has been disposed/,
+  );
 });

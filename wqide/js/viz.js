@@ -767,7 +767,7 @@ async function runViz(instance) {
   const renderer = createOutputRenderer(instance.output);
   try {
     await ensureWasm();
-    await queueEval(() => {
+    await queueEval(async () => {
       const session = new WasmWqSession();
       try {
         session.set_stdout_callback((chunk) => {
@@ -778,7 +778,7 @@ async function runViz(instance) {
           renderer.appendStreamOutput(chunk, "error");
           instance.output.scrollTop = instance.output.scrollHeight;
         });
-        session.eval_wq(instance.code);
+        await session.eval_wq_async(instance.code);
       } finally {
         session.free();
       }

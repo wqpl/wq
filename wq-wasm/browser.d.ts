@@ -6,6 +6,7 @@ export {
 } from "./pkg/wq_wasm.js";
 export type {
   DocTopicInfo,
+  EvaluationSlice,
   GlobalBinding,
   InitInput,
   RenderedValue,
@@ -22,6 +23,11 @@ export type {
 
 import type { GlobalBinding, RenderedValue } from "./pkg/wq_wasm.js";
 import type { InitInput, SyncInitInput } from "./pkg/wq_wasm.js";
+
+export interface EvalWqAsyncOptions {
+  signal?: AbortSignal;
+  timeSliceMs?: number;
+}
 
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): void;
 
@@ -42,6 +48,10 @@ export class WasmWqSession {
   builtin_preset_names(): string[];
   clear_bindings(): void;
   eval_wq(src: string): RenderedValue;
+  eval_wq_async(
+    src: string,
+    options?: EvalWqAsyncOptions,
+  ): Promise<RenderedValue>;
   get_box_flags(): string;
   get_box_summary(): string;
   get_builtins_preset(): string;

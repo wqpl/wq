@@ -13,7 +13,8 @@ use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::inst::{Instruction, NamedArgMeta};
 use crate::vm::slot::Slot;
 use crate::vm::{
-    CallFrame, InlineCache, Vm, arity_err_vm, ensure_stack_len, not_bound_err, vm_err,
+    CallFrame, ExecutionFrame, InlineCache, Vm, arity_err_vm, ensure_stack_len, not_bound_err,
+    vm_err,
 };
 use crate::wqdb::build::mark_stmt_heuristic;
 use crate::wqdb::data::ChunkId;
@@ -26,46 +27,11 @@ struct TakenBuiltinArgs {
     had_named_meta: bool,
 }
 
-fn nested_interpreter_type_name(kind: crate::interpret::InterpreterKind) -> &'static str {
-    match kind {
-        crate::interpret::InterpreterKind::Vanilla => {
-            std::any::type_name::<crate::interpret::vanilla::VanillaInterpreter>()
-        }
-        crate::interpret::InterpreterKind::Sample => {
-            std::any::type_name::<crate::interpret::sample::SampleInterpreter>()
-        }
-        crate::interpret::InterpreterKind::Profiler => {
-            std::any::type_name::<crate::interpret::profiler::ProfilerInterpreter>()
-        }
-    }
-}
-
 fn expected_callable(value: &Value) -> WqError {
     WqError::new(WqErrorType::NotBound)
         .src("vm")
         .expected(Requirement::CALLABLE)
         .got1(value)
-}
-
-fn interpret_nested_with_kind(
-    kind: crate::interpret::InterpreterKind,
-    vm: &mut Vm,
-    limit: usize,
-) -> WqResult<Value> {
-    match kind {
-        crate::interpret::InterpreterKind::Vanilla => {
-            let mut interpreter = crate::interpret::vanilla::VanillaInterpreter;
-            crate::interpret::Interpreter::interpret(&mut interpreter, vm, limit)
-        }
-        crate::interpret::InterpreterKind::Sample => {
-            let mut interpreter = crate::interpret::sample::SampleInterpreter::default();
-            crate::interpret::Interpreter::interpret(&mut interpreter, vm, limit)
-        }
-        crate::interpret::InterpreterKind::Profiler => {
-            let mut interpreter = crate::interpret::profiler::ProfilerInterpreter::default();
-            crate::interpret::Interpreter::interpret(&mut interpreter, vm, limit)
-        }
-    }
 }
 
 impl Vm {
@@ -275,6 +241,12 @@ impl Vm {
     // API for Interpreter ============================
 
     pub(crate) fn invoke_spec(&mut self, spec: CallSpec) -> WqResult<Value> {
+        let caller_depth = self.execution_frames.len();
+        self.enter_spec(spec)?;
+        crate::interpret::vanilla::VanillaInterpreter.interpret_until_call_depth(self, caller_depth)
+    }
+
+    pub(crate) fn enter_spec(&mut self, spec: CallSpec) -> WqResult<()> {
         let CallSpec {
             instructions,
             params_len,
@@ -428,55 +400,81 @@ impl Vm {
             }
             return Err(error);
         }
-        let limit = self.instructions.len();
-        let interpreter_kind = self.interpreter_kind;
         if self.debug_log.enabled(DebugLogFlags::WQDB) {
             self.debug_log.emit_line(format!(
-                "CALL enter chunk={:?} limit={} locals={} argc={} saved_pc={} interp_type={}",
+                "CALL enter chunk={:?} limit={} locals={} argc={} saved_pc={}",
                 self.current_chunk,
-                limit,
+                self.instructions.len(),
                 local_count,
                 argc,
-                saved_pc,
-                nested_interpreter_type_name(interpreter_kind)
+                saved_pc
             ));
         }
-        let execute_res = interpret_nested_with_kind(interpreter_kind, self, limit);
+        self.execution_frames.push(ExecutionFrame {
+            instructions: saved_instructions,
+            pc: saved_pc,
+            stack: saved_stack,
+            inline_cache: saved_cache,
+            tail_call_journal: saved_tail_journal,
+            tail_call_depth: saved_tail_depth,
+            pushed_debug_frame: pushed_dbg,
+            pending_trace_probe: self.pending_trace_probe.take(),
+        });
+        Ok(())
+    }
+
+    pub(crate) fn finish_user_call(&mut self, value: Value, push_result: bool) -> Option<Value> {
+        let value = self.attach_provenance_to_returned_callable(value);
+        if !self.restore_user_call() {
+            return Some(value);
+        }
+        if push_result {
+            self.stack.push(value);
+            None
+        } else {
+            Some(value)
+        }
+    }
+
+    pub(crate) fn unwind_user_call(&mut self) -> bool {
+        self.restore_user_call()
+    }
+
+    fn restore_user_call(&mut self) -> bool {
+        let Some(frame) = self.execution_frames.pop() else {
+            return false;
+        };
         self.returned = false;
-        let res = execute_res.map(|value| self.attach_provenance_to_returned_callable(value));
+        self.current_closure_stack.pop();
+        if let Some(locals) = self.locals.pop() {
+            return_locals_to_pool(&mut self.locals_pool, locals);
+        }
+        self.captures.pop();
+        let callee_stack = std::mem::replace(&mut self.stack, frame.stack);
+        return_stack_to_pool(&mut self.stack_pool, callee_stack);
+        let cache_len = self.instructions.len();
+        let used_cache = std::mem::replace(&mut self.inline_cache, frame.inline_cache);
+        return_cache_to_pool(&mut self.cache_pool, cache_len, used_cache);
+        self.instructions = frame.instructions;
+        self.pc = frame.pc;
+        self.tail_call_journal = frame.tail_call_journal;
+        self.tail_call_depth = frame.tail_call_depth;
+        self.pending_trace_probe = frame.pending_trace_probe;
+        if frame.pushed_debug_frame
+            && let Some(debug_frame) = self.call_stack.pop()
+        {
+            self.current_chunk = Some(debug_frame.chunk);
+        }
         if self.debug_log.enabled(DebugLogFlags::WQDB) {
             self.debug_log.emit_line(format!(
-                "CALL after execute stack_len={} locals_depth={}",
+                "CALL leave chunk={:?} pc={} stack_len={} locals_depth={}",
+                self.current_chunk,
+                self.pc,
                 self.stack.len(),
                 self.locals.len()
             ));
         }
-        if self.debug_log.enabled(DebugLogFlags::WQDB) {
-            self.debug_log.emit_line(format!(
-                "CALL leave chunk={:?} pc={} result_ok={}",
-                self.current_chunk,
-                self.pc,
-                res.is_ok()
-            ));
-        }
-        self.current_closure_stack.pop();
-        // Unwind
-        if let Some(frame) = self.locals.pop() {
-            return_locals_to_pool(&mut self.locals_pool, frame);
-        }
-        self.captures.pop();
-        let callee_stack = std::mem::replace(&mut self.stack, saved_stack);
-        return_stack_to_pool(&mut self.stack_pool, callee_stack);
-        let used_cache = std::mem::replace(&mut self.inline_cache, saved_cache);
-        return_cache_to_pool(&mut self.cache_pool, cache_len, used_cache);
-        self.instructions = saved_instructions;
-        self.pc = saved_pc;
-        std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
-        self.tail_call_depth = saved_tail_depth;
-        if pushed_dbg && let Some(fr) = self.call_stack.pop() {
-            self.current_chunk = Some(fr.chunk);
-        }
-        res
+        true
     }
 
     /// Call a user function with args already on the stack top (no intermediate

@@ -38,31 +38,133 @@ const NAME: &str = "vanilla";
 
 pub(crate) type Sv4 = SmallVec<[Value; 4]>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum InterpretPoll {
+    Ready(Value),
+    Yielded { instructions: usize },
+}
+
+struct InterpretControl {
+    instruction_budget: Option<usize>,
+    instructions_executed: usize,
+    stop_call_depth: Option<usize>,
+}
+
+impl InterpretControl {
+    fn synchronous() -> Self {
+        Self {
+            instruction_budget: None,
+            instructions_executed: 0,
+            stop_call_depth: None,
+        }
+    }
+
+    fn sliced(instruction_budget: usize) -> Self {
+        Self {
+            instruction_budget: Some(instruction_budget.max(1)),
+            instructions_executed: 0,
+            stop_call_depth: None,
+        }
+    }
+
+    fn until_call_depth(stop_call_depth: usize) -> Self {
+        Self {
+            instruction_budget: None,
+            instructions_executed: 0,
+            stop_call_depth: Some(stop_call_depth),
+        }
+    }
+
+    fn budget_exhausted(&self) -> bool {
+        self.instruction_budget
+            .is_some_and(|budget| self.instructions_executed >= budget)
+    }
+}
+
 impl Interpreter for VanillaInterpreter {
     fn interpret(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
-        self.interpret_with_try_stack(vm, limit)
+        let mut control = InterpretControl::synchronous();
+        match self.interpret_with_try_stack(vm, limit, &mut control)? {
+            InterpretPoll::Ready(value) => Ok(value),
+            InterpretPoll::Yielded { .. } => unreachable!("synchronous interpreter yielded"),
+        }
     }
 }
 
 impl VanillaInterpreter {
-    fn interpret_with_try_stack(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
+    pub(crate) fn interpret_slice(
+        &mut self,
+        vm: &mut Vm,
+        limit: usize,
+        instruction_budget: usize,
+    ) -> WqResult<InterpretPoll> {
+        let mut control = InterpretControl::sliced(instruction_budget);
+        self.interpret_with_try_stack(vm, limit, &mut control)
+    }
+
+    pub(crate) fn interpret_until_call_depth(
+        &mut self,
+        vm: &mut Vm,
+        stop_call_depth: usize,
+    ) -> WqResult<Value> {
+        let limit = vm.instructions.len();
+        let mut control = InterpretControl::until_call_depth(stop_call_depth);
+        match self.interpret_with_try_stack(vm, limit, &mut control)? {
+            InterpretPoll::Ready(value) => Ok(value),
+            InterpretPoll::Yielded { .. } => {
+                unreachable!("unlimited nested interpreter yielded")
+            }
+        }
+    }
+
+    fn interpret_with_try_stack(
+        &mut self,
+        vm: &mut Vm,
+        limit: usize,
+        control: &mut InterpretControl,
+    ) -> WqResult<InterpretPoll> {
         loop {
-            match self.interpret_inner(vm, limit) {
-                Ok(value) => {
+            match self.interpret_inner(vm, limit, control) {
+                Ok(InterpretPoll::Ready(value)) => {
                     Self::discard_current_try_frames(vm);
-                    return Ok(value);
+                    return Ok(InterpretPoll::Ready(value));
                 }
+                Ok(poll @ InterpretPoll::Yielded { .. }) => return Ok(poll),
                 Err(err) => {
                     let err = vm.record_execution_failure(err);
-                    if !Self::catch_current_try_error(vm, &err) {
-                        return Err(err);
+                    vm.pending_trace_probe = None;
+                    loop {
+                        if Self::catch_current_try_error(vm, &err) {
+                            break;
+                        }
+                        Self::discard_current_try_frames(vm);
+                        if !vm.unwind_user_call() {
+                            return Err(err);
+                        }
+                        vm.pending_trace_probe = None;
+                        if control
+                            .stop_call_depth
+                            .is_some_and(|depth| vm.execution_frames.len() == depth)
+                        {
+                            return Err(err);
+                        }
                     }
                 }
             }
         }
     }
 
-    fn interpret_inner(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
+    fn interpret_inner(
+        &mut self,
+        vm: &mut Vm,
+        limit: usize,
+        control: &mut InterpretControl,
+    ) -> WqResult<InterpretPoll> {
+        let limit = if vm.execution_frames.is_empty() {
+            limit
+        } else {
+            vm.instructions.len()
+        };
         if limit > vm.instructions.len() {
             return Err(vm_err(format!("limit out of bounds: {limit}")));
         }
@@ -72,16 +174,20 @@ impl VanillaInterpreter {
         };
         let mut instructions = Arc::clone(&vm.instructions);
         let mut limit = limit;
-        let mut last_probe_pc: Option<usize> = None;
         'exec: loop {
             if !Arc::ptr_eq(&instructions, &vm.instructions) {
                 instructions = Arc::clone(&vm.instructions);
                 limit = instructions.len();
             }
             while vm.pc < limit {
+                if control.budget_exhausted() {
+                    return Ok(InterpretPoll::Yielded {
+                        instructions: control.instructions_executed,
+                    });
+                }
                 vm.poll_interrupt();
                 if vm.is_halted() {
-                    break 'exec;
+                    break;
                 }
                 if Self::finish_try_boundary(vm) {
                     continue;
@@ -92,7 +198,7 @@ impl VanillaInterpreter {
                 // call instructions which `continue 'exec` after a cache hit
                 // still get probed: marking is done before dispatch below.
                 if vm.trace_depth > 0
-                    && let Some(prev) = last_probe_pc.take()
+                    && let Some(prev) = vm.pending_trace_probe.take()
                 {
                     record_trace_probe(vm, prev);
                 }
@@ -110,18 +216,19 @@ impl VanillaInterpreter {
                         });
                         vm.poll_interrupt();
                         if vm.is_halted() {
-                            break 'exec;
+                            break;
                         }
                         paused_before_instruction = true;
                     }
                 }
                 let idx = vm.pc;
                 vm.pc += 1;
+                control.instructions_executed += 1;
                 let op = &instructions[idx];
                 // Mark the trace probe before dispatch. Some call arms continue after a
                 // synchronous push, so the next loop iteration handles the flush.
                 if vm.trace_depth > 0 && op.is_trace_interesting() {
-                    last_probe_pc = Some(idx);
+                    vm.pending_trace_probe = Some(idx);
                 }
                 hooks.before_instruction(vm, idx, op);
                 match op {
@@ -1303,7 +1410,26 @@ impl VanillaInterpreter {
                         vm.tail_call_journal.clear();
                         vm.tail_call_depth = 0;
                         vm.returned = true;
-                        break 'exec;
+                        if vm.trace_depth > 0
+                            && let Some(prev) = vm.pending_trace_probe.take()
+                        {
+                            record_trace_probe(vm, prev);
+                        }
+                        let value = vm.stack.pop().unwrap_or_else(Value::empty_list);
+                        Self::discard_current_try_frames(vm);
+                        if let Some(stop_call_depth) = control.stop_call_depth
+                            && vm.execution_frames.len() == stop_call_depth + 1
+                        {
+                            let value = vm
+                                .finish_user_call(value, false)
+                                .expect("stopped call should have a caller frame");
+                            return Ok(InterpretPoll::Ready(value));
+                        }
+                        if vm.execution_frames.is_empty() {
+                            return Ok(InterpretPoll::Ready(value));
+                        }
+                        vm.finish_user_call(value, true);
+                        continue 'exec;
                     }
 
                     Instruction::Try(len) => {
@@ -1367,18 +1493,26 @@ impl VanillaInterpreter {
                 continue;
             }
 
-            break;
+            if vm.trace_depth > 0
+                && let Some(prev) = vm.pending_trace_probe.take()
+            {
+                record_trace_probe(vm, prev);
+            }
+            let value = vm.stack.pop().unwrap_or_else(Value::empty_list);
+            Self::discard_current_try_frames(vm);
+            if let Some(stop_call_depth) = control.stop_call_depth
+                && vm.execution_frames.len() == stop_call_depth + 1
+            {
+                let value = vm
+                    .finish_user_call(value, false)
+                    .expect("stopped call should have a caller frame");
+                return Ok(InterpretPoll::Ready(value));
+            }
+            if vm.execution_frames.is_empty() {
+                return Ok(InterpretPoll::Ready(value));
+            }
+            vm.finish_user_call(value, true);
         }
-        // Capture a probe for the last interesting instruction of this frame
-        // before returning, so trace records inside a function body include
-        // the result expression.
-        if vm.trace_depth > 0
-            && let Some(prev) = last_probe_pc.take()
-        {
-            record_trace_probe(vm, prev);
-        }
-        let value = vm.stack.pop().unwrap_or(Value::empty_list());
-        Ok(value)
     }
 
     fn finish_try_boundary(vm: &mut Vm) -> bool {
@@ -2542,7 +2676,7 @@ mod call_safety {
 
     use crate::builtins::{BuiltinFnArgs, Builtins};
     use crate::interpret::Interpreter;
-    use crate::interpret::vanilla::VanillaInterpreter;
+    use crate::interpret::vanilla::{InterpretPoll, VanillaInterpreter};
     use crate::value::func::FunctionData;
     use crate::value::{Value, cell};
     use crate::vm::call::CallSpec;
@@ -2579,6 +2713,92 @@ mod call_safety {
         vm.returned = false;
         let mut interpreter = VanillaInterpreter;
         interpreter.interpret(vm, limit).expect("execute")
+    }
+
+    #[test]
+    fn sliced_interpretation_resumes_inside_nested_calls() {
+        let add_one = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Add,
+                    crate::vm::inst::Operand::Stack,
+                    crate::vm::inst::Operand::Stack,
+                ),
+                Instruction::Return,
+            ],
+        );
+        let instructions = vec![
+            Instruction::LoadVar("f".into()),
+            Instruction::load_const(Value::Int(41)),
+            Instruction::CallUser("f".into(), 1),
+            Instruction::Return,
+        ];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+        vm.assign_global_and_slot("f", add_one);
+        let mut interpreter = VanillaInterpreter;
+        let mut yields = 0;
+
+        let result = loop {
+            match interpreter
+                .interpret_slice(&mut vm, limit, 1)
+                .expect("slice should execute")
+            {
+                InterpretPoll::Yielded { instructions } => {
+                    assert_eq!(instructions, 1);
+                    yields += 1;
+                }
+                InterpretPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(result, Value::Int(42));
+        assert!(
+            yields >= 6,
+            "expected yields in caller and callee, got {yields}"
+        );
+        assert!(vm.execution_frames.is_empty());
+        assert!(vm.locals.is_empty());
+        assert!(vm.captures.is_empty());
+    }
+
+    #[test]
+    fn sliced_interpretation_preserves_try_across_call_frames() {
+        let bad = make_fn(
+            None,
+            0,
+            vec![Instruction::LoadVar("missing".into()), Instruction::Return],
+        );
+        let instructions = vec![
+            Instruction::Try(2),
+            Instruction::LoadVar("bad".into()),
+            Instruction::CallUser("bad".into(), 0),
+            Instruction::Return,
+        ];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+        vm.assign_global_and_slot("bad", bad);
+        let mut interpreter = VanillaInterpreter;
+
+        let result = loop {
+            match interpreter
+                .interpret_slice(&mut vm, limit, 1)
+                .expect("try should catch the sliced call error")
+            {
+                InterpretPoll::Yielded { .. } => {}
+                InterpretPoll::Ready(value) => break value,
+            }
+        };
+
+        let Value::List(result) = result else {
+            panic!("expected tagged try result");
+        };
+        assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
+        assert!(vm.execution_frames.is_empty());
     }
 
     #[test]

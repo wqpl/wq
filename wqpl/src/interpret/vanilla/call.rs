@@ -11,9 +11,14 @@ use crate::vm::{TailFrame, Vm, call_err};
 // --- concrete dispatch functions passed by the interpret loop ---
 
 fn invoke_user_push(vm: &mut Vm, _idx: usize, target: &Value, argc: usize) -> WqResult<bool> {
-    let result = vm.invoke_user(target, argc, None)?;
-    vm.stack.push(result);
-    Ok(false)
+    if let Some(spec) = CallSpec::from_user_callable(target, argc, None) {
+        vm.enter_spec(spec)?;
+        Ok(true)
+    } else {
+        let result = vm.invoke_user(target, argc, None)?;
+        vm.stack.push(result);
+        Ok(false)
+    }
 }
 
 fn tail_invoke_user(vm: &mut Vm, idx: usize, target: &Value, argc: usize) -> WqResult<bool> {
@@ -36,9 +41,8 @@ fn tail_invoke_user(vm: &mut Vm, idx: usize, target: &Value, argc: usize) -> WqR
 }
 
 fn invoke_spec_push(vm: &mut Vm, _idx: usize, spec: CallSpec) -> WqResult<bool> {
-    let result = vm.invoke_spec(spec)?;
-    vm.stack.push(result);
-    Ok(false)
+    vm.enter_spec(spec)?;
+    Ok(true)
 }
 
 fn prepare_tail(vm: &mut Vm, idx: usize, spec: CallSpec) -> WqResult<bool> {
@@ -67,9 +71,15 @@ fn invoke_user_named(
     argc: usize,
     name: &str,
 ) -> WqResult<bool> {
-    let result = vm.invoke_user(target, argc, CallSpec::name_hint(Some(name)))?;
-    vm.stack.push(result);
-    Ok(false)
+    let name_hint = CallSpec::name_hint(Some(name));
+    if let Some(spec) = CallSpec::from_user_callable(target, argc, name_hint.clone()) {
+        vm.enter_spec(spec)?;
+        Ok(true)
+    } else {
+        let result = vm.invoke_user(target, argc, name_hint)?;
+        vm.stack.push(result);
+        Ok(false)
+    }
 }
 
 fn tail_invoke_user_named(

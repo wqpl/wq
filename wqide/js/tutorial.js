@@ -243,7 +243,7 @@ window.initTutorialUI = function initTutorialUI() {
         outputRenderer.clear();
         try {
           await ensureWasm();
-          const result = await queueEval(() => {
+          const result = await queueEval(async () => {
             const session = new WasmWqSession();
             try {
               session.set_stdout_callback((chunk) => {
@@ -256,7 +256,7 @@ window.initTutorialUI = function initTutorialUI() {
               session.set_stdin_callback((_prompt) =>
                 queue.length ? String(queue.shift()) : null,
               );
-              return session.eval_wq(code);
+              return await session.eval_wq_async(code);
             } finally {
               session.free();
             }

@@ -11,7 +11,7 @@ use crate::debugger::{DebugResume, Debugger, PauseEvent};
 use crate::interpret::InterpreterKind;
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
-use crate::interpret::vanilla::VanillaInterpreter;
+use crate::interpret::vanilla::{InterpretPoll, VanillaInterpreter};
 use crate::lex::Lexer;
 use crate::parse::resolve::Resolver;
 use crate::parse::{Parser, fold};
@@ -235,6 +235,28 @@ impl std::error::Error for EvaluationFailure {
 
 pub type EvaluationResult<T> = Result<T, EvaluationFailure>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum EvaluationPoll {
+    Yielded { instructions: usize },
+    Ready(Value),
+}
+
+/// Owned state for one cooperatively evaluated script.
+///
+/// The source is retained so diagnostics and debug mappings remain valid
+/// across calls to [`Session::poll_script_evaluation`].
+pub struct ScriptEvaluation {
+    token: Arc<()>,
+    path: String,
+    source: String,
+    items: Vec<ScriptItem>,
+    next_item: usize,
+    active_fragment: bool,
+    phase: EvaluationPhase,
+    last_value: Option<Value>,
+    finished: bool,
+}
+
 /// Opaque proof that a host error wraps one exact evaluation crash.
 #[derive(Debug, Clone)]
 pub struct PostmortemToken {
@@ -366,6 +388,7 @@ pub struct Session {
     // Arm entering the wqdb on the next eval call
     wqdb_arm_next: bool,
     profiler: ProfilerInterpreter,
+    active_script_evaluation: Option<Arc<()>>,
 }
 
 impl Session {
@@ -379,6 +402,7 @@ impl Session {
             dry_mode: false,
             wqdb_arm_next: false,
             profiler: ProfilerInterpreter::default(),
+            active_script_evaluation: None,
         }
     }
 
@@ -482,6 +506,7 @@ impl Session {
     /// those functions remain callable after the reset. Breakpoints, stepping,
     /// trackers, and other transient debugger state are cleared.
     pub fn reset_execution_state(&mut self) {
+        self.active_script_evaluation = None;
         self.vm
             .reset_with_prepared_instructions(PreparedInstructions::new(Vec::new()));
         self.vm.halt_reason = None;
@@ -659,6 +684,247 @@ impl Session {
         }
     }
 
+    /// Create owned state for cooperatively evaluating a complete script.
+    ///
+    /// Loader directives are rejected with the same diagnostic as
+    /// [`Session::eval_script`]. Parsing and execution begin on the first poll.
+    /// The evaluation must complete or be cancelled before another cooperative
+    /// evaluation starts on this session.
+    pub fn start_script_evaluation(
+        &mut self,
+        path: impl Into<String>,
+        source: impl Into<String>,
+    ) -> EvaluationResult<ScriptEvaluation> {
+        if self.active_script_evaluation.is_some() {
+            return Err(EvaluationFailure::new(
+                WqError::new(WqErrorType::Vm)
+                    .msg("session already has an active script evaluation"),
+                EvaluationPhase::Execute,
+            ));
+        }
+        let path = path.into();
+        let source = source.into();
+        let items = parse_script_items(&source);
+        if let Some(directive) = items.iter().find_map(|item| match item {
+            ScriptItem::Directive(directive) => Some(directive),
+            ScriptItem::Shebang { .. } | ScriptItem::Code { .. } => None,
+        }) {
+            self.vm.begin_evaluation();
+            let source_unit = SourceUnit::named(&path, &source);
+            let failure = EvaluationFailure::new(
+                script_directive_requires_host(source_unit, directive),
+                EvaluationPhase::Parse,
+            );
+            self.vm.publish_crash(None);
+            self.vm.end_evaluation();
+            return Err(failure);
+        }
+
+        let token = Arc::new(());
+        self.active_script_evaluation = Some(Arc::clone(&token));
+        Ok(ScriptEvaluation {
+            token,
+            path,
+            source,
+            items,
+            next_item: 0,
+            active_fragment: false,
+            phase: EvaluationPhase::Lex,
+            last_value: None,
+            finished: false,
+        })
+    }
+
+    /// Execute at most one instruction budget from a cooperative script.
+    ///
+    /// Context builtins and non-vanilla interpreters execute atomically. A
+    /// budget therefore bounds vanilla VM instruction dispatch but not the
+    /// work performed inside one builtin or alternate interpreter.
+    pub fn poll_script_evaluation(
+        &mut self,
+        evaluation: &mut ScriptEvaluation,
+        instruction_budget: usize,
+    ) -> EvaluationResult<EvaluationPoll> {
+        if evaluation.finished {
+            return Err(EvaluationFailure::new(
+                WqError::new(WqErrorType::Vm).msg("evaluation has already completed"),
+                EvaluationPhase::Execute,
+            ));
+        }
+        if !self
+            .active_script_evaluation
+            .as_ref()
+            .is_some_and(|token| Arc::ptr_eq(token, &evaluation.token))
+        {
+            return Err(EvaluationFailure::new(
+                WqError::new(WqErrorType::Vm)
+                    .msg("script evaluation is not active for this session"),
+                EvaluationPhase::Execute,
+            ));
+        }
+        if instruction_budget == 0 {
+            return Err(EvaluationFailure::new(
+                WqError::new(WqErrorType::Vm)
+                    .msg("script evaluation instruction budget must be greater than 0"),
+                EvaluationPhase::Execute,
+            ));
+        }
+
+        loop {
+            if evaluation.active_fragment {
+                match self.execute_prepared_slice(instruction_budget) {
+                    Ok(InterpretPoll::Yielded { instructions }) => {
+                        return Ok(EvaluationPoll::Yielded { instructions });
+                    }
+                    Ok(InterpretPoll::Ready(value)) => {
+                        let result = if let Some(error) = self.vm.debug_log.take_error() {
+                            Err(EvaluationFailure::new(
+                                host_io_error("debug output", error),
+                                EvaluationPhase::Host,
+                            ))
+                        } else {
+                            Ok(value)
+                        };
+                        let crash = result
+                            .as_ref()
+                            .err()
+                            .and_then(|failure| failure.crash().cloned());
+                        self.vm.publish_crash(crash);
+                        self.vm.end_evaluation();
+                        evaluation.active_fragment = false;
+                        match result {
+                            Ok(value) => evaluation.last_value = Some(value),
+                            Err(failure) => {
+                                evaluation.finished = true;
+                                self.active_script_evaluation = None;
+                                return Err(failure);
+                            }
+                        }
+                        if self.vm.is_halted() {
+                            evaluation.finished = true;
+                            self.active_script_evaluation = None;
+                            return Ok(EvaluationPoll::Ready(
+                                evaluation
+                                    .last_value
+                                    .take()
+                                    .unwrap_or_else(Value::empty_list),
+                            ));
+                        }
+                        if evaluation.next_item < evaluation.items.len() {
+                            return Ok(EvaluationPoll::Yielded { instructions: 0 });
+                        }
+                    }
+                    Err(error) => {
+                        let span = evaluation
+                            .items
+                            .get(evaluation.next_item.saturating_sub(1))
+                            .map(ScriptItem::span)
+                            .expect("active evaluation should have a source item");
+                        let source =
+                            SourceUnit::fragment(&evaluation.path, &evaluation.source, span)
+                                .expect("script parser should yield valid source spans");
+                        let failure = EvaluationFailure::new(
+                            contextualize_source_error(error, source),
+                            evaluation.phase,
+                        );
+                        let crash = failure.crash().cloned();
+                        self.vm.publish_crash(crash);
+                        self.vm.end_evaluation();
+                        evaluation.active_fragment = false;
+                        evaluation.finished = true;
+                        self.active_script_evaluation = None;
+                        return Err(failure);
+                    }
+                }
+            }
+
+            let Some(item) = evaluation.items.get(evaluation.next_item).cloned() else {
+                evaluation.finished = true;
+                self.active_script_evaluation = None;
+                return Ok(EvaluationPoll::Ready(
+                    evaluation
+                        .last_value
+                        .take()
+                        .unwrap_or_else(Value::empty_list),
+                ));
+            };
+            evaluation.next_item += 1;
+            match item {
+                ScriptItem::Shebang { .. } => {}
+                ScriptItem::Directive(_) => {
+                    unreachable!("script directives were rejected before evaluation")
+                }
+                ScriptItem::Code { span } => {
+                    let source = SourceUnit::fragment(&evaluation.path, &evaluation.source, span)
+                        .expect("script parser should yield valid source spans");
+                    if source.code.trim().is_empty() {
+                        continue;
+                    }
+                    self.vm.begin_evaluation();
+                    self.vm.debug_log.clear_error();
+                    evaluation.phase = EvaluationPhase::Lex;
+                    match self.prepare_source_inner(source, &mut evaluation.phase) {
+                        Ok(Some(value)) => {
+                            let result = if let Some(error) = self.vm.debug_log.take_error() {
+                                Err(EvaluationFailure::new(
+                                    host_io_error("debug output", error),
+                                    EvaluationPhase::Host,
+                                ))
+                            } else {
+                                Ok(value)
+                            };
+                            let crash = result
+                                .as_ref()
+                                .err()
+                                .and_then(|failure| failure.crash().cloned());
+                            self.vm.publish_crash(crash);
+                            self.vm.end_evaluation();
+                            match result {
+                                Ok(value) => evaluation.last_value = Some(value),
+                                Err(failure) => {
+                                    evaluation.finished = true;
+                                    self.active_script_evaluation = None;
+                                    return Err(failure);
+                                }
+                            }
+                        }
+                        Ok(None) => evaluation.active_fragment = true,
+                        Err(error) => {
+                            let failure = EvaluationFailure::new(
+                                contextualize_source_error(error, source),
+                                evaluation.phase,
+                            );
+                            let crash = failure.crash().cloned();
+                            self.vm.publish_crash(crash);
+                            self.vm.end_evaluation();
+                            evaluation.finished = true;
+                            self.active_script_evaluation = None;
+                            return Err(failure);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Cancel a cooperative script while preserving bindings and host setup.
+    pub fn cancel_script_evaluation(&mut self, evaluation: &mut ScriptEvaluation) -> bool {
+        if !self
+            .active_script_evaluation
+            .as_ref()
+            .is_some_and(|token| Arc::ptr_eq(token, &evaluation.token))
+        {
+            return false;
+        }
+        if evaluation.active_fragment {
+            self.vm.end_evaluation();
+        }
+        evaluation.active_fragment = false;
+        evaluation.finished = true;
+        self.reset_execution_state();
+        true
+    }
+
     /// Evaluate a script while delegating loader directives to the host.
     ///
     /// The session owns shebang handling, code-region source scoping, halt
@@ -762,6 +1028,17 @@ impl Session {
         source: SourceUnit<'_>,
         phase: &mut EvaluationPhase,
     ) -> WqResult<Value> {
+        if let Some(value) = self.prepare_source_inner(source, phase)? {
+            return Ok(value);
+        }
+        self.execute_prepared()
+    }
+
+    fn prepare_source_inner(
+        &mut self,
+        source: SourceUnit<'_>,
+        phase: &mut EvaluationPhase,
+    ) -> WqResult<Option<Value>> {
         let input = source.code;
         *phase = EvaluationPhase::Lex;
         // If a wqdb entry was armed, record it for the upcoming run.
@@ -894,7 +1171,7 @@ impl Session {
         )?;
 
         if self.dry_mode {
-            return Ok(Value::empty_list());
+            return Ok(Some(Value::empty_list()));
         }
 
         *phase = EvaluationPhase::Execute;
@@ -980,6 +1257,10 @@ impl Session {
         if temp_wqdb_on {
             self.vm.dbg_step_in();
         }
+        Ok(None)
+    }
+
+    fn execute_prepared(&mut self) -> WqResult<Value> {
         let result = match self.vm.interpreter_kind {
             InterpreterKind::Sample => {
                 let mut sample = SampleInterpreter::default();
@@ -999,6 +1280,20 @@ impl Session {
             self.write_diagnostic(format!("{v:?}"))?;
         }
         result
+    }
+
+    fn execute_prepared_slice(&mut self, instruction_budget: usize) -> WqResult<InterpretPoll> {
+        if self.vm.interpreter_kind != InterpreterKind::Vanilla {
+            return self.execute_prepared().map(InterpretPoll::Ready);
+        }
+        let limit = self.vm.instructions.len();
+        let result = VanillaInterpreter.interpret_slice(&mut self.vm, limit, instruction_budget)?;
+        if self.vm.debug_log.enabled(DebugLogFlags::VALUE)
+            && let InterpretPoll::Ready(value) = &result
+        {
+            self.write_diagnostic(format!("{value:?}"))?;
+        }
+        Ok(result)
     }
 
     /// Build a snapshot of the environment from slots.
@@ -1550,6 +1845,93 @@ mod tests {
                 .expect("a consumed pending interrupt should not affect evaluation"),
             Value::Int(1)
         );
+    }
+
+    #[test]
+    fn cooperative_script_yields_and_matches_synchronous_evaluation() {
+        let source = "f:{[n]$[n=0;0;1+f[n-1]]}\nf[40]";
+        let expected = Session::new()
+            .eval_script(SourceUnit::named("slice.wq", source))
+            .expect("synchronous evaluation");
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("slice.wq", source)
+            .expect("start cooperative evaluation");
+        let mut yields = 0;
+
+        let actual = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 3)
+                .expect("poll cooperative evaluation")
+            {
+                EvaluationPoll::Yielded { instructions } => {
+                    assert!(instructions <= 3);
+                    yields += 1;
+                }
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+
+        assert_eq!(actual, expected);
+        assert!(yields > 10, "expected repeated cooperative yields");
+    }
+
+    #[test]
+    fn cancelling_cooperative_script_preserves_completed_bindings() {
+        let mut session = Session::new();
+        let mut evaluation = session
+            .start_script_evaluation("cancel.wq", "ready:41\nW[T;ready+:1]")
+            .expect("start cooperative evaluation");
+
+        assert!(matches!(
+            session
+                .poll_script_evaluation(&mut evaluation, 100)
+                .expect("complete first source item"),
+            EvaluationPoll::Yielded { .. }
+        ));
+        assert!(session.cancel_script_evaluation(&mut evaluation));
+
+        assert_eq!(session.bindings().get("ready"), Some(&Value::Int(41)));
+        assert_eq!(
+            session
+                .eval_string("ready+1")
+                .expect("session should remain reusable after cancellation"),
+            Value::Int(42)
+        );
+    }
+
+    #[test]
+    fn cooperative_script_state_is_bound_to_one_session() {
+        let mut first = Session::new();
+        let mut evaluation = first
+            .start_script_evaluation("first.wq", "W[T;1]")
+            .expect("start first evaluation");
+
+        let overlap = match first.start_script_evaluation("second.wq", "2") {
+            Ok(_) => panic!("same session should reject an overlapping evaluation"),
+            Err(error) => error,
+        };
+        assert!(
+            overlap
+                .to_string()
+                .contains("session already has an active script evaluation")
+        );
+
+        let mut second = Session::new();
+        let foreign = second
+            .poll_script_evaluation(&mut evaluation, 1)
+            .expect_err("another session should reject foreign evaluation state");
+        assert!(
+            foreign
+                .to_string()
+                .contains("script evaluation is not active for this session")
+        );
+        assert!(!second.cancel_script_evaluation(&mut evaluation));
+        assert!(first.cancel_script_evaluation(&mut evaluation));
+
+        first
+            .start_script_evaluation("replacement.wq", "3")
+            .expect("cancellation should release the session");
     }
 
     #[test]

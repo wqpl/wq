@@ -16,7 +16,10 @@ use wqpl::interpret::InterpreterKind;
 use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
 use wqpl::session::stdio::{WqInput, WqIoError, WqOutput};
-use wqpl::session::{EvaluationFailure, Session, SourceUnit};
+use wqpl::session::{
+    EvaluationFailure, EvaluationPoll as SessionEvaluationPoll, ScriptEvaluation, Session,
+    SourceUnit,
+};
 use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::Value;
@@ -60,6 +63,10 @@ export interface RenderedValue {
     category: string;
     xray: string;
 }
+
+export type EvaluationSlice =
+    | { status: "yielded"; instructions: number }
+    | { status: "ready"; value: RenderedValue };
 
 export interface GlobalBinding {
     name: string;
@@ -263,6 +270,7 @@ struct RenderedValueData {
 pub struct WasmWqSession {
     box_config: Cell<BoxPrintConfig>,
     session: RefCell<Session>,
+    evaluation: RefCell<Option<ScriptEvaluation>>,
 }
 
 impl WasmWqSession {
@@ -279,6 +287,14 @@ impl WasmWqSession {
     }
 
     fn ensure_session_idle(&self) -> Result<(), JsValue> {
+        let evaluation = self
+            .evaluation
+            .try_borrow()
+            .map_err(|_| reentrant_session_error_js())?;
+        if evaluation.is_some() {
+            return Err(evaluation_in_progress_error_js());
+        }
+        drop(evaluation);
         drop(self.try_session()?);
         Ok(())
     }
@@ -294,6 +310,7 @@ impl WasmWqSession {
         WasmWqSession {
             box_config: Cell::new(BoxPrintConfig::default()),
             session: RefCell::new(session),
+            evaluation: RefCell::new(None),
         }
     }
 
@@ -331,6 +348,7 @@ impl WasmWqSession {
     /// Evaluate source and return its rendered value plus display metadata.
     #[wasm_bindgen(unchecked_return_type = "RenderedValue")]
     pub fn eval_wq(&self, src: &str) -> Result<JsValue, JsValue> {
+        self.ensure_session_idle()?;
         let (result, color_mode) = {
             let mut session = self.try_session_mut()?;
             let color_mode = session.stderr_color_mode();
@@ -343,6 +361,85 @@ impl WasmWqSession {
             Ok(rendered) => Ok(rendered_value_to_js(&rendered).into()),
             Err(failure) => Err(evaluation_failure_js(&failure, color_mode)),
         }
+    }
+
+    /// Start a cooperatively evaluated script.
+    pub fn start_eval_wq(&self, src: &str) -> Result<(), JsValue> {
+        let mut evaluation = self
+            .evaluation
+            .try_borrow_mut()
+            .map_err(|_| reentrant_session_error_js())?;
+        if evaluation.is_some() {
+            return Err(evaluation_in_progress_error_js());
+        }
+
+        let (result, color_mode) = {
+            let mut session = self.try_session_mut()?;
+            let color_mode = session.stderr_color_mode();
+            let result = session.start_script_evaluation("<wasm>", src);
+            (result, color_mode)
+        };
+        match result {
+            Ok(started) => {
+                *evaluation = Some(started);
+                Ok(())
+            }
+            Err(failure) => Err(evaluation_failure_js(&failure, color_mode)),
+        }
+    }
+
+    /// Run one bounded instruction slice of the active evaluation.
+    #[wasm_bindgen(unchecked_return_type = "EvaluationSlice")]
+    pub fn run_eval_wq_slice(&self, instruction_budget: usize) -> Result<JsValue, JsValue> {
+        if instruction_budget == 0 {
+            return Err(api_error_js(
+                "invalid-evaluation-budget",
+                "evaluation instruction budget must be greater than 0",
+            ));
+        }
+
+        let mut evaluation = self
+            .evaluation
+            .try_borrow_mut()
+            .map_err(|_| reentrant_session_error_js())?;
+        let active = evaluation
+            .as_mut()
+            .ok_or_else(no_active_evaluation_error_js)?;
+        let (result, color_mode) = {
+            let mut session = self.try_session_mut()?;
+            let color_mode = session.stderr_color_mode();
+            let result = session.poll_script_evaluation(active, instruction_budget);
+            (result, color_mode)
+        };
+
+        match result {
+            Ok(SessionEvaluationPoll::Yielded { instructions }) => {
+                Ok(evaluation_yielded_to_js(instructions).into())
+            }
+            Ok(SessionEvaluationPoll::Ready(value)) => {
+                evaluation.take();
+                let rendered = render_value(&value, self.box_config.get());
+                Ok(evaluation_ready_to_js(&rendered).into())
+            }
+            Err(failure) => {
+                evaluation.take();
+                Err(evaluation_failure_js(&failure, color_mode))
+            }
+        }
+    }
+
+    /// Cancel the active cooperative evaluation, if one exists.
+    pub fn cancel_eval_wq(&self) -> Result<bool, JsValue> {
+        let mut evaluation = self
+            .evaluation
+            .try_borrow_mut()
+            .map_err(|_| reentrant_session_error_js())?;
+        let Some(active) = evaluation.as_mut() else {
+            return Ok(false);
+        };
+        let cancelled = self.try_session_mut()?.cancel_script_evaluation(active);
+        evaluation.take();
+        Ok(cancelled)
     }
 
     /// Configure ANSI styling for runtime output and diagnostics.
@@ -767,6 +864,20 @@ fn rendered_value_to_js(value: &RenderedValueData) -> Object {
     object
 }
 
+fn evaluation_yielded_to_js(instructions: usize) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "status", &JsValue::from_str("yielded"));
+    set_js_property(&object, "instructions", &usize_js(instructions));
+    object
+}
+
+fn evaluation_ready_to_js(value: &RenderedValueData) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "status", &JsValue::from_str("ready"));
+    set_js_property(&object, "value", &rendered_value_to_js(value).into());
+    object
+}
+
 fn api_error_js(kind: &str, message: &str) -> JsValue {
     diagnostic_to_js(&api_diagnostic_data(kind, message)).into()
 }
@@ -775,6 +886,20 @@ fn reentrant_session_error_js() -> JsValue {
     api_error_js(
         "reentrant-session-access",
         "session methods cannot be called reentrantly from an active session callback",
+    )
+}
+
+fn evaluation_in_progress_error_js() -> JsValue {
+    api_error_js(
+        "evaluation-in-progress",
+        "session already has an active evaluation",
+    )
+}
+
+fn no_active_evaluation_error_js() -> JsValue {
+    api_error_js(
+        "no-active-evaluation",
+        "session does not have an active evaluation",
     )
 }
 

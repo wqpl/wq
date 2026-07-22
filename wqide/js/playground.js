@@ -487,7 +487,7 @@ async function doEval(instance) {
     await ensureWasm();
     const flags = instance.debugFlagsInput?.value || "0";
     const start = performance.now();
-    const result = await queueEval(() => {
+    const result = await queueEval(async () => {
       const session = new WasmWqSession();
       try {
         session.set_stdout_callback((chunk) => {
@@ -506,7 +506,7 @@ async function doEval(instance) {
         if (flags) {
           session.set_debug_flags(flags);
         }
-        return session.eval_wq(code);
+        return await session.eval_wq_async(code);
       } finally {
         session.free();
       }
@@ -608,7 +608,7 @@ async function runForPoster(instance) {
       );
       applyBoxMode(session, instance);
       if (flags) session.set_debug_flags(flags);
-      const result = session.eval_wq(code);
+      const result = await session.eval_wq_async(code);
       if (
         result.display !== undefined &&
         result.display !== null &&
