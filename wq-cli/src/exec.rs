@@ -6,6 +6,7 @@ use wqpl::session::Session;
 
 use crate::arg::RuntimeFlags;
 use crate::display::{format_print_result, format_xray_info};
+use crate::interrupt::{CliInterrupts, INTERRUPTED_EXIT_STATUS};
 use crate::load::{eval_inline_with_load, load_script};
 use crate::msg::{print_dry_run_status, print_load_error};
 use crate::repl::input::RustylineInput;
@@ -30,7 +31,14 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: Runt
     apply_builtins_flag(&mut evaluator, &rtflags);
     apply_interpreter_flag(&mut evaluator, &rtflags);
     let loading = RefCell::new(HashSet::new());
-    match load_script(&mut evaluator, filename, &loading, true) {
+    let interrupts = CliInterrupts::install().expect("CLI Ctrl-C handler should initialize");
+    let interrupt_guard = interrupts.arm(evaluator.interrupt_handle());
+    let result = load_script(&mut evaluator, filename, &loading, true);
+    drop(interrupt_guard);
+    if evaluator.take_interrupt() {
+        return INTERRUPTED_EXIT_STATUS;
+    }
+    match result {
         Ok(report) => {
             if let Some(status) = evaluator.take_halt_status() {
                 return status;
@@ -80,7 +88,14 @@ pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 
     apply_interpreter_flag(&mut session, &rtflags);
     let loading = RefCell::new(HashSet::new());
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    match eval_inline_with_load(&mut session, content, &cwd, &loading, true) {
+    let interrupts = CliInterrupts::install().expect("CLI Ctrl-C handler should initialize");
+    let interrupt_guard = interrupts.arm(session.interrupt_handle());
+    let result = eval_inline_with_load(&mut session, content, &cwd, &loading, true);
+    drop(interrupt_guard);
+    if session.take_interrupt() {
+        return INTERRUPTED_EXIT_STATUS;
+    }
+    match result {
         Ok(report) => {
             if let Some(status) = session.take_halt_status() {
                 return status;

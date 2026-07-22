@@ -1109,6 +1109,11 @@ impl BuiltinContext for Vm {
         Vm::call(self, func, args)
     }
 
+    fn poll_interrupt(&mut self) -> bool {
+        Vm::poll_interrupt(self);
+        matches!(self.halt_reason, Some(crate::vm::HaltReason::Interrupted))
+    }
+
     fn draw_default_random(&mut self, args: &[Value]) -> WqResult<Value> {
         let builtin = BuiltinEnum::Rand;
         self.default_rng.draw(args, builtin.name(), builtin.usage())

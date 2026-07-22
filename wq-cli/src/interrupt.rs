@@ -2,32 +2,56 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use wqpl::session::SessionInterruptHandle;
 
+pub(crate) const INTERRUPTED_EXIT_STATUS: i32 = 130;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InterruptAction {
+    Inactive,
+    Requested,
+    Escalate,
+}
+
+struct ActiveInterrupt {
+    handle: SessionInterruptHandle,
+    requested: bool,
+}
+
 #[derive(Default)]
 struct InterruptState {
-    active: Mutex<Option<SessionInterruptHandle>>,
+    active: Mutex<Option<ActiveInterrupt>>,
 }
 
 impl InterruptState {
-    fn lock_active(&self) -> MutexGuard<'_, Option<SessionInterruptHandle>> {
+    fn lock_active(&self) -> MutexGuard<'_, Option<ActiveInterrupt>> {
         self.active
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn request(&self) {
-        if let Some(interrupt) = self.lock_active().as_ref() {
-            interrupt.interrupt();
+    fn request(&self) -> InterruptAction {
+        let mut active = self.lock_active();
+        let Some(active) = active.as_mut() else {
+            return InterruptAction::Inactive;
+        };
+        if active.requested {
+            return InterruptAction::Escalate;
         }
+        active.requested = true;
+        active.handle.interrupt();
+        InterruptAction::Requested
     }
 
     fn arm(&self, interrupt: SessionInterruptHandle) -> InterruptGuard<'_> {
-        let previous = self.lock_active().replace(interrupt);
+        let previous = self.lock_active().replace(ActiveInterrupt {
+            handle: interrupt,
+            requested: false,
+        });
         debug_assert!(previous.is_none());
         InterruptGuard { state: self }
     }
 }
 
-pub(super) struct ReplInterrupts {
+pub(crate) struct CliInterrupts {
     state: Arc<InterruptState>,
     #[cfg(unix)]
     signal_handle: signal_hook::iterator::Handle,
@@ -35,18 +59,24 @@ pub(super) struct ReplInterrupts {
     signal_thread: Option<std::thread::JoinHandle<()>>,
 }
 
-impl ReplInterrupts {
-    pub(super) fn install() -> Result<Self, String> {
+impl CliInterrupts {
+    pub(crate) fn install() -> Result<Self, String> {
         install_platform(Arc::new(InterruptState::default()))
     }
 
-    pub(super) fn arm(&self, interrupt: SessionInterruptHandle) -> InterruptGuard<'_> {
+    pub(crate) fn arm(&self, interrupt: SessionInterruptHandle) -> InterruptGuard<'_> {
         self.state.arm(interrupt)
     }
 }
 
+fn apply_interrupt_action(action: InterruptAction) {
+    if action == InterruptAction::Escalate {
+        std::process::exit(INTERRUPTED_EXIT_STATUS);
+    }
+}
+
 #[cfg(unix)]
-fn install_platform(state: Arc<InterruptState>) -> Result<ReplInterrupts, String> {
+fn install_platform(state: Arc<InterruptState>) -> Result<CliInterrupts, String> {
     use signal_hook::consts::SIGINT;
     use signal_hook::iterator::Signals;
 
@@ -54,14 +84,14 @@ fn install_platform(state: Arc<InterruptState>) -> Result<ReplInterrupts, String
     let signal_handle = signals.handle();
     let handler_state = Arc::clone(&state);
     let signal_thread = std::thread::Builder::new()
-        .name("wq-repl-sigint".into())
+        .name("wq-sigint".into())
         .spawn(move || {
             for _ in signals.forever() {
-                handler_state.request();
+                apply_interrupt_action(handler_state.request());
             }
         })
         .map_err(|error| error.to_string())?;
-    Ok(ReplInterrupts {
+    Ok(CliInterrupts {
         state,
         signal_handle,
         signal_thread: Some(signal_thread),
@@ -69,19 +99,20 @@ fn install_platform(state: Arc<InterruptState>) -> Result<ReplInterrupts, String
 }
 
 #[cfg(windows)]
-fn install_platform(state: Arc<InterruptState>) -> Result<ReplInterrupts, String> {
+fn install_platform(state: Arc<InterruptState>) -> Result<CliInterrupts, String> {
     let handler_state = Arc::clone(&state);
-    ctrlc::try_set_handler(move || handler_state.request()).map_err(|error| error.to_string())?;
-    Ok(ReplInterrupts { state })
+    ctrlc::try_set_handler(move || apply_interrupt_action(handler_state.request()))
+        .map_err(|error| error.to_string())?;
+    Ok(CliInterrupts { state })
 }
 
 #[cfg(not(any(unix, windows)))]
-fn install_platform(_state: Arc<InterruptState>) -> Result<ReplInterrupts, String> {
+fn install_platform(_state: Arc<InterruptState>) -> Result<CliInterrupts, String> {
     Err("Ctrl-C handling is unavailable on this platform".into())
 }
 
 #[cfg(unix)]
-impl Drop for ReplInterrupts {
+impl Drop for CliInterrupts {
     fn drop(&mut self) {
         self.signal_handle.close();
         if let Some(signal_thread) = self.signal_thread.take() {
@@ -90,7 +121,7 @@ impl Drop for ReplInterrupts {
     }
 }
 
-pub(super) struct InterruptGuard<'state> {
+pub(crate) struct InterruptGuard<'state> {
     state: &'state InterruptState,
 }
 
@@ -113,14 +144,14 @@ mod tests {
         let mut session = Session::new();
         let guard = state.arm(session.interrupt_handle());
 
-        state.request();
+        assert_eq!(state.request(), InterruptAction::Requested);
         session
             .eval_string("W[T;0]")
             .expect("interrupted evaluation should halt cleanly");
         drop(guard);
 
         assert!(session.take_interrupt());
-        state.request();
+        assert_eq!(state.request(), InterruptAction::Inactive);
         assert_eq!(
             session
                 .eval_string("1")
@@ -128,5 +159,15 @@ mod tests {
             Value::Int(1)
         );
         assert!(!session.take_interrupt());
+    }
+
+    #[test]
+    fn a_repeated_request_escalates_while_the_same_evaluation_is_active() {
+        let state = InterruptState::default();
+        let session = Session::new();
+        let _guard = state.arm(session.interrupt_handle());
+
+        assert_eq!(state.request(), InterruptAction::Requested);
+        assert_eq!(state.request(), InterruptAction::Escalate);
     }
 }

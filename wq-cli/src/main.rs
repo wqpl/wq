@@ -3,6 +3,7 @@ mod dap;
 mod display;
 mod exec;
 mod help;
+mod interrupt;
 mod load;
 mod msg;
 mod note;

@@ -345,6 +345,13 @@ impl From<Vec<Value>> for BuiltinFnArgs {
 
 pub trait BuiltinContext {
     fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value>;
+    /// Observe a host interruption request at an algorithm safe point.
+    ///
+    /// Returning `true` means the builtin must stop after restoring or
+    /// discarding any private partial state.
+    fn poll_interrupt(&mut self) -> bool {
+        false
+    }
     fn draw_default_random(&mut self, args: &[Value]) -> WqResult<Value>;
     fn list_enabled_builtins(&self) -> Vec<String>;
     fn argv(&self) -> &[String];
@@ -1005,7 +1012,7 @@ declare_builtins! {
     (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), with_context(core::print), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), with_context(core::input), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     #[cfg(not(target_arch = "wasm32"))]
-    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), plain(core::exec), builtin_metadata!(Exec, UNCONSTRAINED_EFFECT)),
+    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), with_context(core::exec_with_context), builtin_metadata!(Exec, UNCONSTRAINED_EFFECT)),
 
     // ENCODING =========================================================
     (DECODE, Decode, "decode", "decode[bytes;codec;`mode;`bom]", sig!(arity!(2), named DECODE_NAMED_ARGS), plain(encoding::decode), builtin_metadata!(Encoding, PURE)),
@@ -1195,7 +1202,7 @@ declare_builtins! {
     (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), with_context(cas::limit), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (SOLVE, Solve, "solve", "solve[expr;`assuming;`domain], solve[expr;var;`assuming;`domain], solve[eq;var;`assuming;`domain]", sig!(arity!(1, 2), named SOLVE_NAMED_ARGS), plain(cas::solve), builtin_metadata!(Cas, PURE)),
     (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;`assuming], solve_system[eqs;vars;`assuming]", sig!(arity!(1, 2), named SOLVE_SYSTEM_NAMED_ARGS), plain(cas::solve_system), builtin_metadata!(Cas, PURE)),
-    (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), builtin_metadata!(Cas, PURE)),
+    (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), with_context(cas::brent_with_context), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), with_context(cas::newton), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
 
     // String =========================================================

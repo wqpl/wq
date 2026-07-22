@@ -41,7 +41,11 @@ pub struct SessionInterruptHandle {
 }
 
 impl SessionInterruptHandle {
-    /// Request that the session stop at the next instruction boundary.
+    /// Request that the session stop at the next cooperative safe point.
+    ///
+    /// Safe points occur before instructions and inside interruptible host
+    /// algorithms. The running instruction remains responsible for leaving
+    /// observable state consistent before it stops.
     pub fn interrupt(&self) {
         self.requested.store(true, Ordering::Release);
     }
@@ -1921,6 +1925,35 @@ mod tests {
                 .expect("a consumed pending interrupt should not affect evaluation"),
             Value::Int(1)
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interrupt_stops_a_blocking_exec_builtin() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (interrupt_sender, interrupt_receiver) = mpsc::channel();
+        let (result_sender, result_receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut session = Session::new();
+            let _ = interrupt_sender.send(session.interrupt_handle());
+            let result = session.eval_string("exec[\"sleep\";\"1\"]");
+            let interrupted = session.take_interrupt();
+            let _ = result_sender.send((result.is_ok(), interrupted));
+        });
+
+        let interrupt = interrupt_receiver
+            .recv_timeout(Duration::from_millis(500))
+            .expect("worker should publish its interrupt handle");
+        std::thread::sleep(Duration::from_millis(100));
+        interrupt.interrupt();
+        let (clean_halt, interrupted) = result_receiver
+            .recv_timeout(Duration::from_millis(500))
+            .expect("interrupt should stop the child process promptly");
+
+        assert!(clean_halt, "interrupted execution should halt cleanly");
+        assert!(interrupted);
     }
 
     #[test]

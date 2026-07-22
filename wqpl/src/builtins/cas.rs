@@ -330,7 +330,19 @@ fn eval_root_objective(expr: &Value, var: &Value, x: f64, src: BuiltinEnum) -> W
     }
 }
 
-pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn brent_with_context(
+    context: &mut dyn BuiltinContext,
+    args: BuiltinFnArgs,
+) -> WqResult<Value> {
+    brent_impl(args, &mut || context.poll_interrupt())
+}
+
+#[cfg(test)]
+fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
+    brent_impl(args, &mut || false)
+}
+
+fn brent_impl(args: BuiltinFnArgs, poll_interrupt: &mut dyn FnMut() -> bool) -> WqResult<Value> {
     check_arity(BuiltinEnum::Brent, [3, 4, 5], &args)?;
 
     let (expr, var) = parse_root_objective(&args[0], BuiltinEnum::Brent)?;
@@ -409,6 +421,9 @@ pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
     let mut e = d;
 
     for _ in 0..max_iter {
+        if poll_interrupt() {
+            return Ok(Value::empty_list());
+        }
         if fb.signum() == fc.signum() {
             c = a;
             fc = fa;
@@ -529,6 +544,9 @@ pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> W
     }
 
     for _ in 0..max_iter {
+        if context.poll_interrupt() {
+            return Ok(Value::empty_list());
+        }
         let fx = eval_root_objective(&expr, &var, x, BuiltinEnum::Newton)?;
         if fx.abs() <= tol {
             return Ok(Value::float(x));
@@ -930,6 +948,22 @@ mod tests {
             err.msg.as_deref(),
             Some("'brent' expects an int iteration limit")
         );
+    }
+
+    #[test]
+    fn brent_stops_at_an_algorithm_interrupt_safe_point() {
+        let mut polls = 0;
+        let result = brent_impl(
+            vec![Value::from_cas_var("x"), Value::Int(-1), Value::Int(1)].into(),
+            &mut || {
+                polls += 1;
+                true
+            },
+        )
+        .expect("interruption should halt without a runtime error");
+
+        assert!(result.is_unit());
+        assert_eq!(polls, 1);
     }
 
     #[test]

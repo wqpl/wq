@@ -18,6 +18,7 @@ fn top_level_help_command_preserves_cli_help() -> Result<()> {
     let stdout = strip_ansi(&stdout);
     assert!(stdout.contains("Usage: wq"));
     assert!(stdout.contains("Commands:"));
+    assert!(stdout.contains("130  Interrupted"));
     Ok(())
 }
 

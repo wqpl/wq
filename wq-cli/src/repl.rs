@@ -1,7 +1,6 @@
 mod command;
 pub mod editor;
 pub mod input;
-mod interrupt;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -24,6 +23,7 @@ use wqpl::{completion as wq_completion, doc};
 
 use crate::arg::{BoxPrintConfig, FmtOpts, RuntimeFlags, apply_box_spec};
 use crate::display::{format_non_cas_result, format_xray_info};
+use crate::interrupt::CliInterrupts;
 use crate::load::eval_inline_with_load;
 use crate::msg::{
     MsgType, print_dry_run_status as raw_print_dry_run_status,
@@ -32,7 +32,6 @@ use crate::msg::{
 };
 use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::{RuntimeInput, RustylineInput, WqGlobalHint};
-use crate::repl::interrupt::ReplInterrupts;
 use crate::wqdb::{enter_wqdb_after_err, wqdb_shell};
 use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag};
 
@@ -212,7 +211,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
         editor.clone(),
         session_interrupt,
     )));
-    let interrupts = ReplInterrupts::install().expect("REPL Ctrl-C handler should initialize");
+    let interrupts = CliInterrupts::install().expect("REPL Ctrl-C handler should initialize");
     let debugger_editor = editor.clone();
     session.set_pause_handler(move |_event, debugger| wqdb_shell(debugger, &debugger_editor));
     let mut time_mode = false;
@@ -836,7 +835,7 @@ fn report_interrupted_turn(session: &mut Session) -> bool {
     if !session.take_interrupt() {
         return false;
     }
-    system_msg_err("Interrupted", MsgType::Error);
+    system_msg_err("Interrupted", MsgType::Info);
     true
 }
 

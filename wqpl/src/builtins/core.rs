@@ -416,7 +416,20 @@ pub(super) fn raise(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn exec_with_context(
+    context: &mut dyn BuiltinContext,
+    args: BuiltinFnArgs,
+) -> WqResult<Value> {
+    exec_impl(args, &mut || context.poll_interrupt())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), test))]
+fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
+    exec_impl(args, &mut || false)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn exec_impl(args: BuiltinFnArgs, poll_interrupt: &mut dyn FnMut() -> bool) -> WqResult<Value> {
     if args.is_empty() {
         return Err(at_least_arity_error(BuiltinEnum::Exec, 1, 0)
             .attach_note("the first argument is the program name"));
@@ -441,9 +454,9 @@ pub(super) fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
     let opts = exec_options_from_named(&args)?;
 
     if has_named_options {
-        exec_extended(&parts, opts)
+        exec_extended(&parts, opts, poll_interrupt)
     } else {
-        exec_simple(&parts)
+        exec_simple(&parts, poll_interrupt)
     }
 }
 
@@ -565,20 +578,97 @@ fn exec_attach_output_excerpt(err: WqError, label: &str, bytes: &[u8]) -> WqErro
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn exec_simple(parts: &[String]) -> WqResult<Value> {
+enum ExecWait {
+    Complete(std::process::ExitStatus),
+    Interrupted,
+    TimedOut,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn stop_exec_child(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(_) => return,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wait_for_exec(
+    child: &mut std::process::Child,
+    timeout: Option<Duration>,
+    poll_interrupt: &mut dyn FnMut() -> bool,
+) -> std::io::Result<ExecWait> {
+    let started = Instant::now();
+    let mut poll_delay = Duration::from_millis(1);
+    loop {
+        if poll_interrupt() {
+            stop_exec_child(child);
+            return Ok(ExecWait::Interrupted);
+        }
+        if let Some(status) = child.try_wait()? {
+            return Ok(ExecWait::Complete(status));
+        }
+        if timeout.is_some_and(|limit| started.elapsed() >= limit) {
+            stop_exec_child(child);
+            return Ok(ExecWait::TimedOut);
+        }
+        std::thread::sleep(poll_delay);
+        poll_delay = poll_delay.saturating_mul(2).min(Duration::from_millis(10));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn exec_simple(parts: &[String], poll_interrupt: &mut dyn FnMut() -> bool) -> WqResult<Value> {
     let mut cmd = Command::new(&parts[0]);
     if parts.len() > 1 {
         cmd.args(&parts[1..]);
     }
-    let output = cmd.stdin(Stdio::null()).output().map_err(|e| {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| {
         WqError::new(WqErrorType::Exec)
             .src(BuiltinEnum::Exec)
             .msg(format!("cannot spawn \"{}\": {e}", parts[0]))
     })?;
+    let mut stdout_pipe = child.stdout.take().expect("exec stdout should be piped");
+    let mut stderr_pipe = child.stderr.take().expect("exec stderr should be piped");
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let wait = match wait_for_exec(&mut child, None, poll_interrupt) {
+        Ok(wait) => wait,
+        Err(error) => {
+            stop_exec_child(&mut child);
+            let _ = stdout_thread.join();
+            let _ = stderr_thread.join();
+            return Err(WqError::new(WqErrorType::Exec)
+                .src(BuiltinEnum::Exec)
+                .msg(format!("error waiting for \"{}\": {error}", parts[0])));
+        }
+    };
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+    let status = match wait {
+        ExecWait::Complete(status) => status,
+        ExecWait::Interrupted => return Ok(Value::empty_list()),
+        ExecWait::TimedOut => unreachable!("simple exec has no timeout"),
+    };
 
-    if !output.status.success() {
-        let code = output
-            .status
+    if !status.success() {
+        let code = status
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "terminated by signal".into());
@@ -586,16 +676,20 @@ fn exec_simple(parts: &[String]) -> WqResult<Value> {
             .src(BuiltinEnum::Exec)
             .msg("exec failed")
             .attach_note(format!("exit code: {code}"));
-        wq_err = exec_attach_output_excerpt(wq_err, "stderr", &output.stderr);
-        wq_err = exec_attach_output_excerpt(wq_err, "stdout", &output.stdout);
+        wq_err = exec_attach_output_excerpt(wq_err, "stderr", &stderr);
+        wq_err = exec_attach_output_excerpt(wq_err, "stdout", &stdout);
         return Err(wq_err);
     }
 
-    Ok(Value::List(Arc::new(stdout_to_lines(&output.stdout))))
+    Ok(Value::List(Arc::new(stdout_to_lines(&stdout))))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
+fn exec_extended(
+    parts: &[String],
+    opts: ExecOptions,
+    poll_interrupt: &mut dyn FnMut() -> bool,
+) -> WqResult<Value> {
     use std::thread;
 
     let mut cmd = Command::new(&parts[0]);
@@ -631,8 +725,8 @@ fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
             .msg(format!("cannot spawn \"{}\": {e}", parts[0]))
     })?;
 
-    let mut stdout_pipe = child.stdout.take().unwrap();
-    let mut stderr_pipe = child.stderr.take().unwrap();
+    let mut stdout_pipe = child.stdout.take().expect("exec stdout should be piped");
+    let mut stderr_pipe = child.stderr.take().expect("exec stderr should be piped");
 
     let stdout_thread = thread::spawn(move || {
         let mut buf = Vec::new();
@@ -654,58 +748,37 @@ fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
         });
     }
 
-    let status = if let Some(timeout_secs) = opts.timeout {
-        let timeout = Duration::from_secs(timeout_secs);
-        let start = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) => {
-                    if start.elapsed() >= timeout {
-                        let _ = child.kill();
-                        // Give the child a short grace period to die so we can
-                        // reap it without blocking indefinitely (relevant on macOS
-                        // where syspolicyd can delay process teardown).
-                        let grace = Instant::now();
-                        while grace.elapsed() < Duration::from_secs(5) {
-                            if let Ok(Some(_)) = child.try_wait() {
-                                break;
-                            }
-                            thread::sleep(Duration::from_millis(50));
-                        }
-                        let _ = stdout_thread.join();
-                        let _ = stderr_thread.join();
-                        return Err(WqError::new(WqErrorType::Exec)
-                            .src(BuiltinEnum::Exec)
-                            .msg("exec timed out")
-                            .attach_note(format!("timeout: {timeout_secs}s")));
-                    }
-                    thread::sleep(Duration::from_millis(50));
-                }
-                Err(e) => {
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
-                    return Err(WqError::new(WqErrorType::Exec)
-                        .src(BuiltinEnum::Exec)
-                        .msg(format!("error waiting for \"{}\": {e}", parts[0])));
-                }
-            }
-        }
-    } else {
-        match child.wait() {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = stdout_thread.join();
-                let _ = stderr_thread.join();
-                return Err(WqError::new(WqErrorType::Exec)
-                    .src(BuiltinEnum::Exec)
-                    .msg(format!("error waiting for \"{}\": {e}", parts[0])));
-            }
+    let wait = match wait_for_exec(
+        &mut child,
+        opts.timeout.map(Duration::from_secs),
+        poll_interrupt,
+    ) {
+        Ok(wait) => wait,
+        Err(error) => {
+            stop_exec_child(&mut child);
+            let _ = stdout_thread.join();
+            let _ = stderr_thread.join();
+            return Err(WqError::new(WqErrorType::Exec)
+                .src(BuiltinEnum::Exec)
+                .msg(format!("error waiting for \"{}\": {error}", parts[0])));
         }
     };
 
     let stdout = stdout_thread.join().unwrap_or_default();
     let stderr = stderr_thread.join().unwrap_or_default();
+    let status = match wait {
+        ExecWait::Complete(status) => status,
+        ExecWait::Interrupted => return Ok(Value::empty_list()),
+        ExecWait::TimedOut => {
+            return Err(WqError::new(WqErrorType::Exec)
+                .src(BuiltinEnum::Exec)
+                .msg("exec timed out")
+                .attach_note(format!(
+                    "timeout: {}s",
+                    opts.timeout.expect("timed-out exec should have a timeout"),
+                )));
+        }
+    };
 
     let success = status.success();
     let code = status.code().unwrap_or(-1);
