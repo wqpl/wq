@@ -1,3 +1,8 @@
+import {
+  activeBindingHighlights,
+  createSourceMapper,
+} from "./symbol-highlights.js";
+
 function escapeEditorText(text) {
   return String(text)
     .replace(/&/g, "&amp;")
@@ -57,7 +62,7 @@ function selectionOffsets(el, valueOrLength) {
   };
 }
 
-function pointForOffset(el, offset) {
+function pointForOffset(el, offset, { forwardAtBoundary = false } = {}) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();
   let remaining = offset;
@@ -65,7 +70,7 @@ function pointForOffset(el, offset) {
 
   while (node) {
     const len = node.nodeValue.length;
-    if (remaining <= len) {
+    if (remaining < len || (remaining === len && !forwardAtBoundary)) {
       return { node, offset: remaining };
     }
     remaining -= len;
@@ -117,6 +122,9 @@ export function createWqEditor(textarea, options = {}) {
     end: value.length,
   };
   let composing = false;
+  let symbolAnalysis = null;
+  let symbolAnalysisSource = null;
+  let symbolAnalysisTimer = null;
 
   el.className = textarea.className;
   el.classList.add("wq-editor");
@@ -139,6 +147,94 @@ export function createWqEditor(textarea, options = {}) {
 
   textarea.replaceWith(el);
 
+  function removeSymbolOverlays() {
+    for (const overlay of el.querySelectorAll(".wq-symbol-occurrence")) {
+      overlay.replaceWith(...overlay.childNodes);
+    }
+    el.normalize();
+  }
+
+  function addSymbolOverlays(caretUnit) {
+    if (symbolAnalysisSource !== value || !symbolAnalysis) return;
+    const mapper = createSourceMapper(value);
+    const highlights = activeBindingHighlights(
+      symbolAnalysis,
+      mapper.byteAtUnit(caretUnit),
+    )
+      .map((highlight) => ({
+        ...highlight,
+        unitSpan: mapper.unitRange(highlight.span),
+      }))
+      .sort((a, b) => b.unitSpan[0] - a.unitSpan[0]);
+
+    for (const highlight of highlights) {
+      const [start, end] = highlight.unitSpan;
+      if (start >= end) continue;
+      const range = document.createRange();
+      const from = pointForOffset(el, start, { forwardAtBoundary: true });
+      const to = pointForOffset(el, end);
+      range.setStart(from.node, from.offset);
+      range.setEnd(to.node, to.offset);
+      const overlay = document.createElement("span");
+      overlay.className = [
+        "wq-symbol-occurrence",
+        `wq-symbol-occurrence-${highlight.role}`,
+        highlight.current ? "wq-symbol-occurrence-current" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      try {
+        range.surroundContents(overlay);
+      } catch (error) {
+        console.warn("[wqide] could not render a symbol occurrence", error);
+      }
+    }
+  }
+
+  function refreshSymbolOverlays() {
+    const nextSelection = selectionOffsets(el, value) || selection;
+    removeSymbolOverlays();
+    addSymbolOverlays(nextSelection.start);
+    selection = {
+      start: clampOffset(value, nextSelection.start),
+      end: clampOffset(value, nextSelection.end),
+    };
+    if (document.activeElement === el || ownsSelection(el)) {
+      setDomSelection(el, value, selection.start, selection.end);
+    }
+  }
+
+  function scheduleSymbolAnalysis() {
+    if (symbolAnalysisTimer !== null) {
+      window.clearTimeout(symbolAnalysisTimer);
+    }
+    symbolAnalysis = null;
+    symbolAnalysisSource = null;
+    if (!frontend?.analyze_symbols || !value) {
+      symbolAnalysisTimer = null;
+      return;
+    }
+
+    const source = value;
+    symbolAnalysisTimer = window.setTimeout(() => {
+      symbolAnalysisTimer = null;
+      try {
+        const analysis = frontend.analyze_symbols(source);
+        if (source !== value) return;
+        symbolAnalysis = analysis;
+        symbolAnalysisSource = source;
+        refreshSymbolOverlays();
+        el.dispatchEvent(
+          new CustomEvent("wq-symbol-analysis", {
+            detail: { analysis, source },
+          }),
+        );
+      } catch (error) {
+        console.warn("[wqide] symbol analysis failed", error);
+      }
+    }, 80);
+  }
+
   function shouldInsertNewline(event) {
     if (event.altKey || event.ctrlKey || event.metaKey) return false;
     if (multilineMode === "shift") return event.shiftKey;
@@ -156,6 +252,7 @@ export function createWqEditor(textarea, options = {}) {
     if (value.endsWith("\n")) {
       el.appendChild(document.createElement("br"));
     }
+    addSymbolOverlays(nextSelection.start);
 
     selection = {
       start: clampOffset(value, nextSelection.start),
@@ -187,6 +284,7 @@ export function createWqEditor(textarea, options = {}) {
       };
     }
     render({ preserveSelection: opts.preserveSelection !== false });
+    scheduleSymbolAnalysis();
     if (opts.emitInput) {
       dispatchEditorInput(el);
     }
@@ -201,12 +299,17 @@ export function createWqEditor(textarea, options = {}) {
     const caret = start + insert.length;
     selection = { start: caret, end: caret };
     render({ preserveSelection: false });
+    scheduleSymbolAnalysis();
     dispatchEditorInput(el);
   }
 
   el.addEventListener("focus", () => {
     setDomSelection(el, value, selection.start, selection.end);
+    refreshSymbolOverlays();
   });
+
+  el.addEventListener("keyup", refreshSymbolOverlays);
+  el.addEventListener("mouseup", refreshSymbolOverlays);
 
   el.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && singleLineMode) {
@@ -272,6 +375,7 @@ export function createWqEditor(textarea, options = {}) {
       };
     }
     render({ preserveSelection: true });
+    scheduleSymbolAnalysis();
   });
 
   const editor = {
@@ -291,6 +395,7 @@ export function createWqEditor(textarea, options = {}) {
         end: clampOffset(value, selection.end),
       };
       setDomSelection(el, value, selection.start, selection.end);
+      refreshSymbolOverlays();
     },
     get selectionEnd() {
       return (selectionOffsets(el, value) || selection).end;
@@ -301,6 +406,7 @@ export function createWqEditor(textarea, options = {}) {
         end: clampOffset(value, nextEnd),
       };
       setDomSelection(el, value, selection.start, selection.end);
+      refreshSymbolOverlays();
     },
     get scrollHeight() {
       return el.scrollHeight;
@@ -323,6 +429,7 @@ export function createWqEditor(textarea, options = {}) {
         end: clampOffset(value, end),
       };
       setDomSelection(el, value, selection.start, selection.end);
+      refreshSymbolOverlays();
     },
     setValue,
     insertText(text) {
@@ -331,5 +438,6 @@ export function createWqEditor(textarea, options = {}) {
   };
 
   render({ preserveSelection: false });
+  scheduleSymbolAnalysis();
   return editor;
 }

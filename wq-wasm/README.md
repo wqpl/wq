@@ -49,6 +49,36 @@ sampling, and every interpreter kind use the same yielding VM loop.
 Context algorithms and callback forms without resumable VM state still execute
 as one work unit and can take longer than the requested slice duration.
 
+## Language frontend
+
+`WasmFrontend` provides evaluator-free language tooling for editors, REPLs, and
+documentation views:
+
+```js
+import init, { WasmFrontend } from "wq-wasm";
+
+await init();
+
+const frontend = new WasmFrontend();
+try {
+  const source = "f:{[x]\n  x+1";
+  console.log(frontend.is_complete_input(source)); // false
+  console.log(frontend.diagnostics(source));
+  console.log(frontend.analyze_symbols(source));
+  console.log(frontend.highlight_spans(source));
+  console.log(frontend.highlight_wq(source));
+  console.log(frontend.cursor_context_at(source, 4));
+  console.log(frontend.format_wq("(1;2)|has?@1[2]"));
+} finally {
+  frontend.free();
+}
+```
+
+Source spans and cursor offsets use half-open UTF-8 byte offsets. Convert DOM,
+textarea, Monaco, or CodeMirror UTF-16 offsets before passing them to an API
+that accepts a cursor offset. `highlight_wq` returns escaped HTML for direct
+rendering. `highlight_spans` returns editor-neutral structured spans.
+
 During `eval_wq_async`, the stdin callback can return a Promise. Evaluation
 suspends until the callback supplies a string or reports end-of-file with
 `null` or `undefined`.

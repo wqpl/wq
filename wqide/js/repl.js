@@ -1428,7 +1428,16 @@ export async function mountRepl(root) {
       doEval();
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      doEval();
+      const source = ui.codeEl.value;
+      if (
+        source.trimStart().startsWith("\\") ||
+        frontend.is_complete_input(source)
+      ) {
+        doEval();
+      } else {
+        insertTextAtCursor(ui.codeEl, "\n");
+        autoSizeComposer();
+      }
     } else if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === "ArrowUp") {
       if (history.length) {
         e.preventDefault();

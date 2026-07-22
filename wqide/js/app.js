@@ -1280,7 +1280,7 @@ const REPL_HTML = html`
                 enterkeyhint="send"
                 rows="1"></textarea>
               <span class="mini composer-hint"
-                >Enter: exec | Shift-Enter: newline</span
+                >Enter: exec or continue | Shift-Enter: newline</span
               >
             </div>
             <div class="composer-actions">

@@ -32,6 +32,7 @@ import {
   createDomStdinRenderer,
   createStdinRequester,
 } from "./stdin-request.js";
+import { createSourceMapper } from "./symbol-highlights.js";
 
 function readDebugFlags(instance) {
   return parseDebugFlags(instance.debugFlagsInput?.value || "");
@@ -132,7 +133,6 @@ function requestPanelHeightSync(instance) {
   });
 }
 
-const SYMBOL_REFRESH_DELAY_MS = 120;
 const STRUCTURE_REFRESH_DELAY_MS = 180;
 const STRUCTURE_MODE_LABELS = {
   ast: "AST",
@@ -152,58 +152,6 @@ const SYMBOL_PROVENANCE_LABELS = {
   "implicit-parameter": "implicit",
   "loop-counter": "loop",
 };
-
-function utf8ByteLength(ch) {
-  const codePoint = ch.codePointAt(0) || 0;
-  if (codePoint <= 0x7f) return 1;
-  if (codePoint <= 0x7ff) return 2;
-  if (codePoint <= 0xffff) return 3;
-  return 4;
-}
-
-function createSourceMapper(src) {
-  const points = [{ byte: 0, unit: 0 }];
-  let byte = 0;
-  let unit = 0;
-  for (const ch of src) {
-    byte += utf8ByteLength(ch);
-    unit += ch.length;
-    points.push({ byte, unit });
-  }
-
-  function unitAt(byteOffset) {
-    const target = Math.max(0, Number(byteOffset) || 0);
-    let lo = 0;
-    let hi = points.length - 1;
-    while (lo <= hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      const point = points[mid];
-      if (point.byte === target) return point.unit;
-      if (point.byte < target) {
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return points[Math.max(0, Math.min(hi, points.length - 1))].unit;
-  }
-
-  function lineCol(byteOffset) {
-    const offset = unitAt(byteOffset);
-    const before = src.slice(0, offset);
-    const line = before.split("\n").length;
-    const lastNewline = before.lastIndexOf("\n");
-    const col = lastNewline === -1 ? offset + 1 : offset - lastNewline;
-    return { line, col };
-  }
-
-  return {
-    lineCol,
-    unitRange(span) {
-      return [unitAt(span[0]), unitAt(span[1])];
-    },
-  };
-}
 
 function spanForDef(def, occurrences) {
   if (Array.isArray(def.name_span)) return def.name_span;
@@ -344,40 +292,6 @@ function renderSymbolPanel(instance, data, code) {
   if (instance.symbolList) {
     instance.symbolList.innerHTML = chunks.join("");
   }
-}
-
-async function refreshSymbols(instance) {
-  const seq = (instance.symbolRefreshSeq || 0) + 1;
-  instance.symbolRefreshSeq = seq;
-  const code = instance.ta.value;
-  if (!code.trim()) {
-    instance.symbolMapper = null;
-    instance.symbolSource = code;
-    renderEmptySymbols(instance, "No symbols yet.");
-    return;
-  }
-
-  try {
-    await ensureWasm();
-    if (instance.symbolRefreshSeq !== seq) return;
-    const data = instance.frontend.analyze_symbols(code);
-    renderSymbolPanel(instance, data, code);
-  } catch (err) {
-    if (instance.symbolRefreshSeq !== seq) return;
-    const message = formatWqError(err);
-    renderEmptySymbols(instance, message, true);
-    renderSymbolStatus(instance, message, true);
-  }
-}
-
-function scheduleSymbolRefresh(instance) {
-  if (instance.symbolRefreshTimer) {
-    clearTimeout(instance.symbolRefreshTimer);
-  }
-  instance.symbolRefreshTimer = window.setTimeout(() => {
-    instance.symbolRefreshTimer = null;
-    refreshSymbols(instance);
-  }, SYMBOL_REFRESH_DELAY_MS);
 }
 
 function renderStructureStatus(instance, message, isError = false) {
@@ -939,8 +853,6 @@ export async function mountPlayground(root) {
     symbolStatus,
     symbolMapper: null,
     symbolSource: "",
-    symbolRefreshSeq: 0,
-    symbolRefreshTimer: null,
     structureOutput,
     structureStatus,
     structureButtons,
@@ -968,9 +880,18 @@ export async function mountPlayground(root) {
 
   ta.addEventListener("input", () => {
     refreshLines(instance);
-    scheduleSymbolRefresh(instance);
+    if (!ta.value.trim()) {
+      instance.symbolMapper = null;
+      instance.symbolSource = ta.value;
+      renderEmptySymbols(instance, "No symbols yet.");
+    }
     scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
+  });
+  ta.addEventListener("wq-symbol-analysis", (event) => {
+    const { analysis, source } = event.detail || {};
+    if (!analysis || source !== ta.value) return;
+    renderSymbolPanel(instance, analysis, source);
   });
   ta.element?.addEventListener("scroll", () => {
     syncGutterScroll(instance);
@@ -1074,7 +995,6 @@ export async function mountPlayground(root) {
       if (!example) return;
       ta.value = example.code;
       refreshLines(instance);
-      scheduleSymbolRefresh(instance);
       scheduleStructureRefresh(instance);
       requestPanelHeightSync(instance);
       ta.focus();
@@ -1094,7 +1014,7 @@ export async function mountPlayground(root) {
     writeDebugFlags(instance, []);
     ensureStateSavingSession(instance).set_box_flags("box,axis,color");
     syncBoxControls(instance);
-    scheduleSymbolRefresh(instance);
+    renderEmptySymbols(instance, "No symbols yet.");
     scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
     ta.focus();
@@ -1107,7 +1027,6 @@ export async function mountPlayground(root) {
   syncBoxControls(instance);
   setActive(timeBtn, instance.timeMode);
   writeDebugFlags(instance, []);
-  await refreshSymbols(instance);
   await refreshStructure(instance);
   requestPanelHeightSync(instance);
 }
@@ -1131,7 +1050,6 @@ export function applyPlaygroundRoute(root, params) {
     instance.ta.value = code;
     instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
     refreshLines(instance);
-    scheduleSymbolRefresh(instance);
     scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
   }

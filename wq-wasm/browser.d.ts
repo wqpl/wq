@@ -7,7 +7,9 @@ export {
 export type {
   DocTopicInfo,
   EvaluationSlice,
+  FrontendDiagnostic,
   GlobalBinding,
+  HighlightSpan,
   InitInput,
   RenderedValue,
   SymbolAnalysis,
@@ -17,6 +19,8 @@ export type {
   SyncInitInput,
   WqDiagnostic,
   WqDiagnosticDataValue,
+  WqByteSpan,
+  WqCursorContext,
   WqSpan,
   WqStackFrame,
 } from "./pkg/wq_wasm.js";

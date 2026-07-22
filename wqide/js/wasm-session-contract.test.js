@@ -20,8 +20,30 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     throw error;
   }
 
-  const { initSync, WasmWqSession } = await import(wasmModuleUrl);
+  const { initSync, WasmFrontend, WasmWqSession } = await import(wasmModuleUrl);
   assert.equal(initSync({ module: bytes }), undefined);
+
+  const frontend = new WasmFrontend();
+  try {
+    assert.equal(frontend.is_complete_input("f:{[x]"), false);
+    assert.equal(frontend.is_complete_input(")"), true);
+    assert.deepEqual(frontend.diagnostics('value:"'), [
+      {
+        span: [6, 7],
+        kind: "eof",
+        message: "string is not properly terminated",
+      },
+    ]);
+    assert.ok(
+      frontend
+        .highlight_spans("f:{[x] x+1}")
+        .some((span) => span.kind === "variable-parameter"),
+    );
+    assert.equal(frontend.cursor_context_at('"abc"', 2), "string");
+    assert.equal(frontend.format_wq("(1;2)|has?@1[2]"), "(1;2)|has?@1 2");
+  } finally {
+    frontend.free();
+  }
 
   const session = new WasmWqSession();
   try {

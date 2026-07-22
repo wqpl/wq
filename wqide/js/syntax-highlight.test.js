@@ -32,3 +32,17 @@ test("invalid strings have dedicated light and midnight theme colors", () => {
     /^:root\[data-theme="midnight"\] \.hl-string-invalid\s*\{/m,
   );
 });
+
+test("symbol occurrences distinguish reads, writes, and the current occurrence", () => {
+  assert.match(styles, /^\.wq-symbol-occurrence-read\s*\{/m);
+  assert.match(styles, /^\.wq-symbol-occurrence-write\s*\{/m);
+  assert.match(styles, /^\.wq-symbol-occurrence-current\s*\{/m);
+  assert.match(
+    styles,
+    /^:root\[data-theme="midnight"\] \.wq-symbol-occurrence-read\s*\{/m,
+  );
+  assert.match(
+    styles,
+    /^:root\[data-theme="midnight"\] \.wq-symbol-occurrence-write\s*\{/m,
+  );
+});

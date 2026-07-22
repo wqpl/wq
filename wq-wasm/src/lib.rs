@@ -10,8 +10,12 @@ use wqpl::builtins::BuiltinPreset;
 use wqpl::debugger::{DebugResume, Debugger, PauseEvent};
 use wqpl::display::{BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info};
 use wqpl::doc::{self, DocKind, DocRenderTarget};
+use wqpl::format::{FormatConfig, Formatter};
 use wqpl::frontend::{Frontend, SyntaxDisplayKind};
-use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
+use wqpl::highlight::{
+    CursorContext, HighlightEvent, HighlightName, Highlighter,
+    cursor_context_at as wqpl_cursor_context_at,
+};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
@@ -28,7 +32,11 @@ use wqpl::wqerror::WqError;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TYPESCRIPT_API_TYPES: &str = r#"
-export type WqSpan = [number, number];
+/** Half-open UTF-8 byte offsets into the corresponding wq source string. */
+export type WqByteSpan = [number, number];
+
+/** Compatibility alias for the original public span name. */
+export type WqSpan = WqByteSpan;
 
 export interface WqDiagnosticDataValue {
     display: string;
@@ -49,7 +57,7 @@ export interface WqDiagnostic {
     message: string;
     rendered: string;
     source: string | null;
-    span: WqSpan | null;
+    span: WqByteSpan | null;
     path: string | null;
     notes: string[];
     data: Record<string, WqDiagnosticDataValue>;
@@ -89,8 +97,8 @@ export interface SymbolDefinition {
     index: number;
     name: string;
     kind: string;
-    span: WqSpan | null;
-    name_span: WqSpan | null;
+    span: WqByteSpan | null;
+    name_span: WqByteSpan | null;
     params: string[] | null;
     parent: number | null;
     provenance: string;
@@ -102,13 +110,13 @@ export interface SymbolDefinition {
 }
 
 export interface SymbolOccurrence {
-    span: WqSpan;
+    span: WqByteSpan;
     def: number;
     kind: string;
 }
 
 export interface SymbolError {
-    span: WqSpan | null;
+    span: WqByteSpan | null;
     kind: string;
     message: string;
 }
@@ -118,6 +126,22 @@ export interface SymbolAnalysis {
     occurrences: SymbolOccurrence[];
     errors: SymbolError[];
 }
+
+export type FrontendDiagnostic = SymbolError;
+
+export interface HighlightSpan {
+    span: WqByteSpan;
+    kind: string;
+}
+
+export type WqCursorContext =
+    | "code"
+    | "comment"
+    | "string"
+    | "tag"
+    | "fstring-text"
+    | "fstring-expression"
+    | "meta";
 "#;
 
 // JS stream adapters
@@ -223,6 +247,29 @@ impl WasmFrontend {
     #[wasm_bindgen(unchecked_return_type = "SymbolAnalysis")]
     pub fn analyze_symbols(&self, src: &str) -> Object {
         symbol_analysis_to_js(&symbol_analysis_data(&self.frontend, src))
+    }
+
+    pub fn is_complete_input(&self, src: &str) -> bool {
+        self.frontend.is_complete_input(src)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "FrontendDiagnostic[]")]
+    pub fn diagnostics(&self, src: &str) -> Array {
+        frontend_diagnostics_to_js(&frontend_diagnostic_data(&self.frontend, src))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "HighlightSpan[]")]
+    pub fn highlight_spans(&self, src: &str) -> Array {
+        highlight_spans_to_js(&highlight_span_data(&self.frontend, src))
+    }
+
+    pub fn format_wq(&self, src: &str) -> Result<String, JsValue> {
+        format_wq_data(src).map_err(|err| wq_error_js(&err, ColorMode::Never))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "WqCursorContext")]
+    pub fn cursor_context_at(&self, src: &str, byte_offset: usize) -> String {
+        cursor_context_name(wqpl_cursor_context_at(src, byte_offset)).to_string()
     }
 
     pub fn get_wq_syntax_display(&self, src: &str, kind: &str) -> Result<String, JsValue> {
@@ -1169,18 +1216,39 @@ struct SymbolAnalysisData {
     errors: Vec<SymbolErrorData>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HighlightSpanData {
+    span: (usize, usize),
+    kind: &'static str,
+}
+
 fn symbol_analysis_data(frontend: &Frontend, src: &str) -> SymbolAnalysisData {
     match frontend.analyze_symbols(src) {
         Ok(index) => symbol_index_data(&index),
         Err(err) => SymbolAnalysisData {
             defs: Vec::new(),
             occurrences: Vec::new(),
-            errors: vec![SymbolErrorData {
-                span: err.span,
-                kind: err.err_type.name(),
-                message: err.msg.unwrap_or_default(),
-            }],
+            errors: vec![symbol_error_data(&err, err.span)],
         },
+    }
+}
+
+fn symbol_error_data(error: &WqError, span: Option<(usize, usize)>) -> SymbolErrorData {
+    SymbolErrorData {
+        span,
+        kind: error.err_type.name(),
+        message: error.msg.clone().unwrap_or_default(),
+    }
+}
+
+fn frontend_diagnostic_data(frontend: &Frontend, src: &str) -> Vec<SymbolErrorData> {
+    match frontend.analyze_symbols(src) {
+        Ok(index) => index
+            .errors
+            .iter()
+            .map(|(span, err)| symbol_error_data(err, Some(*span)))
+            .collect(),
+        Err(err) => vec![symbol_error_data(&err, err.span)],
     }
 }
 
@@ -1243,11 +1311,7 @@ fn symbol_index_data(index: &SymbolIndex) -> SymbolAnalysisData {
     let errors = index
         .errors
         .iter()
-        .map(|(span, err)| SymbolErrorData {
-            span: Some(*span),
-            kind: err.err_type.name(),
-            message: err.msg.clone().unwrap_or_default(),
-        })
+        .map(|(span, err)| symbol_error_data(err, Some(*span)))
         .collect();
 
     SymbolAnalysisData {
@@ -1290,19 +1354,35 @@ fn symbol_analysis_to_js(data: &SymbolAnalysisData) -> Object {
         occurrences.push(&item);
     }
 
-    let errors = Array::new();
-    for error in &data.errors {
-        let item = Object::new();
-        set_js_property(&item, "span", &optional_span_js(error.span));
-        set_js_property(&item, "kind", &JsValue::from_str(error.kind));
-        set_js_property(&item, "message", &JsValue::from_str(&error.message));
-        errors.push(&item);
-    }
+    let errors = frontend_diagnostics_to_js(&data.errors);
 
     set_js_property(&object, "defs", &defs);
     set_js_property(&object, "occurrences", &occurrences);
     set_js_property(&object, "errors", &errors);
     object
+}
+
+fn frontend_diagnostics_to_js(diagnostics: &[SymbolErrorData]) -> Array {
+    let result = Array::new();
+    for diagnostic in diagnostics {
+        let item = Object::new();
+        set_js_property(&item, "span", &optional_span_js(diagnostic.span));
+        set_js_property(&item, "kind", &JsValue::from_str(diagnostic.kind));
+        set_js_property(&item, "message", &JsValue::from_str(&diagnostic.message));
+        result.push(&item);
+    }
+    result
+}
+
+fn highlight_spans_to_js(spans: &[HighlightSpanData]) -> Array {
+    let result = Array::new();
+    for span in spans {
+        let item = Object::new();
+        set_js_property(&item, "span", &span_js(span.span));
+        set_js_property(&item, "kind", &JsValue::from_str(span.kind));
+        result.push(&item);
+    }
+    result
 }
 
 fn is_user_symbol(kind: DefKind, name: &str) -> bool {
@@ -1351,8 +1431,24 @@ fn doc_kind_name(kind: DocKind) -> &'static str {
     }
 }
 
-fn highlight_wq_data(frontend: &Frontend, src: &str) -> String {
-    let highlighter = Highlighter::new();
+fn format_wq_data(src: &str) -> Result<String, WqError> {
+    Formatter::new(FormatConfig::default()).format_script(src)
+}
+
+fn cursor_context_name(context: CursorContext) -> &'static str {
+    match context {
+        CursorContext::Code => "code",
+        CursorContext::Comment => "comment",
+        CursorContext::String => "string",
+        CursorContext::Tag => "tag",
+        CursorContext::FStringText => "fstring-text",
+        CursorContext::FStringExpr => "fstring-expression",
+        CursorContext::Meta => "meta",
+    }
+}
+
+fn highlight_events(frontend: &Frontend, src: &str) -> Vec<HighlightEvent> {
+    let highlighter = Highlighter::with_builtins(frontend.builtins().clone());
     let semantic_spans = if src.contains('{') || src.contains('\'') {
         frontend
             .analyze_symbols(src)
@@ -1361,7 +1457,35 @@ fn highlight_wq_data(frontend: &Frontend, src: &str) -> String {
     } else {
         Vec::new()
     };
-    let events = highlighter.highlight_with_semantic_spans(src, &semantic_spans);
+    highlighter.highlight_with_semantic_spans(src, &semantic_spans)
+}
+
+fn highlight_span_data(frontend: &Frontend, src: &str) -> Vec<HighlightSpanData> {
+    let events = highlight_events(frontend, src);
+    let mut spans = Vec::new();
+    let mut stack: Vec<HighlightName> = Vec::new();
+
+    for event in events {
+        match event {
+            HighlightEvent::HighlightStart(name) => stack.push(name),
+            HighlightEvent::HighlightEnd => {
+                stack.pop();
+            }
+            HighlightEvent::Source { start, end } => {
+                if let Some(&name) = stack.last() {
+                    spans.push(HighlightSpanData {
+                        span: (start, end),
+                        kind: highlight_kind_name(name),
+                    });
+                }
+            }
+        }
+    }
+    spans
+}
+
+fn highlight_wq_data(frontend: &Frontend, src: &str) -> String {
+    let events = highlight_events(frontend, src);
     let mut out = String::with_capacity(src.len() * 2);
     let bytes = src.as_bytes();
     let mut stack: Vec<HighlightName> = Vec::new();
@@ -1387,6 +1511,12 @@ fn highlight_wq_data(frontend: &Frontend, src: &str) -> String {
         }
     }
     out
+}
+
+fn highlight_kind_name(name: HighlightName) -> &'static str {
+    class_for_name(name)
+        .strip_prefix("hl-")
+        .expect("every wq highlight class starts with 'hl-'")
 }
 
 fn class_for_name(name: HighlightName) -> &'static str {
@@ -1567,6 +1697,79 @@ mod tests {
                 .iter()
                 .any(|name| name == "print")
         );
+    }
+
+    #[test]
+    fn frontend_completeness_distinguishes_eof_from_complete_errors() {
+        let frontend = WasmFrontend::new();
+
+        assert!(!frontend.is_complete_input("f:{[x]"));
+        assert!(frontend.is_complete_input(")"));
+    }
+
+    #[test]
+    fn frontend_diagnostics_preserve_recoverable_error_details() {
+        let frontend = default_frontend();
+        let diagnostics = frontend_diagnostic_data(&frontend, "a:1\nd:'{a}\nb:\"");
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, "eof");
+        assert_eq!(diagnostics[0].message, "string is not properly terminated");
+        assert_eq!(diagnostics[0].span, Some((13, 14)));
+    }
+
+    #[test]
+    fn structured_highlights_include_semantic_identifier_spans() {
+        let frontend = default_frontend();
+        let source = "a:1; f:'{[x] x+a}";
+        let spans = highlight_span_data(&frontend, source);
+
+        let parameter_sources = spans
+            .iter()
+            .filter(|span| span.kind == "variable-parameter")
+            .map(|span| &source[span.span.0..span.span.1])
+            .collect::<Vec<_>>();
+        let ref_sources = spans
+            .iter()
+            .filter(|span| span.kind == "variable-ref-capture")
+            .map(|span| &source[span.span.0..span.span.1])
+            .collect::<Vec<_>>();
+
+        assert_eq!(parameter_sources, ["x", "x"]);
+        assert_eq!(ref_sources, ["a"]);
+    }
+
+    #[test]
+    fn frontend_formatting_uses_the_canonical_formatter() {
+        let formatted = format_wq_data("(1;2)|has?@1[2]\ntil(2;2;2)|has?@2 2")
+            .expect("formatting should succeed");
+
+        assert_eq!(formatted, "(1;2)|has?@1 2\ntil (2;2;2)|has?@2 2");
+    }
+
+    #[test]
+    fn frontend_cursor_context_names_match_editor_contexts() {
+        assert_eq!(
+            cursor_context_name(wqpl_cursor_context_at("\"abc", 2)),
+            "string"
+        );
+
+        let source = "@f\"value {x}\"";
+        let x = source.find('x').expect("format expression identifier");
+        assert_eq!(
+            cursor_context_name(wqpl_cursor_context_at(source, x)),
+            "fstring-expression"
+        );
+    }
+
+    #[test]
+    fn html_highlighting_honors_the_frontend_builtin_preset() {
+        let all = Frontend::with_preset(BuiltinPreset::All);
+        let minimal = Frontend::with_preset(BuiltinPreset::Minimal);
+
+        assert!(highlight_wq_data(&all, "print[]").contains("hl-function-builtin"));
+        assert!(!highlight_wq_data(&minimal, "print[]").contains("hl-function-builtin"));
+        assert!(highlight_wq_data(&minimal, "print[]").contains("hl-variable"));
     }
 
     #[test]
