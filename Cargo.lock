@@ -4459,7 +4459,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wq-cli"
-version = "0.9.0-preview1"
+version = "0.9.0-preview2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4478,7 +4478,7 @@ dependencies = [
 
 [[package]]
 name = "wq-dap"
-version = "0.9.0-preview1"
+version = "0.9.0-preview2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4487,7 +4487,7 @@ dependencies = [
 
 [[package]]
 name = "wq-rl"
-version = "0.9.0-preview1"
+version = "0.9.0-preview2"
 dependencies = [
  "bitflags 2.13.1",
  "buffer-redux",
@@ -4514,7 +4514,7 @@ dependencies = [
 
 [[package]]
 name = "wq-wasm"
-version = "0.9.0-preview1"
+version = "0.9.0-preview2"
 dependencies = [
  "getrandom 0.3.4",
  "getrandom 0.4.3",
@@ -4527,7 +4527,7 @@ dependencies = [
 
 [[package]]
 name = "wqls"
-version = "0.9.0-preview1"
+version = "0.9.0-preview2"
 dependencies = [
  "serde_json",
  "tokio",
@@ -4539,7 +4539,7 @@ dependencies = [
 
 [[package]]
 name = "wqpl"
-version = "0.9.0-preview1"
+version = "0.9.0-preview2"
 dependencies = [
  "ahash",
  "encoding_rs",
