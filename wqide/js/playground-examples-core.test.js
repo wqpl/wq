@@ -27,7 +27,6 @@ test("playground examples are built from source registry entries", () => {
 
   assert.equal(findPlaygroundExample(examples, "primes").code, "primes source");
   assert.equal(findPlaygroundExample(examples, "nq").code, "nq source");
-  assert.equal(findPlaygroundExample(examples, "cowsay").stdin, "");
 });
 
 test("playground example registry rejects missing source entries", () => {

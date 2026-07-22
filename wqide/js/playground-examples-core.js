@@ -4,28 +4,24 @@ export const PLAYGROUND_EXAMPLE_DEFINITIONS = [
     title: "N-Queens",
     description: "Count and list small queen placements.",
     sourcePath: "@e/nq.wq",
-    stdin: "",
   },
   {
     id: "primes",
     title: "Primes",
     description: "Generate the prime numbers below 100.",
     sourcePath: "@e/primes.wq",
-    stdin: "",
   },
   {
     id: "cowsay",
     title: "Cowsay",
     description: "Print a classic terminal speech bubble.",
     sourcePath: "@e/cowsay.wq",
-    stdin: "",
   },
   {
     id: "gol",
     title: "Game of Life",
     description: "Step a small cellular automaton grid.",
     sourcePath: "@e/gol.wq",
-    stdin: "",
   },
 ];
 
@@ -40,7 +36,6 @@ export function createPlaygroundExamples(sources) {
     return {
       ...definition,
       code,
-      stdin: definition.stdin || "",
     };
   });
 }

@@ -11,6 +11,14 @@ import {
   formatWqError,
   queueEval,
 } from "./wq-shared.js";
+import {
+  createEvaluationController,
+  isAbortError,
+} from "./eval-lifecycle.js";
+import {
+  createDomStdinRenderer,
+  createStdinRequester,
+} from "./stdin-request.js";
 
 const instances = new WeakMap();
 
@@ -753,51 +761,74 @@ function updateView(instance, options = {}) {
 
 async function runViz(instance) {
   clearTimeout(instance.autoTimer);
-  if (instance.isRunning) {
+  if (instance.isRunning || instance.evaluationController.active) {
     instance.pendingRun = true;
     setStatus(instance, "queued");
+    if (instance.evaluationController.active) {
+      instance.evaluationController.stop("superseded by newer viz state");
+    }
     return;
   }
   if (refreshAutoWidth(instance) || !instance.code) renderCode(instance);
   instance.isRunning = true;
   instance.pendingRun = false;
   instance.output.innerHTML = "";
-  instance.runBtn.disabled = true;
+  instance.inputHost.innerHTML = "";
   setStatus(instance, "running");
   const renderer = createOutputRenderer(instance.output);
   try {
     await ensureWasm();
-    await queueEval(async () => {
-      const session = new WasmWqSession();
-      try {
-        session.set_stdout_callback((chunk) => {
-          renderer.appendStreamOutput(chunk);
-          instance.output.scrollTop = instance.output.scrollHeight;
-        });
-        session.set_stderr_callback((chunk) => {
-          renderer.appendStreamOutput(chunk, "error");
-          instance.output.scrollTop = instance.output.scrollHeight;
-        });
-        await session.eval_wq_async(instance.code);
-      } finally {
-        session.free();
-      }
-    });
+    await instance.evaluationController.run(({ signal, setState }) =>
+      queueEval(
+        async () => {
+          setState("running");
+          const session = new WasmWqSession();
+          try {
+            session.set_stdout_callback((chunk) => {
+              renderer.appendStreamOutput(chunk);
+              instance.output.scrollTop = instance.output.scrollHeight;
+            });
+            session.set_stderr_callback((chunk) => {
+              renderer.appendStreamOutput(chunk, "error");
+              instance.output.scrollTop = instance.output.scrollHeight;
+            });
+            session.set_stdin_callback(async (prompt) => {
+              setState("awaiting-input");
+              try {
+                return await instance.stdinRequester.request(prompt, { signal });
+              } finally {
+                if (!signal.aborted) setState("running");
+              }
+            });
+            await session.eval_wq_async(instance.code, { signal });
+          } finally {
+            session.free();
+          }
+        },
+        { signal },
+      ),
+    );
     setStatus(instance, "done", "ok");
   } catch (err) {
-    const bar = document.createElement("span");
-    bar.className = "repl-bar repl-bar-error";
-    bar.textContent = "\u258d ";
-    instance.output.appendChild(bar);
-    const errorRenderer = createOutputRenderer(instance.output, bar);
-    errorRenderer.appendOutput(
-      alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
-      "error",
-    );
-    setStatus(instance, "error", "error");
+    if (isAbortError(err)) {
+      if (!instance.pendingRun) {
+        renderer.appendText("Interrupted\n");
+        setStatus(instance, "interrupted");
+      }
+    } else {
+      const bar = document.createElement("span");
+      bar.className = "repl-bar repl-bar-error";
+      bar.textContent = "\u258d ";
+      instance.output.appendChild(bar);
+      const errorRenderer = createOutputRenderer(instance.output, bar);
+      errorRenderer.appendOutput(
+        alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
+        "error",
+      );
+      setStatus(instance, "error", "error");
+    }
   } finally {
     instance.isRunning = false;
-    instance.runBtn.disabled = false;
     instance.output.scrollTop = instance.output.scrollHeight;
     if (instance.pendingRun && instance.state.autoRun) {
       instance.pendingRun = false;
@@ -846,6 +877,7 @@ export async function mountViz(root) {
     title: root.querySelector("[data-viz-title]"),
     status: root.querySelector("[data-viz-status]"),
     output: root.querySelector("[data-viz-output]"),
+    inputHost: root.querySelector("[data-stdin-host]"),
     codeEl: root.querySelector("[data-viz-code]"),
     copyCodeBtn: root.querySelector("[data-viz-copy-code]"),
     copyCodeTimer: 0,
@@ -880,6 +912,17 @@ export async function mountViz(root) {
       ]),
     ),
   };
+  instance.evaluationController = createEvaluationController((state) => {
+    const active = state !== "idle";
+    instance.runBtn.textContent = active ? "Stop" : "Refresh";
+    instance.runBtn.classList.toggle("primary", !active);
+    instance.runBtn.classList.toggle("danger", active);
+    instance.runBtn.disabled = state === "stopping";
+    instance.runBtn.dataset.evaluationState = state;
+  });
+  instance.stdinRequester = createStdinRequester({
+    render: createDomStdinRenderer(instance.inputHost),
+  });
   instances.set(root, instance);
 
   root.querySelectorAll("[data-viz-select]").forEach((field) => {
@@ -949,6 +992,11 @@ export async function mountViz(root) {
     });
   });
   instance.runBtn?.addEventListener("click", async () => {
+    if (instance.evaluationController.active) {
+      instance.pendingRun = false;
+      instance.evaluationController.stop("stop requested");
+      return;
+    }
     await runViz(instance);
   });
   instance.copyCodeBtn?.addEventListener("click", async () => {
@@ -971,6 +1019,12 @@ export async function mountViz(root) {
     if (event.key !== "Escape") return;
     closeAllSelects(root);
     closePresetMenu(instance);
+  });
+
+  root.addEventListener("wqide:deactivate", () => {
+    clearTimeout(instance.autoTimer);
+    instance.pendingRun = false;
+    instance.evaluationController.stop("view closed");
   });
 
   if (typeof ResizeObserver !== "undefined" && instance.output) {

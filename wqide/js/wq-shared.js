@@ -4,6 +4,7 @@ import init, {
   get_wq_ver,
   WasmFrontend,
 } from "wq-wasm";
+export { queueEval } from "./eval-lifecycle.js";
 
 // ========== WASM Initialization ==========
 
@@ -289,16 +290,6 @@ export function createOutputBar(type, documentRef = document) {
   bar.className = `repl-bar repl-bar-${type}`;
   bar.textContent = "\u258d ";
   return bar;
-}
-
-// ========== Eval Queue ==========
-
-let evalQueue = Promise.resolve();
-
-export function queueEval(taskFn) {
-  const p = evalQueue.then(taskFn);
-  evalQueue = p.catch(() => {});
-  return p;
 }
 
 // ========== Copy Helpers ==========

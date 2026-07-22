@@ -24,6 +24,14 @@ import {
   handleTabKey,
 } from "./wq-shared.js";
 import { createWqEditor } from "./editor.js";
+import {
+  createEvaluationController,
+  isAbortError,
+} from "./eval-lifecycle.js";
+import {
+  createDomStdinRenderer,
+  createStdinRequester,
+} from "./stdin-request.js";
 
 function readDebugFlags(instance) {
   return parseDebugFlags(instance.debugFlagsInput?.value || "");
@@ -473,44 +481,54 @@ function jumpToSymbol(instance, span) {
 }
 
 async function doEval(instance) {
-  instance.runBtn.disabled = true;
   instance.output.innerHTML = "";
+  instance.inputHost.innerHTML = "";
 
   // stdout/stderr
   const streamRenderer = createOutputRenderer(instance.output);
 
   try {
     const code = instance.ta.value;
-    const stdinArr = instance.stdinInput.value
-      ? instance.stdinInput.value.replace(/\\n/g, "\n").split(/\r?\n/)
-      : [];
     await ensureWasm();
     const flags = instance.debugFlagsInput?.value || "0";
     const start = performance.now();
-    const result = await queueEval(async () => {
-      const session = new WasmWqSession();
-      try {
-        session.set_stdout_callback((chunk) => {
-          streamRenderer.appendStreamOutput(chunk);
-          instance.output.scrollTop = instance.output.scrollHeight;
-        });
-        session.set_stderr_callback((chunk) => {
-          streamRenderer.appendStreamOutput(chunk, "error");
-          instance.output.scrollTop = instance.output.scrollHeight;
-        });
-        const queue = [...stdinArr];
-        session.set_stdin_callback((_prompt) =>
-          queue.length ? String(queue.shift()) : null,
-        );
-        applyBoxMode(session, instance);
-        if (flags) {
-          session.set_debug_flags(flags);
-        }
-        return await session.eval_wq_async(code);
-      } finally {
-        session.free();
-      }
-    });
+    const result = await instance.evaluationController.run(
+      ({ signal, setState }) =>
+        queueEval(
+          async () => {
+            setState("running");
+            const session = new WasmWqSession();
+            try {
+              session.set_stdout_callback((chunk) => {
+                streamRenderer.appendStreamOutput(chunk);
+                instance.output.scrollTop = instance.output.scrollHeight;
+              });
+              session.set_stderr_callback((chunk) => {
+                streamRenderer.appendStreamOutput(chunk, "error");
+                instance.output.scrollTop = instance.output.scrollHeight;
+              });
+              session.set_stdin_callback(async (prompt) => {
+                setState("awaiting-input");
+                try {
+                  return await instance.stdinRequester.request(prompt, {
+                    signal,
+                  });
+                } finally {
+                  if (!signal.aborted) setState("running");
+                }
+              });
+              applyBoxMode(session, instance);
+              if (flags) {
+                session.set_debug_flags(flags);
+              }
+              return await session.eval_wq_async(code, { signal });
+            } finally {
+              session.free();
+            }
+          },
+          { signal },
+        ),
+    );
     const end = performance.now();
     if (
       result.display !== undefined &&
@@ -563,20 +581,26 @@ async function doEval(instance) {
     }
     requestPanelHeightSync(instance);
   } catch (err) {
-    console.error(err);
-    const bar = document.createElement("span");
-    bar.className = "repl-bar repl-bar-error";
-    bar.textContent = "\u258d ";
-    instance.output.appendChild(bar);
-    const errorRenderer = createOutputRenderer(instance.output, bar);
-    errorRenderer.appendOutput(
-      alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
-      "error",
-    );
+    if (isAbortError(err)) {
+      if (!instance.resetRequested) {
+        streamRenderer.appendText("Interrupted\n");
+      }
+    } else {
+      console.error(err);
+      const bar = document.createElement("span");
+      bar.className = "repl-bar repl-bar-error";
+      bar.textContent = "\u258d ";
+      instance.output.appendChild(bar);
+      const errorRenderer = createOutputRenderer(instance.output, bar);
+      errorRenderer.appendOutput(
+        alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
+        "error",
+      );
+    }
     requestPanelHeightSync(instance);
     instance.output.scrollTop = instance.output.scrollHeight;
   } finally {
-    instance.runBtn.disabled = false;
+    instance.resetRequested = false;
     requestPanelHeightSync(instance);
   }
 }
@@ -589,66 +613,83 @@ async function runForPoster(instance) {
 
   try {
     const code = instance.ta.value;
-    const stdinArr = instance.stdinInput.value
-      ? instance.stdinInput.value.replace(/\\n/g, "\n").split(/\r?\n/)
-      : [];
+    instance.inputHost.innerHTML = "";
     await ensureWasm();
     const flags = instance.debugFlagsInput?.value || "0";
-    const session = new WasmWqSession();
-    try {
-      session.set_stdout_callback((chunk) =>
-        stdoutRenderer.appendStreamOutput(chunk),
-      );
-      session.set_stderr_callback((chunk) =>
-        stdoutRenderer.appendStreamOutput(chunk, "error"),
-      );
-      const queue = [...stdinArr];
-      session.set_stdin_callback((_prompt) =>
-        queue.length ? String(queue.shift()) : null,
-      );
-      applyBoxMode(session, instance);
-      if (flags) session.set_debug_flags(flags);
-      const result = await session.eval_wq_async(code);
-      if (
-        result.display !== undefined &&
-        result.display !== null &&
-        String(result.display).length
-      ) {
-        if (result.is_cas) {
-          const bar = document.createElement("span");
-          bar.className = "repl-bar repl-bar-success";
-          bar.textContent = "\u258d ";
-          resultDiv.appendChild(bar);
-          const casSpan = document.createElement("span");
-          casSpan.innerHTML = instance.frontend.highlight_wq(
-            alignTurnBody(result.display),
-          );
-          resultDiv.appendChild(casSpan);
-        } else {
-          const bar = document.createElement("span");
-          bar.className = "repl-bar repl-bar-success";
-          bar.textContent = "\u258d ";
-          resultDiv.appendChild(bar);
-          const resultRenderer = createOutputRenderer(resultDiv, bar);
-          resultRenderer.appendOutput(
-            alignTurnBody(String(result.display)) + "\n",
-          );
-        }
-        if (readBoxFlags(instance).includes("xray") && result.xray) {
-          const bar = document.createElement("span");
-          bar.className = "repl-bar repl-bar-info";
-          bar.textContent = "\u258d ";
-          resultDiv.appendChild(bar);
-          const resultRenderer = createOutputRenderer(resultDiv, bar);
-          resultRenderer.appendOutput(
-            alignTurnBody(String(result.xray)) + "\n",
-          );
-        }
+    const result = await instance.evaluationController.run(
+      ({ signal, setState }) =>
+        queueEval(
+          async () => {
+            setState("running");
+            const session = new WasmWqSession();
+            try {
+              session.set_stdout_callback((chunk) =>
+                stdoutRenderer.appendStreamOutput(chunk),
+              );
+              session.set_stderr_callback((chunk) =>
+                stdoutRenderer.appendStreamOutput(chunk, "error"),
+              );
+              session.set_stdin_callback(async (prompt) => {
+                setState("awaiting-input");
+                try {
+                  return await instance.stdinRequester.request(prompt, {
+                    signal,
+                  });
+                } finally {
+                  if (!signal.aborted) setState("running");
+                }
+              });
+              applyBoxMode(session, instance);
+              if (flags) session.set_debug_flags(flags);
+              return await session.eval_wq_async(code, { signal });
+            } finally {
+              session.free();
+            }
+          },
+          { signal },
+        ),
+    );
+    if (
+      result.display !== undefined &&
+      result.display !== null &&
+      String(result.display).length
+    ) {
+      if (result.is_cas) {
+        const bar = document.createElement("span");
+        bar.className = "repl-bar repl-bar-success";
+        bar.textContent = "\u258d ";
+        resultDiv.appendChild(bar);
+        const casSpan = document.createElement("span");
+        casSpan.innerHTML = instance.frontend.highlight_wq(
+          alignTurnBody(result.display),
+        );
+        resultDiv.appendChild(casSpan);
+      } else {
+        const bar = document.createElement("span");
+        bar.className = "repl-bar repl-bar-success";
+        bar.textContent = "\u258d ";
+        resultDiv.appendChild(bar);
+        const resultRenderer = createOutputRenderer(resultDiv, bar);
+        resultRenderer.appendOutput(
+          alignTurnBody(String(result.display)) + "\n",
+        );
       }
-    } finally {
-      session.free();
+      if (readBoxFlags(instance).includes("xray") && result.xray) {
+        const bar = document.createElement("span");
+        bar.className = "repl-bar repl-bar-info";
+        bar.textContent = "\u258d ";
+        resultDiv.appendChild(bar);
+        const resultRenderer = createOutputRenderer(resultDiv, bar);
+        resultRenderer.appendOutput(
+          alignTurnBody(String(result.xray)) + "\n",
+        );
+      }
     }
   } catch (err) {
+    if (isAbortError(err)) {
+      instance.resetRequested = false;
+      return null;
+    }
     const bar = document.createElement("span");
     bar.className = "repl-bar repl-bar-error";
     bar.textContent = "\u258d ";
@@ -660,6 +701,7 @@ async function runForPoster(instance) {
     );
   }
 
+  instance.resetRequested = false;
   return {
     stdoutHTML: stdoutDiv.innerHTML,
     resultHTML: resultDiv.innerHTML,
@@ -776,6 +818,7 @@ async function makePoster(instance) {
   let runOutput = null;
   if (config.runCode) {
     runOutput = await runForPoster(instance);
+    if (!runOutput) return;
   }
 
   const code = instance.ta.value;
@@ -835,7 +878,7 @@ export async function mountPlayground(root) {
   });
   const gutter = root.querySelector(".gutter");
   const output = root.querySelector(".run-output-body");
-  const stdinInput = root.querySelector("#stdin");
+  const inputHost = root.querySelector("[data-stdin-host]");
   const clearOutBtn = root.querySelector("#clearOutBtn");
   const makePosterBtn = root.querySelector("#makePosterBtn");
   const runBtn = root.querySelector("#runBtn");
@@ -863,8 +906,9 @@ export async function mountPlayground(root) {
     ta,
     gutter,
     output,
-    stdinInput,
+    inputHost,
     clearOutBtn,
+    makePosterBtn,
     runBtn,
     editor,
     editorArea,
@@ -905,7 +949,21 @@ export async function mountPlayground(root) {
     structureRefreshTimer: null,
     panelHeightFrame: null,
     panelResizeObserver: null,
+    resetRequested: false,
   };
+  instance.evaluationController = createEvaluationController((state) => {
+    const active = state !== "idle";
+    runBtn.textContent = active ? "Stop" : "Exec";
+    runBtn.classList.toggle("primary", !active);
+    runBtn.classList.toggle("danger", active);
+    runBtn.disabled = state === "stopping";
+    clearOutBtn.disabled = active;
+    makePosterBtn.disabled = active;
+    runBtn.dataset.evaluationState = state;
+  });
+  instance.stdinRequester = createStdinRequester({
+    render: createDomStdinRenderer(inputHost),
+  });
   instances.set(root, instance);
 
   ta.addEventListener("input", () => {
@@ -919,12 +977,16 @@ export async function mountPlayground(root) {
   });
   runBtn?.addEventListener("click", async (e) => {
     e.preventDefault();
+    if (instance.evaluationController.active) {
+      instance.evaluationController.stop("stop requested");
+      return;
+    }
     await doEval(instance);
   });
   ta.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey || e.shiftKey) && e.key === "Enter") {
       e.preventDefault();
-      doEval(instance);
+      if (!instance.evaluationController.active) doEval(instance);
     } else if (e.key === "Tab") {
       handleTabKey(e, ta, () => {
         refreshLines(instance);
@@ -933,6 +995,7 @@ export async function mountPlayground(root) {
   });
   clearOutBtn?.addEventListener("click", () => {
     instance.output.innerHTML = "";
+    instance.inputHost.innerHTML = "";
     requestPanelHeightSync(instance);
   });
   makePosterBtn?.addEventListener("click", async () => {
@@ -1010,7 +1073,6 @@ export async function mountPlayground(root) {
       const example = getPlaygroundExample(button.dataset.template);
       if (!example) return;
       ta.value = example.code;
-      stdinInput.value = example.stdin;
       refreshLines(instance);
       scheduleSymbolRefresh(instance);
       scheduleStructureRefresh(instance);
@@ -1020,9 +1082,12 @@ export async function mountPlayground(root) {
     });
   });
   resetBtn?.addEventListener("click", () => {
+    instance.resetRequested = instance.evaluationController.stop(
+      "playground reset",
+    );
     ta.value = "";
-    stdinInput.value = "";
     instance.output.innerHTML = "";
+    instance.inputHost.innerHTML = "";
     refreshLines(instance);
     instance.timeMode = false;
     setActive(timeBtn, false);
@@ -1033,6 +1098,9 @@ export async function mountPlayground(root) {
     scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
     ta.focus();
+  });
+  root.addEventListener("wqide:deactivate", () => {
+    instance.evaluationController.stop("view closed");
   });
   refreshLines(instance);
   await ensureWasm();
@@ -1058,7 +1126,6 @@ export function applyPlaygroundRoute(root, params) {
   const instance = instances.get(root);
   if (!instance) return;
   const code = params.get("code");
-  const sin = params.get("stdin");
 
   if (code) {
     instance.ta.value = code;
@@ -1067,8 +1134,5 @@ export function applyPlaygroundRoute(root, params) {
     scheduleSymbolRefresh(instance);
     scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
-    if (sin) {
-      instance.stdinInput.value = sin;
-    }
   }
 }

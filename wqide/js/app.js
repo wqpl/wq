@@ -527,13 +527,6 @@ const PLAYGROUND_HTML = html`
                 <button id="resetBtn" class="btn" type="button">Reset</button>
               </div>
             </div>
-            <div class="stdin-row">
-              <span class="mini">stdin:</span>
-              <textarea
-                id="stdin"
-                rows="2"
-                placeholder="Provide stdin for your program..."></textarea>
-            </div>
           </div>
           <div class="editor-area">
             <div class="gutter" aria-hidden="true"></div>
@@ -614,6 +607,7 @@ No code yet.</pre>
           </button>
         </div>
         <pre class="run-output-body"></pre>
+        <div class="stdin-request-host" data-stdin-host></div>
       </div>
     </div>
   </main>
@@ -745,6 +739,7 @@ const VIZ_HTML = html`
               <span>Output</span>
             </div>
             <pre class="viz-output" data-viz-output aria-live="polite"></pre>
+            <div class="stdin-request-host" data-stdin-host></div>
           </div>
 
           <section
@@ -1289,16 +1284,6 @@ const REPL_HTML = html`
               >
             </div>
             <div class="composer-actions">
-              <div class="stdin composer-stdin">
-                <span class="mini">stdin:</span>
-                <input
-                  id="stdinLine"
-                  type="text"
-                  placeholder="Queue stdin for the next run..." />
-                <button id="pushStdinBtn" class="btn" type="button">
-                  Queue
-                </button>
-              </div>
               <button
                 id="newlineBtn"
                 class="btn mini"
@@ -1319,6 +1304,9 @@ const REPL_HTML = html`
                 class="btn primary composer-send"
                 type="submit">
                 Exec
+              </button>
+              <button id="stopBtn" class="btn danger" type="button" hidden>
+                Stop
               </button>
             </div>
           </form>
@@ -2049,6 +2037,9 @@ function showView(root) {
     activeView.dataset.scrollY = String(
       window.scrollY || window.pageYOffset || 0,
     );
+    if (activeView !== root) {
+      activeView.dispatchEvent(new CustomEvent("wqide:deactivate"));
+    }
   }
   state.views.forEach((view) => {
     view.hidden = view !== root;

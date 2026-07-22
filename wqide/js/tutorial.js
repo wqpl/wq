@@ -9,6 +9,15 @@ import {
   createOutputBar,
   formatWqError,
 } from "./wq-shared.js";
+import {
+  abortError,
+  createEvaluationController,
+  isAbortError,
+} from "./eval-lifecycle.js";
+import {
+  createDomStdinRenderer,
+  createStdinRequester,
+} from "./stdin-request.js";
 
 let __outlineObserver = null;
 let __outlineLockUntil = 0;
@@ -131,6 +140,20 @@ window.initTutorialUI = function initTutorialUI() {
 
   if (!article) return;
 
+  const evaluationControllers =
+    article.__evaluationControllers || new Set();
+  article.__evaluationControllers = evaluationControllers;
+  if (!article.__evaluationDeactivationBound) {
+    article
+      .closest("[data-view]")
+      ?.addEventListener("wqide:deactivate", () => {
+        for (const controller of evaluationControllers) {
+          controller.stop("view closed");
+        }
+      });
+    article.__evaluationDeactivationBound = true;
+  }
+
   // Async highlight for wq code blocks
   (async () => {
     await ensureWasm();
@@ -205,9 +228,21 @@ window.initTutorialUI = function initTutorialUI() {
       run.className = "code-action-btn";
       run.dataset.action = "run";
       run.textContent = "Run";
+      const evaluationController = createEvaluationController((state) => {
+        const active = state !== "idle";
+        run.textContent = active ? "Stop" : "Run";
+        run.classList.toggle("code-action-danger", active);
+        run.disabled = state === "stopping";
+        run.dataset.evaluationState = state;
+      });
+      evaluationControllers.add(evaluationController);
+      let stdinRequester = null;
       run.addEventListener("click", async () => {
+        if (evaluationController.active) {
+          evaluationController.stop("stop requested");
+          return;
+        }
         const code = pre.innerText || (codeEl ? codeEl.innerText : "");
-        const stdinArr = [];
         // Render result panel after this code block
         let panel = wrapper.nextElementSibling;
         if (
@@ -222,9 +257,11 @@ window.initTutorialUI = function initTutorialUI() {
           head.textContent = "Result";
           const preOut = document.createElement("pre");
           const codeOut = document.createElement("code");
+          const inputHost = document.createElement("div");
+          inputHost.className = "stdin-request-host";
+          inputHost.dataset.stdinHost = "";
           preOut.appendChild(codeOut);
-          panel.appendChild(head);
-          panel.appendChild(preOut);
+          panel.append(head, preOut, inputHost);
           wrapper.parentNode.insertBefore(panel, wrapper.nextSibling);
           // visually attach by marking wrapper as attached
           wrapper.classList.add("attached");
@@ -234,33 +271,49 @@ window.initTutorialUI = function initTutorialUI() {
           panelHead.textContent = expectedError ? "error" : "result";
         }
         const codeOut = panel.querySelector("code");
+        const inputHost = panel.querySelector("[data-stdin-host]");
+        inputHost.innerHTML = "";
+        stdinRequester ||= createStdinRequester({
+          render: createDomStdinRenderer(inputHost),
+        });
         const outputRenderer =
           codeOut.__outputRenderer ||
           (codeOut.__outputRenderer = createOutputRenderer(codeOut));
 
-        run.disabled = true;
         // stream printed output; clear previous
         outputRenderer.clear();
         try {
-          await ensureWasm();
-          const result = await queueEval(async () => {
-            const session = new WasmWqSession();
-            try {
-              session.set_stdout_callback((chunk) => {
-                outputRenderer.appendStreamOutput(chunk);
-              });
-              session.set_stderr_callback((chunk) => {
-                outputRenderer.appendStreamOutput(chunk, "error");
-              });
-              const queue = [...stdinArr];
-              session.set_stdin_callback((_prompt) =>
-                queue.length ? String(queue.shift()) : null,
-              );
-              return await session.eval_wq_async(code);
-            } finally {
-              session.free();
-            }
-          });
+          const result = await evaluationController.run(
+            ({ signal, setState }) =>
+              queueEval(
+                async () => {
+                  await ensureWasm();
+                  if (signal.aborted) throw abortError(signal.reason);
+                  setState("running");
+                  const session = new WasmWqSession();
+                  try {
+                    session.set_stdout_callback((chunk) => {
+                      outputRenderer.appendStreamOutput(chunk);
+                    });
+                    session.set_stderr_callback((chunk) => {
+                      outputRenderer.appendStreamOutput(chunk, "error");
+                    });
+                    session.set_stdin_callback(async (prompt) => {
+                      setState("awaiting-input");
+                      try {
+                        return await stdinRequester.request(prompt, { signal });
+                      } finally {
+                        if (!signal.aborted) setState("running");
+                      }
+                    });
+                    return await session.eval_wq_async(code, { signal });
+                  } finally {
+                    session.free();
+                  }
+                },
+                { signal },
+              ),
+          );
           if (
             result?.display !== undefined &&
             result.display !== null &&
@@ -273,8 +326,12 @@ window.initTutorialUI = function initTutorialUI() {
             );
           }
         } catch (err) {
-          if (!expectedError) console.error(err);
           outputRenderer.clear();
+          if (isAbortError(err)) {
+            outputRenderer.appendText("Interrupted\n");
+            return;
+          }
+          if (!expectedError) console.error(err);
           const bar = createOutputBar("error");
           codeOut.appendChild(bar);
           const errorRenderer = createOutputRenderer(codeOut, bar);
@@ -282,8 +339,6 @@ window.initTutorialUI = function initTutorialUI() {
             formatWqError(err, { rendered: true }) + "\n",
             "error",
           );
-        } finally {
-          run.disabled = false;
         }
       });
       actions.appendChild(run);

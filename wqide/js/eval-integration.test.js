@@ -1,0 +1,45 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+const integrationFiles = [
+  "app.js",
+  "playground.js",
+  "playground-examples-core.js",
+  "repl.js",
+  "tutorial.js",
+  "viz.js",
+];
+
+async function integrationSource() {
+  return (
+    await Promise.all(
+      integrationFiles.map((name) =>
+        readFile(new URL(name, import.meta.url), "utf8"),
+      ),
+    )
+  ).join("\n");
+}
+
+test("wqide has no queued, modal, or preloaded stdin integration", async () => {
+  const source = await integrationSource();
+  for (const legacy of [
+    "stdinQueue",
+    "window.prompt",
+    "stdinArr",
+    "stdinInput",
+    "pushStdinBtn",
+    'params.get("stdin")',
+  ]) {
+    assert.equal(source.includes(legacy), false, `found legacy ${legacy}`);
+  }
+});
+
+test("every wqide async evaluation receives its run signal", async () => {
+  const source = await integrationSource();
+  const calls = source.match(/eval_wq_async\([^\n]+/g) || [];
+  assert.ok(calls.length >= 5);
+  for (const call of calls) {
+    assert.match(call, /\{ signal \}/);
+  }
+});

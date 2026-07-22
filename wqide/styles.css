@@ -312,6 +312,19 @@ body {
 .btn.primary:hover {
   border-color: var(--btn-primary-hover-border);
 }
+.btn.danger {
+  border-color: var(--globals-error-border);
+  background: var(--globals-error-bg);
+  color: var(--globals-error-text);
+}
+.btn.danger:hover {
+  border-color: var(--globals-error-text);
+}
+.code-action-btn.code-action-danger {
+  border-color: var(--globals-error-border);
+  background: var(--globals-error-bg);
+  color: var(--globals-error-text);
+}
 .btn:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -1605,10 +1618,6 @@ body {
   gap: 10px;
   flex-wrap: wrap;
 }
-.composer-stdin {
-  flex: 1 1 280px;
-  min-width: 180px;
-}
 .composer-send {
   margin-left: auto;
 }
@@ -1885,32 +1894,6 @@ body {
 .toolbar-right .btn {
   padding: 8px 12px;
   font-size: 11px;
-}
-.stdin-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  width: 100%;
-  padding-top: 8px;
-  border-top: 1px solid #e0eff8;
-}
-.stdin-row .mini {
-  font-size: 12px;
-  opacity: 0.8;
-  padding-top: 8px;
-  white-space: nowrap;
-}
-.stdin-row textarea {
-  flex: 1;
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--surface-border-soft);
-  background: var(--surface-bg);
-  font-family: inherit;
-  outline: none;
-  resize: none;
-  line-height: 1.4;
-  font-size: 14px;
 }
 .toolbar .debug-controls {
   flex: 0 1 auto;
@@ -2449,6 +2432,76 @@ textarea.editor-text.repl-input,
 .run-output-body::-webkit-scrollbar-thumb {
   background: var(--surface-border-soft);
   border-radius: 3px;
+}
+
+.stdin-request-host:empty {
+  display: none;
+}
+.stdin-request-host {
+  border-top: 1px solid var(--surface-border-soft);
+  background: var(--surface-bg-soft);
+}
+.stdin-request {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  color: var(--surface-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.repl-thread > .stdin-request {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--surface-border-soft);
+  border-radius: var(--radius-surface);
+  background: var(--surface-bg-soft);
+}
+.stdin-request-prompt {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stdin-request-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--surface-bg-field);
+  color: var(--surface-text);
+  font: inherit;
+}
+.stdin-request-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.stdin-request-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--surface-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.stdin-request-actions .btn {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+.stdin-request-line,
+.stdin-request-eof,
+.stdin-request-aborted {
+  opacity: 0.78;
+}
+
+@media (max-width: 640px) {
+  .stdin-request {
+    grid-template-columns: 1fr auto;
+  }
+  .stdin-request-prompt {
+    grid-column: 1 / -1;
+  }
 }
 
 /* === Viz === */
@@ -4345,8 +4398,7 @@ textarea.editor-text.repl-input,
   }
   .toolbar,
   .repl-actions,
-  .composer-actions,
-  .composer-stdin {
+  .composer-actions {
     width: 100%;
   }
   .toolbar,
@@ -4900,7 +4952,6 @@ textarea.editor-text.repl-input,
 }
 
 :root[data-theme="midnight"] .history-search input,
-:root[data-theme="midnight"] .stdin-row textarea,
 :root[data-theme="midnight"] .toolbar input[type="text"],
 :root[data-theme="midnight"] .toolbar textarea,
 :root[data-theme="midnight"] .repl-composer input[type="text"] {
@@ -4922,10 +4973,6 @@ textarea.editor-text.repl-input,
 /*:root[data-theme="midnight"] .repl-input {
   box-shadow: inset 0 1px 0 rgba(241, 241, 243, 0.08);
 }*/
-
-:root[data-theme="midnight"] .stdin-row {
-  border-top-color: #273b61;
-}
 
 :root[data-theme="midnight"] .repl-prompt-wq,
 :root[data-theme="midnight"] .symbol-link:hover .symbol-name,

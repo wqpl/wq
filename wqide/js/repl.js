@@ -28,6 +28,14 @@ import {
 } from "./wq-shared.js";
 import { createWqEditor } from "./editor.js";
 import {
+  createEvaluationController,
+  isAbortError,
+} from "./eval-lifecycle.js";
+import {
+  createDomStdinRenderer,
+  createStdinRequester,
+} from "./stdin-request.js";
+import {
   formatGlobalBindings,
   formatGlobalsTable,
   formatNameColumns,
@@ -35,7 +43,6 @@ import {
 
 let session = null;
 let frontend = null;
-let stdinQueue = [];
 let history = [];
 let histIndex = -1;
 let pendingBuffer = "";
@@ -50,6 +57,9 @@ let ui = null;
 let autoScroll = true;
 let userScrolledUp = false;
 let scrollTimeout = null;
+let evaluationController = null;
+let stdinRequester = null;
+let resetRequested = false;
 
 const HISTORY_KEY = "wqide:repl:history";
 const HISTORY_LIMIT = 200;
@@ -407,7 +417,7 @@ function append(chunk, msgType = "info", options = {}) {
   scrollThreadToBottom();
 }
 
-function bindRuntimeCallbacks() {
+function bindRuntimeCallbacks(run = null) {
   const target = ensureSession();
   target.set_stdout_callback((chunk) =>
     append(chunk, "info", { backend: true }),
@@ -415,13 +425,20 @@ function bindRuntimeCallbacks() {
   target.set_stderr_callback((chunk) =>
     append(chunk, "error", { backend: true }),
   );
-  target.set_stdin_callback((p) => {
-    if (stdinQueue.length > 0) return String(stdinQueue.shift());
-    const msg = typeof p === "string" ? p : "stdin:";
-    const ans = window.prompt(msg || "stdin:");
-    if (ans === null) return null;
-    return ans;
-  });
+  target.set_stdin_callback(
+    run
+      ? async (prompt) => {
+          run.setState("awaiting-input");
+          try {
+            return await stdinRequester.request(prompt, {
+              signal: run.signal,
+            });
+          } finally {
+            if (!run.signal.aborted) run.setState("running");
+          }
+        }
+      : null,
+  );
 }
 
 function ensureSession() {
@@ -589,10 +606,14 @@ async function copyCurrentFlow() {
 }
 
 function resetSession() {
+  if (evaluationController?.active) {
+    resetRequested = true;
+    evaluationController.stop("session reset");
+    return;
+  }
   const oldSession = session;
   session = null;
   oldSession?.free();
-  stdinQueue = [];
   // Keep history across resets
   pendingBuffer = "";
   timeMode = false;
@@ -982,7 +1003,7 @@ async function handleReplCommand(code) {
 
 async function doEval({ recordHistory = true } = {}) {
   const code = ui.codeEl.value;
-  if (!code.trim()) return;
+  if (!code.trim() || evaluationController?.active) return;
   autoScroll = true;
   createTurn("input", promptPrefix().trim(), code.trim());
   execCounter++;
@@ -1010,25 +1031,32 @@ async function doEval({ recordHistory = true } = {}) {
     const useOneshotTime = oneshotTime;
     const prevDebug = oneshotDebug ? session.get_debug_flags() : null;
     const prevWqdb = oneshotWqdb ? session.get_wqdb_mode() : null;
-    const result = await queueEval(async () => {
-      bindRuntimeCallbacks();
-      if (oneshotDebug) {
-        session.set_debug_flags(oneshotDebug);
-      }
-      if (oneshotWqdb) {
-        session.set_wqdb_mode(true);
-      }
-      try {
-        return await session.eval_wq_async(code);
-      } finally {
-        if (prevDebug !== null) {
-          session.set_debug_flags(prevDebug);
-        }
-        if (prevWqdb !== null) {
-          session.set_wqdb_mode(prevWqdb);
-        }
-      }
-    });
+    const result = await evaluationController.run(({ signal, setState }) =>
+      queueEval(
+        async () => {
+          setState("running");
+          bindRuntimeCallbacks({ signal, setState });
+          if (oneshotDebug) {
+            session.set_debug_flags(oneshotDebug);
+          }
+          if (oneshotWqdb) {
+            session.set_wqdb_mode(true);
+          }
+          try {
+            return await session.eval_wq_async(code, { signal });
+          } finally {
+            bindRuntimeCallbacks();
+            if (prevDebug !== null) {
+              session.set_debug_flags(prevDebug);
+            }
+            if (prevWqdb !== null) {
+              session.set_wqdb_mode(prevWqdb);
+            }
+          }
+        },
+        { signal },
+      ),
+    );
     const end = performance.now();
     if (dryMode) {
       append("dry run: skipped\n", "info");
@@ -1072,17 +1100,26 @@ async function doEval({ recordHistory = true } = {}) {
     ui.codeEl.value = "";
     autoSizeComposer();
   } catch (err) {
-    console.error("err from wq:" + err);
-    createTurn(
-      "system",
-      "",
-      alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
-      "error",
-    );
+    if (isAbortError(err) && !resetRequested) {
+      createTurn("system", "", "Interrupted\n", "info");
+    } else if (!isAbortError(err)) {
+      console.error("err from wq:" + err);
+      createTurn(
+        "system",
+        "",
+        alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
+        "error",
+      );
+    }
   } finally {
     oneshotTime = false;
     oneshotDebug = null;
     oneshotWqdb = false;
+    if (resetRequested) {
+      resetRequested = false;
+      resetSession();
+      return;
+    }
     syncDebugControls();
     syncGlobalsPanel();
     ui.evalBtn.disabled = false;
@@ -1211,12 +1248,11 @@ export async function mountRepl(root) {
     term: root.querySelector("#term"),
     composerForm: root.querySelector("#composerForm"),
     evalBtn: root.querySelector("#evalBtn"),
+    stopBtn: root.querySelector("#stopBtn"),
     clearBtn: root.querySelector("#clearBtn"),
     resetBtn: root.querySelector("#resetBtn"),
     copyFlowBtn: root.querySelector("#copyFlowBtn"),
     copyOutputBtn: root.querySelector("#copyOutputBtn"),
-    stdinLine: root.querySelector("#stdinLine"),
-    pushStdinBtn: root.querySelector("#pushStdinBtn"),
     pillBox: root.querySelector("#pillBox"),
     boxPanel: root.querySelector("#boxPanel"),
     boxButtons: Object.fromEntries(
@@ -1245,6 +1281,23 @@ export async function mountRepl(root) {
     globalsCount: root.querySelector("#globalsCount"),
     refreshGlobalsBtn: root.querySelector("#refreshGlobalsBtn"),
   };
+
+  evaluationController = createEvaluationController((state) => {
+    const active = state !== "idle";
+    ui.evalBtn.disabled = active;
+    ui.clearBtn.disabled = active;
+    ui.stopBtn.hidden = !active;
+    ui.stopBtn.disabled = state === "stopping";
+    ui.composerForm.dataset.evaluationState = state;
+  });
+  const renderStdin = createDomStdinRenderer(ui.term);
+  stdinRequester = createStdinRequester({
+    render(request) {
+      const view = renderStdin(request);
+      scrollThreadToBottom();
+      return view;
+    },
+  });
 
   bindRuntimeCallbacks();
   loadHistory();
@@ -1351,22 +1404,8 @@ export async function mountRepl(root) {
     positionRuntimePanel(ui.debugToggle, ui.debugPanel);
   });
 
-  ui.pushStdinBtn.addEventListener("click", () => {
-    const text = ui.stdinLine.value;
-    if (!text) return;
-    const normalized = text.replace(/\\n/g, "\n");
-    const lines = normalized.includes("\n")
-      ? normalized.split(/\r?\n/)
-      : [normalized];
-    try {
-      ensureSession();
-      stdinQueue.push(...lines);
-      append(`pushed ${lines.length} line(s) to stdin\n`);
-      ui.stdinLine.value = "";
-    } catch (e) {
-      console.error(e);
-      append((e?.message ?? String(e)) + "\n");
-    }
+  ui.stopBtn.addEventListener("click", () => {
+    evaluationController.stop("stop requested");
   });
   ui.composerForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1431,6 +1470,10 @@ export async function mountRepl(root) {
   ui.newlineBtn?.addEventListener("click", () => {
     insertTextAtCursor(ui.codeEl, "\n");
     autoSizeComposer();
+  });
+
+  root.addEventListener("wqide:deactivate", () => {
+    evaluationController.stop("view closed");
   });
 
   autoSizeComposer();
