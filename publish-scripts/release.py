@@ -20,17 +20,27 @@ from release_support import (
     push_command,
     require_version_advance,
     update_cargo_manifest,
+    update_json_version,
     workspace_version,
 )
 
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 WORKSPACE_DIRECTORY = SCRIPT_DIRECTORY.parent
-CRATE_DIRECTORY = WORKSPACE_DIRECTORY / "wq-wasm"
+WASM_CRATE_DIRECTORY = WORKSPACE_DIRECTORY / "wq-wasm"
+GRAMMAR_DIRECTORY = WORKSPACE_DIRECTORY / "wq-ts"
 CARGO_MANIFEST_PATH = WORKSPACE_DIRECTORY / "Cargo.toml"
 CARGO_LOCK_PATH = WORKSPACE_DIRECTORY / "Cargo.lock"
-PACKAGE_MANIFEST_PATH = CRATE_DIRECTORY / "package.json"
-RELEASE_FILES = ("Cargo.toml", "Cargo.lock", "wq-wasm/package.json")
+WASM_PACKAGE_MANIFEST_PATH = WASM_CRATE_DIRECTORY / "package.json"
+GRAMMAR_PACKAGE_MANIFEST_PATH = GRAMMAR_DIRECTORY / "package.json"
+GRAMMAR_CONFIG_PATH = GRAMMAR_DIRECTORY / "tree-sitter.json"
+RELEASE_FILES = (
+    "Cargo.toml",
+    "Cargo.lock",
+    "wq-wasm/package.json",
+    "wq-ts/package.json",
+    "wq-ts/tree-sitter.json",
+)
 GITHUB_REMOTE_PATTERN = re.compile(r"github\.com[:/]wqpl/wq(?:\.git)?/?$")
 
 
@@ -276,14 +286,16 @@ def run_release_checks(tag: str, target_version: str) -> None:
         ),
         cwd=WORKSPACE_DIRECTORY,
     )
-    run_command(("npm", "run", "build"), cwd=CRATE_DIRECTORY)
+    run_command(("npm", "run", "build"), cwd=WASM_CRATE_DIRECTORY)
     run_command(
         ("npm", "run", "check"),
-        cwd=CRATE_DIRECTORY,
+        cwd=WASM_CRATE_DIRECTORY,
         env={"RELEASE_TAG": tag},
     )
-    run_command(("npm", "test"), cwd=CRATE_DIRECTORY)
-    run_command(("npm", "pack", "--dry-run"), cwd=CRATE_DIRECTORY)
+    run_command(("npm", "test"), cwd=WASM_CRATE_DIRECTORY)
+    run_command(("npm", "pack", "--dry-run"), cwd=WASM_CRATE_DIRECTORY)
+    run_command(("npm", "test"), cwd=GRAMMAR_DIRECTORY)
+    run_command(("npm", "pack", "--dry-run"), cwd=GRAMMAR_DIRECTORY)
     verify_changed_files()
 
 
@@ -341,15 +353,14 @@ def release(options: argparse.Namespace) -> None:
     ordered_remotes, remote_urls = select_publish_remotes(options.remote)
     original_cargo_manifest = _read_text(CARGO_MANIFEST_PATH)
     original_cargo_lock = _read_text(CARGO_LOCK_PATH)
-    original_package_manifest = _read_text(PACKAGE_MANIFEST_PATH)
-    package_manifest = _read_json(PACKAGE_MANIFEST_PATH)
+    original_wasm_package_manifest = _read_text(WASM_PACKAGE_MANIFEST_PATH)
+    original_grammar_package_manifest = _read_text(GRAMMAR_PACKAGE_MANIFEST_PATH)
+    original_grammar_config = _read_text(GRAMMAR_CONFIG_PATH)
+    wasm_package_manifest = _read_json(WASM_PACKAGE_MANIFEST_PATH)
+    grammar_package_manifest = _read_json(GRAMMAR_PACKAGE_MANIFEST_PATH)
+    grammar_config = _read_json(GRAMMAR_CONFIG_PATH)
 
     current_version = workspace_version(original_cargo_manifest)
-    if package_manifest.get("version") != current_version:
-        raise PublishError(
-            f"Cargo version {current_version} does not match npm version "
-            f"{package_manifest.get('version')}"
-        )
     target_version = options.version or next_version(current_version)
     if target_version.startswith("v"):
         target_version = target_version[1:]
@@ -369,12 +380,40 @@ def release(options: argparse.Namespace) -> None:
     )
     if manifest_update.path_dependency_updates == 0:
         raise PublishError("no versioned workspace path dependencies were updated")
-    package_manifest["version"] = target_version
+    update_json_version(
+        wasm_package_manifest,
+        ("version",),
+        current_version,
+        target_version,
+        label="wq-wasm package",
+    )
+    update_json_version(
+        grammar_package_manifest,
+        ("version",),
+        current_version,
+        target_version,
+        label="wq-ts package",
+    )
+    update_json_version(
+        grammar_config,
+        ("metadata", "version"),
+        current_version,
+        target_version,
+        label="wq-ts grammar",
+    )
 
     _write_text_atomic(CARGO_MANIFEST_PATH, manifest_update.contents)
     _write_text_atomic(
-        PACKAGE_MANIFEST_PATH,
-        f"{json.dumps(package_manifest, indent=2, ensure_ascii=False)}\n",
+        WASM_PACKAGE_MANIFEST_PATH,
+        f"{json.dumps(wasm_package_manifest, indent=2, ensure_ascii=False)}\n",
+    )
+    _write_text_atomic(
+        GRAMMAR_PACKAGE_MANIFEST_PATH,
+        f"{json.dumps(grammar_package_manifest, indent=2, ensure_ascii=False)}\n",
+    )
+    _write_text_atomic(
+        GRAMMAR_CONFIG_PATH,
+        f"{json.dumps(grammar_config, indent=2, ensure_ascii=False)}\n",
     )
 
     git_mutation_started = False
@@ -389,7 +428,8 @@ def release(options: argparse.Namespace) -> None:
                 "-m",
                 f"release {tag}",
                 "-m",
-                "Bump Cargo and npm package versions for the release.\n\n"
+                "Bump Cargo, npm package, and Tree-sitter grammar versions "
+                "for the release.\n\n"
                 "Release Notes:\n\n- N/A",
             ),
             cwd=WORKSPACE_DIRECTORY,
@@ -405,7 +445,15 @@ def release(options: argparse.Namespace) -> None:
         else:
             _write_text_atomic(CARGO_MANIFEST_PATH, original_cargo_manifest)
             _write_text_atomic(CARGO_LOCK_PATH, original_cargo_lock)
-            _write_text_atomic(PACKAGE_MANIFEST_PATH, original_package_manifest)
+            _write_text_atomic(
+                WASM_PACKAGE_MANIFEST_PATH,
+                original_wasm_package_manifest,
+            )
+            _write_text_atomic(
+                GRAMMAR_PACKAGE_MANIFEST_PATH,
+                original_grammar_package_manifest,
+            )
+            _write_text_atomic(GRAMMAR_CONFIG_PATH, original_grammar_config)
             print(
                 "Restored version files after the failed release check.",
                 file=sys.stderr,

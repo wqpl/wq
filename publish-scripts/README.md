@@ -72,11 +72,12 @@ the following operations:
 1. Resolves publishing remotes and verifies exactly one points to
    `github.com/wqpl/wq`.
 2. Updates the shared Cargo version, versioned workspace path dependencies,
-   `Cargo.lock`, and `wq-wasm/package.json`.
+   `Cargo.lock`, both npm package manifests, and the Tree-sitter grammar
+   metadata.
 3. Runs the Python tests, Rust formatting and Clippy, the `wq-wasm` Rust tests,
-   a Cargo workspace publish dry run, and the npm build, validation, tests, and
-   package inspection.
-4. Verifies that only the three expected version files changed.
+   a Cargo workspace publish dry run, the `wq-wasm` npm build and validation,
+   and both npm packages' tests and package inspections.
+4. Verifies that only the five expected version files changed.
 5. Creates a release commit and annotated `vVERSION` tag.
 6. Offers to push each mirror first and GitHub last. Every remote receives the
    branch and tag in one atomic push. The GitHub tag triggers package

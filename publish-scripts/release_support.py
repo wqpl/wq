@@ -191,6 +191,35 @@ def update_cargo_manifest(
     return ManifestUpdate("".join(updated_lines), path_dependency_updates)
 
 
+def update_json_version(
+    document: dict[str, object],
+    path: tuple[str, ...],
+    current_version: str,
+    target_version: str,
+    *,
+    label: str,
+) -> None:
+    if not path:
+        raise PublishError(f"{label} version path is empty")
+
+    container = document
+    for key in path[:-1]:
+        nested = container.get(key)
+        if not isinstance(nested, dict):
+            raise PublishError(
+                f"expected {label} version {current_version}, got {nested}"
+            )
+        container = nested
+
+    field = path[-1]
+    actual_version = container.get(field)
+    if actual_version != current_version:
+        raise PublishError(
+            f"expected {label} version {current_version}, got {actual_version}"
+        )
+    container[field] = target_version
+
+
 def parse_publish_remotes(configured_remotes: str) -> list[str]:
     remotes = configured_remotes.split()
     seen: set[str] = set()
