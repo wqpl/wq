@@ -36,6 +36,19 @@ pub fn render_markdown_with_options(
         let _ = writeln!(out, "```");
         let _ = writeln!(out);
         let _ = writeln!(out, "arity: `{}`", builtin.arity());
+        if let Some(named_args) = builtin.named_args()
+            && !named_args.is_empty()
+        {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "named arguments:");
+            for arg in named_args {
+                let _ = writeln!(
+                    out,
+                    "- `` `{}:{} ``: {}",
+                    arg.name, arg.value_label, arg.summary
+                );
+            }
+        }
         if let Some(canonical) = topic.canonical_builtin
             && canonical != builtin
         {
@@ -413,6 +426,7 @@ fn push_line(out: &mut String, line: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtins::Builtins;
     use crate::doc::{DocKind, DocRenderTarget, DocTopic};
 
     #[test]
@@ -500,5 +514,17 @@ mod tests {
 
         assert!(cli.contains("alpha beta\ngamma delta"));
         assert!(web.contains("alpha beta gamma delta"));
+    }
+
+    #[test]
+    fn builtin_docs_render_named_arguments_from_registry_metadata() {
+        let builtins = Builtins::new();
+        let topic = builtins.doc_for_name("split").expect("split docs");
+
+        let markdown = render_markdown(&topic, DocRenderTarget::Web);
+
+        assert!(markdown.contains("named arguments:"));
+        assert!(markdown.contains("- `` `max:n ``: maximum number of splits"));
+        assert!(!markdown.contains("opts?"));
     }
 }

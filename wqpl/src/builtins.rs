@@ -481,9 +481,27 @@ impl std::fmt::Display for BuiltinCallArity {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct BuiltinNamedArg {
+    pub name: &'static str,
+    pub value_label: &'static str,
+    pub summary: &'static str,
+}
+
+impl BuiltinNamedArg {
+    pub const fn new(name: &'static str, value_label: &'static str, summary: &'static str) -> Self {
+        Self {
+            name,
+            value_label,
+            summary,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum BuiltinNamedArgs {
     Deny,
-    Allow(&'static [&'static str]),
+    Allow(&'static [BuiltinNamedArg]),
+    Any,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -736,6 +754,19 @@ macro_rules! arity {
     };
 }
 
+macro_rules! named_args {
+    ($(($name:literal, $value_label:literal, $summary:literal)),* $(,)?) => {
+        {
+            const NAMED_ARGS: &[BuiltinNamedArg] = &[
+                $(
+                    BuiltinNamedArg::new($name, $value_label, $summary),
+                )*
+            ];
+            NAMED_ARGS
+        }
+    };
+}
+
 macro_rules! sig {
     ($arity:expr) => {
         BuiltinSignature {
@@ -749,6 +780,14 @@ macro_rules! sig {
         BuiltinSignature {
             arity: $arity,
             named: BuiltinNamedArgs::Deny,
+            validation: BuiltinValidation::Defer,
+            source: None,
+        }
+    };
+    ($arity:expr, any_named, defer) => {
+        BuiltinSignature {
+            arity: $arity,
+            named: BuiltinNamedArgs::Any,
             validation: BuiltinValidation::Defer,
             source: None,
         }
@@ -841,6 +880,14 @@ macro_rules! __declare_builtins_impl {
 
             pub const fn arity(self) -> BuiltinCallArity {
                 self.signature().arity
+            }
+
+            pub const fn named_args(self) -> Option<&'static [BuiltinNamedArg]> {
+                match self.signature().named {
+                    BuiltinNamedArgs::Deny => Some(&[]),
+                    BuiltinNamedArgs::Allow(args) => Some(args),
+                    BuiltinNamedArgs::Any => None,
+                }
             }
 
             pub const fn metadata(self) -> BuiltinMetadata {
@@ -944,6 +991,11 @@ macro_rules! __declare_builtins_impl {
             }
 
             #[inline]
+            pub fn named_args_from_id(id: u16) -> Option<&'static [BuiltinNamedArg]> {
+                BuiltinEnum::from_id(id)?.named_args()
+            }
+
+            #[inline]
             pub fn metadata_from_id(id: u16) -> Option<BuiltinMetadata> {
                 Self::METADATA.get(usize::from(id)).copied()
             }
@@ -1000,29 +1052,45 @@ declare_builtins! {
     (OCT, Oct, "oct", "oct[xs;prefix?]", sig!(arity!(1, 2)), plain(core::oct), builtin_metadata!(Core, PURE)),
     (HEX, Hex, "hex", "hex[xs;prefix?]", sig!(arity!(1, 2)), plain(core::hex), builtin_metadata!(Core, PURE)),
     (HASH, Hash, "hash", "hash[x]", sig!(arity!(1)), plain(core::hash), builtin_metadata!(Core, PURE)),
-    (ASSERT, Assert, "assert", "assert[condition;message?;`context]", sig!(arity!(1, 2), named ASSERT_NAMED_ARGS), plain(core::assert_condition), builtin_metadata!(Core, PURE)),
-    (ASSERT_EQ, AssertEq, "assert_eq", "assert_eq[actual;expected;message?;`context]", sig!(arity!(2, 3), named ASSERT_NAMED_ARGS), plain(core::assert_equal), builtin_metadata!(Core, PURE)),
+    (ASSERT, Assert, "assert", "assert[condition;message?;`context]", sig!(arity!(1, 2), named named_args!(("context", "value", "structured assertion context"))), plain(core::assert_condition), builtin_metadata!(Core, PURE)),
+    (ASSERT_EQ, AssertEq, "assert_eq", "assert_eq[actual;expected;message?;`context]", sig!(arity!(2, 3), named named_args!(("context", "value", "structured assertion context"))), plain(core::assert_equal), builtin_metadata!(Core, PURE)),
     (RAISE, Raise, "raise", "raise[]; raise[msg]", sig!(arity!(0, 1)), plain(core::raise), builtin_metadata!(Core, PURE)),
     (ARGV, Argv, "argv", "argv[]", sig!(arity!(0)), with_context(cli::argv), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
     (ARGPARSE, Argparse, "argparse", "argparse[spec;args]", sig!(arity!(2)), with_context(cli::argparse), builtin_metadata!(Core, PURE_CONTEXTUAL)),
     (CLIARGS, Cliargs, "cliargs", "cliargs[spec]", sig!(arity!(1)), with_context(cli::cliargs), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
 
-    (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
-    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)), // alias of echo
+    (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named named_args!(("sep", "separator", "separator between values"))), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
+    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named named_args!(("sep", "separator", "separator between values")), alias Echo), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)), // alias of echo
     (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), with_context(core::print), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), with_context(core::input), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     #[cfg(not(target_arch = "wasm32"))]
-    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), with_context(core::exec_with_context), builtin_metadata!(Exec, UNCONSTRAINED_EFFECT)),
+    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named named_args!(
+        ("stdin", "input", "standard input"),
+        ("cwd", "path", "working directory"),
+        ("env", "dict", "environment variables"),
+        ("timeout", "seconds", "execution timeout"),
+        ("check", "bool", "raise on non-zero exit"),
+    )), with_context(core::exec_with_context), builtin_metadata!(Exec, UNCONSTRAINED_EFFECT)),
 
     // ENCODING =========================================================
-    (DECODE, Decode, "decode", "decode[bytes;codec;`mode;`bom]", sig!(arity!(2), named DECODE_NAMED_ARGS), plain(encoding::decode), builtin_metadata!(Encoding, PURE)),
-    (ENCODE, Encode, "encode", "encode[text;codec;`mode]", sig!(arity!(2), named ENCODE_NAMED_ARGS), plain(encoding::encode), builtin_metadata!(Encoding, PURE)),
+    (DECODE, Decode, "decode", "decode[bytes;codec;`mode;`bom]", sig!(arity!(2), named named_args!(
+        ("mode", "mode", "error handling mode"),
+        ("bom", "mode", "byte-order mark handling"),
+    )), plain(encoding::decode), builtin_metadata!(Encoding, PURE)),
+    (ENCODE, Encode, "encode", "encode[text;codec;`mode]", sig!(arity!(2), named named_args!(("mode", "mode", "error handling mode"))), plain(encoding::encode), builtin_metadata!(Encoding, PURE)),
     (VALIDBYTES, ValidBytes, "bytes?", "bytes?[x]", sig!(arity!(1)), plain(encoding::is_valid_bytes), builtin_metadata!(Encoding, PURE)),
 
     // FILE IO =========================================================
     #[cfg(not(target_arch = "wasm32"))]
     {
-        (OPEN, Open, "open", "open[path;`read;`write;`append;`truncate;`create;`create_new]", sig!(arity!(1), named OPEN_NAMED_ARGS), plain(io::open), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (OPEN, Open, "open", "open[path;`read;`write;`append;`truncate;`create;`create_new]", sig!(arity!(1), named named_args!(
+            ("read", "bool", "enable reading"),
+            ("write", "bool", "enable writing"),
+            ("append", "bool", "append writes"),
+            ("truncate", "bool", "truncate the file"),
+            ("create", "bool", "create a missing file"),
+            ("create_new", "bool", "create a new file exclusively"),
+        )), plain(io::open), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
         (PATH_EXISTS_Q, PathExistsQ, "path_exists?", "path_exists?[path]", sig!(arity!(1)), plain(io::path_exists), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
         (MKDIR, Mkdir, "mkdir", "mkdir[path]", sig!(arity!(1)), plain(io::mkdir), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
         (FILE_SIZE, FileSize, "file_size", "file_size[path]", sig!(arity!(1)), plain(io::file_size), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
@@ -1047,8 +1115,8 @@ declare_builtins! {
     (FLATTEN, Flatten, "flatten", "flatten[xs]", sig!(arity!(1)), plain(list::flatten), builtin_metadata!(List, PURE)),
     (REVERSE, Reverse, "reverse", "reverse[xs]", sig!(arity!(1)), plain(list::reverse), builtin_metadata!(List, PURE)),
     (V, V, "V", "V[xs]", sig!(arity!(1), alias Reverse), plain(list::reverse), builtin_metadata!(List, PURE)), // alias of reverse
-    (SORT, Sort, "sort", "sort[xs;`by]", sig!(arity!(1), named SORT_NAMED_ARGS), plain(list::sort), builtin_metadata!(List, PURE)),
-    (SPLIT, Split, "split", "split[xs;opts?]", sig!(arity!(1, 2), named MAXSPLIT_NAMED_ARGS), plain(list::split), builtin_metadata!(List, PURE)),
+    (SORT, Sort, "sort", "sort[xs;`by]", sig!(arity!(1), named named_args!(("by", "key", "dict sort key"))), plain(list::sort), builtin_metadata!(List, PURE)),
+    (SPLIT, Split, "split", "split[xs], split[xs;delim], split[xs;`max:n], split[xs;delim;`max:n]", sig!(arity!(1, 2), named named_args!(("max", "n", "maximum number of splits"))), plain(list::split), builtin_metadata!(List, PURE)),
     (FIND, Find, "find", "find[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::find), builtin_metadata!(List, PURE), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
     (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::rfind), builtin_metadata!(List, PURE), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
     (ZIP, Zip, "zip", "zip[xs;ys;d?]", sig!(arity!(2, 3)), plain(list::zip), builtin_metadata!(List, PURE), BuiltinDepthSugar::Append { non_depth_argc: 2 }),
@@ -1081,7 +1149,7 @@ declare_builtins! {
     (FILTER, Filter, "filter", "filter[xs;f]", sig!(arity!(2)), with_context(ho::filter), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
 
     (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", sig!(arity!(3, 4)), with_context(ho::zipw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::Append { non_depth_argc: 3 }),
-    (SPLITW, SplitW, "splitw", "splitw[xs;f;`m]", sig!(arity!(2), named MAXSPLIT_NAMED_ARGS), with_context(ho::splitw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
+    (SPLITW, SplitW, "splitw", "splitw[xs;f], splitw[xs;f;`max:n]", sig!(arity!(2), named named_args!(("max", "n", "maximum number of splits"))), with_context(ho::splitw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
     (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::findw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
     (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::rfindw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
 
@@ -1190,18 +1258,21 @@ declare_builtins! {
     (INTEGER, Integer, "integer", "integer[expr]", sig!(arity!(1)), plain(cas::integer), builtin_metadata!(Cas, PURE)),
     (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), with_context(cas::simplify), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), with_context(cas::rewrite), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
-    (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), defer), plain(cas::numeric), builtin_metadata!(Cas, PURE)),
+    (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), any_named, defer), plain(cas::numeric), builtin_metadata!(Cas, PURE)),
     (DIFF, Diff, "diff", "diff[expr;var?]", sig!(arity!(1, 2)), with_context(cas::diff), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (D, D, "D", "D[expr;var?]", sig!(arity!(1, 2), alias Diff), with_context(cas::diff), builtin_metadata!(Cas, PURE_CONTEXTUAL)), // alias of diff
-    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val], substitute[expr;`name:val...]", sig!(arity!(1, 2, 3), defer), plain(cas::substitute), builtin_metadata!(Cas, PURE)),
+    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val], substitute[expr;`name:val...]", sig!(arity!(1, 2, 3), any_named, defer), plain(cas::substitute), builtin_metadata!(Cas, PURE)),
     (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), with_context(cas::expand), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", sig!(arity!(1)), plain(cas::factor_common), builtin_metadata!(Cas, PURE)),
     (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;T], factor[expr;T;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), builtin_metadata!(Cas, PURE)),
     (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), with_context(cas::integrate), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), with_context(cas::integrate), builtin_metadata!(Cas, PURE_CONTEXTUAL)), // alias of integrate
-    (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), with_context(cas::limit), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
-    (SOLVE, Solve, "solve", "solve[expr;`assuming;`domain], solve[expr;var;`assuming;`domain], solve[eq;var;`assuming;`domain]", sig!(arity!(1, 2), named SOLVE_NAMED_ARGS), plain(cas::solve), builtin_metadata!(Cas, PURE)),
-    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;`assuming], solve_system[eqs;vars;`assuming]", sig!(arity!(1, 2), named SOLVE_SYSTEM_NAMED_ARGS), plain(cas::solve_system), builtin_metadata!(Cas, PURE)),
+    (LIMIT, Limit, "limit", "limit[expr;point;`direction:side], limit[expr;var;point;`direction:side]", sig!(arity!(2..), named named_args!(("direction", "side", "one-sided limit direction"))), with_context(cas::limit), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
+    (SOLVE, Solve, "solve", "solve[expr;`assuming;`domain], solve[expr;var;`assuming;`domain], solve[eq;var;`assuming;`domain]", sig!(arity!(1, 2), named named_args!(
+        ("assuming", "conditions", "symbolic assumptions"),
+        ("domain", "domain", "solution domain"),
+    )), plain(cas::solve), builtin_metadata!(Cas, PURE)),
+    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;`assuming], solve_system[eqs;vars;`assuming]", sig!(arity!(1, 2), named named_args!(("assuming", "conditions", "symbolic assumptions"))), plain(cas::solve_system), builtin_metadata!(Cas, PURE)),
     (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), with_context(cas::brent_with_context), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), with_context(cas::newton), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
 
@@ -1224,12 +1295,41 @@ declare_builtins! {
     (DICT, Dict, "dict", "dict[x]", sig!(arity!(1)), plain(wqtype::to_dict), builtin_metadata!(Type, PURE)),
 
     // Visualization =========================================================
-    (SHOWTABLE, Showtable, "showtable", "showtable[table;`cols;`limit;`width;`style;`missing]", sig!(arity!(1), named SHOWTABLE_NAMED_ARGS), with_context(viz::show_table), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
+    (SHOWTABLE, Showtable, "showtable", "showtable[table;`cols;`limit;`width;`style;`missing]", sig!(arity!(1), named named_args!(
+        ("cols", "columns", "columns to display"),
+        ("limit", "n", "maximum rows to display"),
+        ("width", "n", "maximum display width"),
+        ("style", "style", "table output style"),
+        ("missing", "value", "replacement for missing cells"),
+    )), with_context(viz::show_table), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`x;`y;`symbols;`labels;`mode;`axes;`color;`grid;",
             "`samples;`theme;`complex;`unicode;",
-            "`ticklabels;`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
+            "`ticklabels;`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named named_args!(
+            ("size", "size", "plot width and height"),
+            ("width", "n", "plot width"),
+            ("height", "n", "plot height"),
+            ("xlim", "range", "horizontal axis range"),
+            ("ylim", "range", "vertical axis range"),
+            ("x", "column", "table x column"),
+            ("y", "columns", "table y columns"),
+            ("symbols", "symbols", "series symbols"),
+            ("labels", "labels", "series labels"),
+            ("mode", "mode", "plot mode"),
+            ("axes", "mode", "axis display mode"),
+            ("color", "colors", "color configuration"),
+            ("grid", "density", "grid configuration"),
+            ("samples", "n", "sample count"),
+            ("theme", "theme", "plot theme"),
+            ("complex", "mode", "complex value projection"),
+            ("unicode", "bool", "Unicode drawing mode"),
+            ("ticklabels", "bool", "numeric tick labels"),
+            ("title", "string", "plot title"),
+            ("xlabel", "string", "horizontal axis label"),
+            ("ylabel", "string", "vertical axis label"),
+            ("caption", "labels", "title and axis labels"),
+        )), with_context(viz::asciiplot), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
 
     // Language-required builtins ===================================
     (FMT, Fmt, "fmt", "fmt[template;v*]", sig!(arity!(1..)), plain(string::fmt), builtin_metadata!(Str, REQUIRED)),
@@ -1259,52 +1359,6 @@ declare_builtins! {
 
 }
 
-const ECHO_NAMED_ARGS: &[&str] = &["sep"];
-const ASSERT_NAMED_ARGS: &[&str] = &["context"];
-const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
-const SORT_NAMED_ARGS: &[&str] = &["by"];
-const LIMIT_NAMED_ARGS: &[&str] = &["d"];
-const SOLVE_NAMED_ARGS: &[&str] = &["assuming", "domain"];
-const SOLVE_SYSTEM_NAMED_ARGS: &[&str] = &["assuming"];
-const SHOWTABLE_NAMED_ARGS: &[&str] = &["cols", "limit", "width", "style", "missing"];
-const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
-    "size",
-    "width",
-    "height",
-    "xlim",
-    "ylim",
-    "x",
-    "y",
-    "symbols",
-    "labels",
-    "mode",
-    "axes",
-    "color",
-    "grid",
-    "samples",
-    "theme",
-    "complex",
-    "unicode",
-    "title",
-    "xlabel",
-    "ylabel",
-    "caption",
-    "ticklabels",
-];
-#[cfg(not(target_arch = "wasm32"))]
-const EXEC_NAMED_ARGS: &[&str] = &["stdin", "cwd", "env", "timeout", "check"];
-#[cfg(not(target_arch = "wasm32"))]
-const OPEN_NAMED_ARGS: &[&str] = &[
-    "read",
-    "write",
-    "append",
-    "truncate",
-    "create",
-    "create_new",
-];
-const DECODE_NAMED_ARGS: &[&str] = &["mode", "bom"];
-const ENCODE_NAMED_ARGS: &[&str] = &["mode"];
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct BuiltinCallCheck {
     src: BuiltinEnum,
@@ -1329,7 +1383,10 @@ impl BuiltinCallCheck {
         self.arity.validate(self.src, args)?;
         match self.named {
             BuiltinNamedArgs::Deny => deny_named_args(args, self.src),
-            BuiltinNamedArgs::Allow(allowed) => check_named_args(args, self.src, allowed),
+            BuiltinNamedArgs::Allow(allowed) => {
+                validate_registered_named_args(args, self.src, allowed)
+            }
+            BuiltinNamedArgs::Any => Ok(()),
         }
     }
 }
@@ -1471,22 +1528,6 @@ pub(super) fn check_arity(
     check_arity_inner(builtin, arity, args)
 }
 
-/// Like check_arity but allows named args.
-#[inline]
-pub(super) fn check_arity_named(
-    builtin: BuiltinEnum,
-    arity: impl AsRef<[usize]>,
-    args: &BuiltinFnArgs,
-    allowed: &[&str],
-) -> WqResult<()> {
-    if args.runtime_validated() {
-        return Ok(());
-    }
-
-    check_arity_inner(builtin, arity, args)?;
-    check_named_args(args, builtin, allowed)
-}
-
 /// Like check_arity but accepts arbitrary named args.
 #[inline]
 pub(super) fn check_arity_any_named(
@@ -1501,12 +1542,39 @@ pub(super) fn check_arity_any_named(
     check_arity_inner(builtin, arity, args)
 }
 
-/// Validate that all provided named args are in the allowed list.
 #[inline]
-pub(super) fn check_named_args(
+pub(super) fn check_registered_args(builtin: BuiltinEnum, args: &BuiltinFnArgs) -> WqResult<()> {
+    if args.runtime_validated() {
+        return Ok(());
+    }
+
+    BuiltinCallCheck::from_signature(builtin, builtin.signature())
+        .map_or(Ok(()), |check| check.validate(args))
+}
+
+#[inline]
+pub(super) fn check_registered_named_args(
     args: &BuiltinFnArgs,
     builtin: BuiltinEnum,
-    allowed: &[&str],
+) -> WqResult<()> {
+    if args.runtime_validated() {
+        return Ok(());
+    }
+
+    let signature = builtin.signature();
+    let source = signature.source.unwrap_or(builtin);
+    match signature.named {
+        BuiltinNamedArgs::Deny => deny_named_args(args, source),
+        BuiltinNamedArgs::Allow(allowed) => validate_registered_named_args(args, source, allowed),
+        BuiltinNamedArgs::Any => Ok(()),
+    }
+}
+
+#[inline]
+fn validate_registered_named_args(
+    args: &BuiltinFnArgs,
+    builtin: BuiltinEnum,
+    allowed: &[BuiltinNamedArg],
 ) -> WqResult<()> {
     if args.runtime_validated() {
         return Ok(());
@@ -1514,7 +1582,7 @@ pub(super) fn check_named_args(
 
     if let Some(named) = &args.named {
         for (name, _) in named {
-            if !allowed.contains(&name.as_ref()) {
+            if !allowed.iter().any(|arg| arg.name == name.as_ref()) {
                 return Err(WqError::new(WqErrorType::Arity)
                     .src(builtin)
                     .msg(format!("unknown named argument '{}'", name)));
@@ -2177,6 +2245,72 @@ mod tests {
     }
 
     #[test]
+    fn builtin_contract_exposes_named_arguments_and_clear_split_patterns() {
+        let split_args =
+            Builtins::named_args_from_id(Builtins::SPLIT).expect("split named arguments");
+        assert_eq!(
+            split_args,
+            &[BuiltinNamedArg::new("max", "n", "maximum number of splits")]
+        );
+        assert!(!BuiltinEnum::Split.usage().contains("opts?"));
+        assert!(BuiltinEnum::Split.usage().contains("split[xs]"));
+        assert!(BuiltinEnum::Split.usage().contains("split[xs;delim]"));
+
+        let limit_args =
+            Builtins::named_args_from_id(Builtins::LIMIT).expect("limit named arguments");
+        assert_eq!(
+            limit_args,
+            &[BuiltinNamedArg::new(
+                "direction",
+                "side",
+                "one-sided limit direction"
+            )]
+        );
+    }
+
+    #[test]
+    fn renamed_builtin_arguments_are_the_only_accepted_names() {
+        let builtins = Builtins::new();
+        let split = BuiltinFnArgs::with_named(
+            SmallVec::from_vec(vec![into_wq_string("a b")]),
+            vec![(Arc::<str>::from("max"), Value::Int(1))],
+        );
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::SPLIT, &split)
+                .expect("split max should pass registry validation")
+        );
+
+        let old_split = BuiltinFnArgs::with_named(
+            SmallVec::from_vec(vec![into_wq_string("a b")]),
+            vec![(Arc::<str>::from("m"), Value::Int(1))],
+        );
+        let err = builtins
+            .validate_runtime_call_args(Builtins::SPLIT, &old_split)
+            .expect_err("split m should be removed");
+        assert_eq!(err.msg.as_deref(), Some("unknown named argument 'm'"));
+
+        let limit = BuiltinFnArgs::with_named(
+            SmallVec::from_vec(vec![Value::from_cas_var("x"), Value::Int(0)]),
+            vec![(Arc::<str>::from("direction"), Value::from_cas_var("+"))],
+        );
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::LIMIT, &limit)
+                .expect("limit direction should pass registry validation")
+        );
+
+        let old_limit = BuiltinFnArgs::with_named(
+            SmallVec::from_vec(vec![Value::from_cas_var("x"), Value::Int(0)]),
+            vec![(Arc::<str>::from("d"), Value::from_cas_var("+"))],
+        );
+        let err = builtins
+            .validate_runtime_call_args(Builtins::LIMIT, &old_limit)
+            .expect_err("limit d should be removed");
+        assert_eq!(err.msg.as_deref(), Some("unknown named argument 'd'"));
+    }
+
+    #[test]
     fn runtime_validated_args_skip_body_shape_checks() {
         let mut args = BuiltinFnArgs::new();
         args.mark_runtime_validated();
@@ -2187,6 +2321,6 @@ mod tests {
             vec![(Arc::<str>::from("bad"), Value::Int(1))],
         );
         named_args.mark_runtime_validated();
-        assert!(check_named_args(&named_args, BuiltinEnum::Echo, &[]).is_ok());
+        assert!(check_registered_named_args(&named_args, BuiltinEnum::Echo).is_ok());
     }
 }

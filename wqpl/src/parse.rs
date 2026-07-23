@@ -4846,8 +4846,8 @@ mod symbolic_quote_tests {
 
     #[test]
     fn symbolic_quote_limit_accepts_named_direction() {
-        let ast =
-            parse_input("@s limit[1/x;0;`d:@s+]").expect("named limit direction should parse");
+        let ast = parse_input("@s limit[1/x;0;`direction:@s+]")
+            .expect("named limit direction should parse");
         let AstNode::Literal(value, _) = ast else {
             panic!("expected CAS literal, got {ast:?}");
         };
@@ -4857,7 +4857,7 @@ mod symbolic_quote_tests {
         assert_eq!(var, &Value::from_cas_var("x"));
         assert_eq!(point, &Value::Int(0));
         assert_eq!(direction, Some(crate::cas::limit::LimitDirection::Right));
-        assert_eq!(value.to_string(), "limit[x^-1;x;0;`d:+]");
+        assert_eq!(value.to_string(), "limit[x^-1;x;0;`direction:+]");
     }
 
     #[test]
@@ -4900,8 +4900,8 @@ mod symbolic_quote_tests {
 
     #[test]
     fn symbolic_quote_limit_quotes_direction_forms() {
-        let ast =
-            parse_input("@s limit[1/x;0;`d:x]").expect("parser should recover with error node");
+        let ast = parse_input("@s limit[1/x;0;`direction:x]")
+            .expect("parser should recover with error node");
         let AstNode::Error(err, _) = ast else {
             panic!("expected parser error node, got {ast:?}");
         };

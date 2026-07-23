@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use encoding_rs::{CoderResult, DecoderResult, Encoding};
 
-use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named};
+use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_registered_args};
 use crate::value::{IntoWqValue as _, Value, WqResult, expected_bytes1, expected_string1};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
 
@@ -23,7 +23,7 @@ enum BomPolicy {
 }
 
 pub(super) fn decode(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BE::Decode, [2], &args, &["mode", "bom"])?;
+    check_registered_args(BE::Decode, &args)?;
     let bytes = args[0]
         .try_to_rust_vec_u8()
         .ok_or_else(|| expected_bytes1(&args[0]).src(BE::Decode).at_arg(0))?;
@@ -45,7 +45,7 @@ pub(super) fn decode(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn encode(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BE::Encode, [2], &args, &["mode"])?;
+    check_registered_args(BE::Encode, &args)?;
     let text = args[0]
         .try_to_rust_string()
         .ok_or_else(|| expected_string1(&args[0]).src(BE::Encode).at_arg(0))?;

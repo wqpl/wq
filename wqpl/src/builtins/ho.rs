@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::builtins::list::parse_non_negative_int_or_inf;
 use crate::builtins::{
-    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named,
+    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_registered_args,
     depth_requirement, type_mismatch,
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
@@ -173,7 +173,7 @@ pub(crate) fn zipw_effective_layers(xs: &Value, ys: &Value, depth: &Value) -> Wq
 }
 
 pub(crate) fn splitw_maxsplit(args: &BuiltinFnArgs) -> WqResult<Option<usize>> {
-    crate::builtins::list::parse_maxsplit(args.named("m"), BE::SplitW)
+    crate::builtins::list::parse_maxsplit(args.named("max"), BE::SplitW)
 }
 
 pub(crate) fn findw_parameters(args: &BuiltinFnArgs, builtin: BE) -> WqResult<(i64, i64)> {
@@ -612,10 +612,10 @@ pub(super) fn zipw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
     }
 }
 
-///splitw[xs;f;`m]
+///splitw[xs;f;`max]
 pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    const MAXSPLIT_ARG: &str = "m";
-    check_arity_named(BE::SplitW, [2], &args, &[MAXSPLIT_ARG])?;
+    const MAXSPLIT_ARG: &str = "max";
+    check_registered_args(BE::SplitW, &args)?;
     let maxsplit = crate::builtins::list::parse_maxsplit(args.named(MAXSPLIT_ARG), BE::SplitW)?;
     let mut iter = args.into_iter();
     let val = iter.next().unwrap();

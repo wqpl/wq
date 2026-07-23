@@ -1,13 +1,15 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 use wq_rl::completion::{Completer, FilenameCompleter, Pair};
 use wq_rl::highlight::{CmdKind, Highlighter as RLHighlighter, InputAreaStyle};
 use wq_rl::hint::{Hint as RLHint, Hinter};
 use wq_rl::validate::{ValidationContext, ValidationResult, Validator};
 use wq_rl::{Context as RLContext, Helper};
-use wqpl::builtins::BuiltinPreset;
+use wqpl::builtins::{BuiltinNamedArg, BuiltinPreset};
+use wqpl::completion::{self as wq_completion, CompletionCandidate};
 use wqpl::doc::{self, DocKind};
 use wqpl::frontend::Frontend;
 use wqpl::highlight::{Highlighter, cursor_context_at};
@@ -77,6 +79,7 @@ pub struct WqReplHighlighter {
     enabled: bool,
     builtin_names: Vec<String>,
     builtin_usages: Vec<String>,
+    builtin_named_args: HashMap<String, Vec<BuiltinNamedArg>>,
     help_topics: Vec<(String, String)>,
     global_hints: Vec<WqGlobalHint>,
     wqdb_function_names: Vec<String>,
@@ -102,6 +105,7 @@ impl WqReplHighlighter {
             enabled: true,
             builtin_names: Vec::new(),
             builtin_usages: Vec::new(),
+            builtin_named_args: HashMap::new(),
             help_topics: Self::collect_help_topics(),
             global_hints: Vec::new(),
             wqdb_function_names: Vec::new(),
@@ -136,9 +140,29 @@ impl WqReplHighlighter {
         self.hints_enabled
     }
 
+    #[cfg(test)]
     pub fn set_builtin_hints(&mut self, names: Vec<String>, usages: Vec<String>) {
         self.builtin_names = names;
         self.builtin_usages = usages;
+        self.builtin_named_args.clear();
+    }
+
+    pub fn set_builtin_completion_candidates(&mut self, candidates: Vec<CompletionCandidate>) {
+        self.builtin_names.clear();
+        self.builtin_usages.clear();
+        self.builtin_named_args.clear();
+
+        self.builtin_names.reserve(candidates.len());
+        self.builtin_usages.reserve(candidates.len());
+        for candidate in candidates {
+            if !candidate.named_args.is_empty() {
+                self.builtin_named_args
+                    .insert(candidate.label.clone(), candidate.named_args);
+            }
+            self.builtin_names.push(candidate.label);
+            self.builtin_usages
+                .push(candidate.detail.unwrap_or_default());
+        }
     }
 
     pub fn set_builtins_preset(&mut self, preset: BuiltinPreset) {
@@ -488,6 +512,28 @@ impl WqReplHighlighter {
         (start, candidates)
     }
 
+    fn complete_builtin_named_arg(&self, line: &str, pos: usize) -> Option<(usize, Vec<Pair>)> {
+        let context =
+            wq_completion::builtin_named_arg_completion_context(&self.frontend, line, pos)?;
+        let named_args = self.builtin_named_args.get(&context.builtin_name)?;
+        let mut candidates = named_args
+            .iter()
+            .filter(|arg| arg.name.starts_with(&context.prefix))
+            .filter(|arg| !context.used_names.iter().any(|name| name == arg.name))
+            .map(|arg| {
+                let replacement = format!("`{}:", arg.name);
+                Pair::described(
+                    replacement.clone(),
+                    replacement,
+                    format!("{} · {}", arg.value_label, arg.summary),
+                )
+                .with_kind("named argument")
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| left.display.cmp(&right.display));
+        Some((context.replace_start, candidates))
+    }
+
     fn hint_wqdb(&self, line: &str, pos: usize) -> Option<WqHint> {
         let target = wqdb_editor::cursor_target(line, pos);
         let (command, prefix) = match &target {
@@ -601,6 +647,9 @@ impl Completer for WqReplHighlighter {
         let pos = pos.min(line.len());
         if self.input_mode == WqInputMode::Wqdb {
             return Ok(self.complete_wqdb(line, pos));
+        }
+        if let Some(completion) = self.complete_builtin_named_arg(line, pos) {
+            return Ok(completion);
         }
         if self.should_suppress(line, pos) {
             return Ok((pos, Vec::new()));
@@ -1026,6 +1075,29 @@ mod tests {
         assert_eq!(sum.description.as_deref(), Some("sum[xs*]"));
         assert_eq!(score.kind.as_deref(), Some("global"));
         assert_eq!(score.description.as_deref(), Some(":int score:42"));
+    }
+
+    #[test]
+    fn builtin_named_argument_completion_inserts_name_and_colon() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_completion_candidates(wqpl::completion::builtin_completion_candidates(
+            &wqpl::builtins::Builtins::new(),
+            false,
+        ));
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+        let src = "split[\"a,b\";\",\";`ma";
+
+        let (start, candidates) = h.complete(src, src.len(), &ctx).expect("completion");
+
+        assert_eq!(&src[start..], "`ma");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].replacement, "`max:");
+        assert_eq!(candidates[0].kind.as_deref(), Some("named argument"));
+        assert_eq!(
+            candidates[0].description.as_deref(),
+            Some("n · maximum number of splits")
+        );
     }
 
     #[test]

@@ -4,7 +4,8 @@ use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 
 use crate::builtins::{
-    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, at_least_arity_error, check_named_args,
+    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, at_least_arity_error,
+    check_registered_named_args,
 };
 use crate::cas::{infer_single_cas_var, substitute_cas};
 use crate::style::{AnsiColor, ColorMode as StyleColorMode, TextStyle, paint};
@@ -19,7 +20,7 @@ const SERIES_ARGUMENT_EXAMPLES: &str =
     "e.g. (1;2;3), ((1;2);(2;4)), {x*x}, @s x^2, or (`x:(0;1);`y:(2;3))";
 
 pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_named_args(&args, BE::Asciiplot, super::super::ASCIIPLOT_NAMED_ARGS)?;
+    check_registered_named_args(&args, BE::Asciiplot)?;
     if args.is_empty() {
         return Err(at_least_arity_error(BE::Asciiplot, 1, 0));
     }
@@ -92,7 +93,7 @@ impl AsciiplotFrame {
         terminal_size: Option<(usize, usize)>,
         color_mode: StyleColorMode,
     ) -> WqResult<Self> {
-        check_named_args(args, BE::Asciiplot, super::super::ASCIIPLOT_NAMED_ARGS)?;
+        check_registered_named_args(args, BE::Asciiplot)?;
         if args.is_empty() {
             return Err(at_least_arity_error(BE::Asciiplot, 1, 0));
         }

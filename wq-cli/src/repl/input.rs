@@ -4,6 +4,7 @@ use wq_rl::Editor;
 use wq_rl::error::ReadlineError;
 use wq_rl::history::FileHistory;
 use wqpl::builtins::BuiltinPreset;
+use wqpl::completion::CompletionCandidate;
 use wqpl::session::SessionInterruptHandle;
 use wqpl::session::stdio::{WqInput, WqIoError};
 
@@ -105,9 +106,9 @@ impl RustylineInput {
         result
     }
 
-    pub(crate) fn set_builtin_hints(&self, names: Vec<String>, usages: Vec<String>) {
+    pub(crate) fn set_builtin_completion_candidates(&self, candidates: Vec<CompletionCandidate>) {
         if let Some(helper) = self.lock_editor().helper_mut() {
-            helper.set_builtin_hints(names, usages);
+            helper.set_builtin_completion_candidates(candidates);
         }
     }
 

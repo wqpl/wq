@@ -29,7 +29,7 @@ inf
 1.0
 1.0
 inf
-limit[x^-1;x;0;`d:+]
+limit[x^-1;x;0;`direction:+]
 inf
 -inf
 undef

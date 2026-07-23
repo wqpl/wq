@@ -190,7 +190,11 @@ impl LanguageServer for Backend {
                     resolve_provider: Some(false),
                 }),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec!["[".to_string(), ";".to_string()]),
+                    trigger_characters: Some(vec![
+                        "[".to_string(),
+                        ";".to_string(),
+                        "`".to_string(),
+                    ]),
                     ..CompletionOptions::default()
                 }),
                 signature_help_provider: Some(SignatureHelpOptions {
@@ -828,6 +832,15 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let byte_offset = position_to_byte_offset(&content, pos);
 
+        if let Some(items) =
+            builtin_named_arg_completion_items(&self.frontend, &content, byte_offset)
+        {
+            return Ok(Some(CompletionResponse::List(CompletionList {
+                is_incomplete: false,
+                items,
+            })));
+        }
+
         if wq_completion::should_suppress_expression_completion(
             &self.frontend,
             &content,
@@ -864,7 +877,8 @@ impl LanguageServer for Backend {
                     .map(|arity| arity.to_string())
                     .unwrap_or_default();
 
-                let parameters = parse_params_from_usage(usage);
+                let named_args = Builtins::named_args_from_id(id as u16).unwrap_or_default();
+                let parameters = parse_params_from_usage(usage, named_args);
                 let documentation = Builtins::doc_for_id(id as u16)
                     .map(|topic| {
                         Documentation::MarkupContent(MarkupContent {
@@ -891,6 +905,42 @@ impl LanguageServer for Backend {
 
         Ok(None)
     }
+}
+
+fn builtin_named_arg_completion_items(
+    frontend: &Frontend,
+    content: &str,
+    byte_offset: usize,
+) -> Option<Vec<CompletionItem>> {
+    let context =
+        wq_completion::builtin_named_arg_completion_context(frontend, content, byte_offset)?;
+    let builtin_id = frontend.builtins().get_id(&context.builtin_name)?;
+    let builtin_id = u16::try_from(builtin_id).ok()?;
+    let named_args = Builtins::named_args_from_id(builtin_id)?;
+    let range = Range {
+        start: byte_offset_to_position(content, context.replace_start),
+        end: byte_offset_to_position(content, byte_offset),
+    };
+    Some(
+        named_args
+            .iter()
+            .filter(|arg| arg.name.starts_with(&context.prefix))
+            .filter(|arg| !context.used_names.iter().any(|name| name == arg.name))
+            .map(|arg| {
+                let replacement = format!("`{}:", arg.name);
+                CompletionItem {
+                    label: replacement.clone(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    detail: Some(format!("{} · {}", arg.value_label, arg.summary)),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range,
+                        new_text: replacement,
+                    })),
+                    ..CompletionItem::default()
+                }
+            })
+            .collect(),
+    )
 }
 
 fn completion_item_from_wq(candidate: wq_completion::CompletionCandidate) -> CompletionItem {
@@ -1265,15 +1315,33 @@ fn find_call_context(content: &str, byte_offset: usize) -> Option<(&str, usize)>
 }
 
 /// Parse parameters from a usage string like `map[xs;f;d?]`.
-fn parse_params_from_usage(usage: &str) -> Vec<ParameterInformation> {
-    let inner = usage.split('[').nth(1).unwrap_or("");
-    let inner = inner.split(']').next().unwrap_or("");
-    inner
-        .split(';')
-        .map(|p| ParameterInformation {
-            label: ParameterLabel::Simple(p.trim().to_string()),
+fn parse_params_from_usage(
+    usage: &str,
+    named_args: &[wqpl::builtins::BuiltinNamedArg],
+) -> Vec<ParameterInformation> {
+    let positional = usage
+        .split(", ")
+        .filter_map(|pattern| pattern.split_once('['))
+        .filter_map(|(_, rest)| rest.split_once(']'))
+        .map(|(inner, _)| {
+            inner
+                .split(';')
+                .map(str::trim)
+                .filter(|param| !param.is_empty() && !param.starts_with('`'))
+                .collect::<Vec<_>>()
+        })
+        .max_by_key(Vec::len)
+        .unwrap_or_default();
+    positional
+        .into_iter()
+        .map(|param| ParameterInformation {
+            label: ParameterLabel::Simple(param.to_string()),
             documentation: None,
         })
+        .chain(named_args.iter().map(|arg| ParameterInformation {
+            label: ParameterLabel::Simple(format!("`{}:{}", arg.name, arg.value_label)),
+            documentation: Some(Documentation::String(arg.summary.to_string())),
+        }))
         .collect()
 }
 
@@ -1340,11 +1408,56 @@ mod tests {
     }
 
     #[test]
+    fn builtin_named_argument_completion_uses_registry_metadata() {
+        let frontend = Frontend::default();
+        let src = "split[\"a,b\";`ma";
+
+        let items =
+            builtin_named_arg_completion_items(&frontend, src, src.len()).expect("named args");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "`max:");
+        assert_eq!(
+            items[0].detail.as_deref(),
+            Some("n · maximum number of splits")
+        );
+        let Some(CompletionTextEdit::Edit(edit)) = &items[0].text_edit else {
+            panic!("expected text edit");
+        };
+        assert_eq!(edit.new_text, "`max:");
+        assert_eq!(edit.range.start.character, 12);
+        assert_eq!(edit.range.end.character, 15);
+    }
+
+    #[test]
     fn signature_docs_use_builtin_doc_metadata() {
         let topic = Builtins::doc_for_id(Builtins::MAP).expect("map doc");
         let rendered = doc::render_markdown(&topic, DocRenderTarget::Lsp);
         assert!(rendered.contains("map[xs;f;d?]"));
         assert!(rendered.contains("arity: `2 3`"));
+    }
+
+    #[test]
+    fn signature_parameters_use_longest_pattern_and_named_arg_metadata() {
+        let params = parse_params_from_usage(
+            Builtins::usage_from_id(Builtins::SPLIT).expect("split usage"),
+            Builtins::named_args_from_id(Builtins::SPLIT).expect("split named args"),
+        );
+        let labels = params
+            .iter()
+            .map(|param| match &param.label {
+                ParameterLabel::Simple(label) => label.as_str(),
+                ParameterLabel::LabelOffsets(_) => panic!("expected simple parameter label"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(labels, vec!["xs", "delim", "`max:n"]);
+        assert_eq!(
+            params[2].documentation,
+            Some(Documentation::String(
+                "maximum number of splits".to_string()
+            ))
+        );
     }
 
     #[test]

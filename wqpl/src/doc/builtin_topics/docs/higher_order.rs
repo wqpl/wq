@@ -64,7 +64,7 @@ const ZIPW_EXAMPLES: &[DocExample] = &[DocExample {
 
 const SPLITW_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Split where a predicate matches",
-    code: "splitw[\"a,b,c\";{x=@u\",\"};`m:1]",
+    code: "splitw[\"a,b,c\";{x=@u\",\"};`max:1]",
     expectation: ExampleExpectation::ResultContains("\"b,c\""),
 }];
 
@@ -155,7 +155,7 @@ pub(super) const ZIPW: BuiltinDoc = BuiltinDoc {
 pub(super) const SPLITW: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SplitW,
     summary: "Split a string or list where a predicate is true.",
-    details: "`splitw` calls `f` for each item and starts a new chunk when it returns true. Matching delimiter items are dropped while splits remain; the named `m` option limits the number of splits.",
+    details: "`splitw` calls `f` for each item and starts a new chunk when it returns true. Matching delimiter items are dropped while splits remain; the named `max` argument limits the number of splits.",
     examples: SPLITW_EXAMPLES,
     related: &["split", "words", "filter"],
 };

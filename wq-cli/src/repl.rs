@@ -848,13 +848,7 @@ fn sync_builtin_state(
     input.set_builtins_preset(preset);
     result_highlighter.set_builtins_preset(preset);
     let candidates = wq_completion::builtin_completion_candidates(session.builtins(), false);
-    let mut names = Vec::with_capacity(candidates.len());
-    let mut usages = Vec::with_capacity(candidates.len());
-    for candidate in candidates {
-        names.push(candidate.label);
-        usages.push(candidate.detail.unwrap_or_default());
-    }
-    input.set_builtin_hints(names, usages);
+    input.set_builtin_completion_candidates(candidates);
 }
 
 fn sync_global_hints(session: &Session, input: &RustylineInput) {

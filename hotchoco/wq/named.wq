@@ -30,9 +30,9 @@ add_base[`x:7]  // 107
 
 t:split["a,b,c";","];echo@f"{[?]t}"
 
-t:split["a b c d";`m:2];echo@f"{[?]t}"
+t:split["a b c d";`max:2];echo@f"{[?]t}"
 
-echo splitw[(1;2;3;4;5);{x>3};`m:1]
+echo splitw[(1;2;3;4;5);{x>3};`max:1]
 
 f8:{[a;b]a+b}
 f8[3;4]

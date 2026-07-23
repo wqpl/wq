@@ -1,6 +1,6 @@
 use crate::builtins::{
     BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_any_named,
-    check_arity_named,
+    check_registered_args, check_registered_named_args,
 };
 use crate::cas::diff::diff_cas_with_debug;
 use crate::cas::integrate::{definite_integrate_cas_with_debug, integrate_cas_with_debug};
@@ -207,8 +207,13 @@ fn required_limit_direction(value: &Value) -> WqResult<crate::cas::limit::LimitD
 pub(super) fn limit(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     // Inferred form: expr, point.
     // Explicit forms: expr, var1, point1.
-    // Additional args come in (var, point) pairs. Named `d is the final direction.
-    let direction = args.named("d").map(required_limit_direction).transpose()?;
+    // Additional args come in (var, point) pairs. The named argument `direction`
+    // supplies the final direction.
+    check_registered_named_args(&args, BuiltinEnum::Limit)?;
+    let direction = args
+        .named("direction")
+        .map(required_limit_direction)
+        .transpose()?;
     let debug = CasDebug::from_context(context);
     let argc = args.len();
     if argc < 2 {
@@ -246,7 +251,7 @@ pub(super) fn limit(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> Wq
 }
 
 pub(super) fn solve(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BuiltinEnum::Solve, [1, 2], &args, &["assuming", "domain"])?;
+    check_registered_args(BuiltinEnum::Solve, &args)?;
     let assumptions = args
         .named("assuming")
         .map(CasAssumptions::from_value)
@@ -293,7 +298,7 @@ fn parse_solve_domain(value: &Value) -> WqResult<SolveDomain> {
 }
 
 pub(super) fn solve_system(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BuiltinEnum::SolveSystem, [1, 2], &args, &["assuming"])?;
+    check_registered_args(BuiltinEnum::SolveSystem, &args)?;
     let assumptions = args
         .named("assuming")
         .map(CasAssumptions::from_value)

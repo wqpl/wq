@@ -49,11 +49,11 @@ fn cas_predicate_expr(
 fn limit_direction(named: &[CasNamedArg]) -> WqResult<Option<super::limit::LimitDirection>> {
     let mut direction = None;
     for (name, value) in named {
-        if name != "d" {
+        if name != "direction" {
             return Err(cas_err(format!("unknown named argument '{name}'")));
         }
         if direction.is_some() {
-            return Err(cas_err("duplicate named argument 'd'"));
+            return Err(cas_err("duplicate named argument 'direction'"));
         }
         direction = Some(
             parse_limit_direction(value)

@@ -1,15 +1,10 @@
-use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity_named};
+use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_registered_args};
 use crate::value::display::{TableFormatOptions, TableStyle, format_table_value_with_options};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};
 
 pub(crate) fn show_table(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(
-        BE::Showtable,
-        [1],
-        &args,
-        super::super::SHOWTABLE_NAMED_ARGS,
-    )?;
+    check_registered_args(BE::Showtable, &args)?;
     let opts = parse_table_options(&args)?;
     let formatted = format_table_value_with_options(&args[0], &opts).map_err(|msg| {
         WqError::new(WqErrorType::Domain)

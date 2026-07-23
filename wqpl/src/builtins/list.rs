@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use rayon::slice::ParallelSliceMut;
 
 use crate::builtins::{
-    BuiltinEnum as BE, BuiltinFnArgs, at_least_arity_error, check_arity, check_arity_named,
+    BuiltinEnum as BE, BuiltinFnArgs, at_least_arity_error, check_arity, check_registered_args,
     depth_requirement, type_mismatch,
 };
 use crate::value::bc::Bc2Stop;
@@ -487,7 +487,7 @@ fn parse_sort_by(args: &BuiltinFnArgs) -> WqResult<SortBy> {
 }
 
 pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BE::Sort, [1], &args, &["by"])?;
+    check_registered_args(BE::Sort, &args)?;
     let sort_by = parse_sort_by(&args)?;
     let v = args.into_iter().next().unwrap();
     if sort_by == SortBy::Key && !matches!(v, Value::Dict(_)) {
@@ -577,14 +577,14 @@ pub(crate) fn parse_maxsplit(val: Option<&Value>, src: BE) -> WqResult<Option<us
             WqError::new(WqErrorType::Domain)
                 .src(src)
                 .expected(requirement())
-                .at_named_arg("m")
+                .at_named_arg("max")
                 .got1(v)
         }),
         Some(Value::Float(f)) if f.is_infinite() && f.is_sign_positive() => Ok(None),
         Some(other) => Err(WqError::new(WqErrorType::Domain)
             .src(src)
             .expected(requirement())
-            .at_named_arg("m")
+            .at_named_arg("max")
             .got1(other)),
     }
 }
@@ -614,10 +614,10 @@ fn split_string_by_whitespace(s: &str, maxsplit: Option<usize>) -> Value {
 }
 
 pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
-    const MAXSPLIT_ARG: &str = "m";
+    const MAXSPLIT_ARG: &str = "max";
     const DELIM_ARG: usize = 1;
 
-    check_arity_named(BE::Split, [1, 2], &args, &[MAXSPLIT_ARG])?;
+    check_registered_args(BE::Split, &args)?;
     let data = &args[0];
     let delim = args.get_pos(DELIM_ARG);
     let maxsplit = parse_maxsplit(args.named(MAXSPLIT_ARG), BE::Split)?;
@@ -1070,7 +1070,7 @@ mod tests {
         assert_eq!(
             split(BuiltinFnArgs::with_named(
                 smallvec!["a b c".into_wq_value()],
-                vec![(Arc::from("m"), Value::Int(1))],
+                vec![(Arc::from("max"), Value::Int(1))],
             ))
             .unwrap(),
             Value::List(Arc::new(vec!["a".into_wq_value(), "b c".into_wq_value()]))
@@ -1079,7 +1079,7 @@ mod tests {
         assert_eq!(
             split(BuiltinFnArgs::with_named(
                 smallvec!["a,b,c".into_wq_value(), ",".into_wq_value()],
-                vec![(Arc::from("m"), Value::Int(1)),],
+                vec![(Arc::from("max"), Value::Int(1)),],
             ))
             .unwrap(),
             Value::List(Arc::new(vec!["a".into_wq_value(), "b,c".into_wq_value()]))
@@ -1088,7 +1088,7 @@ mod tests {
         assert_eq!(
             split(BuiltinFnArgs::with_named(
                 smallvec![Value::IntList(Arc::new(vec![1, 2, 3, 2, 4])), Value::Int(2)],
-                vec![(Arc::from("m"), Value::Int(1)),],
+                vec![(Arc::from("max"), Value::Int(1)),],
             ))
             .unwrap(),
             Value::List(Arc::new(vec![
@@ -1103,7 +1103,7 @@ mod tests {
                     Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3),])),
                     Value::Int(2)
                 ],
-                vec![(Arc::from("m"), Value::Int(0)),],
+                vec![(Arc::from("max"), Value::Int(0)),],
             ),)
             .unwrap(),
             Value::List(Arc::new(vec![Value::List(Arc::new(vec![

@@ -843,7 +843,7 @@ fn format_expr_with_aliases(value: &Value, parent_prec: u8, aliases: &AlgebraicA
                 LimitDirection::Right => "+",
                 LimitDirection::Left => "-",
             };
-            rendered.push_str(&format!(";`d:{tag}"));
+            rendered.push_str(&format!(";`direction:{tag}"));
         }
         rendered.push(']');
         return rendered;

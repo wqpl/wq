@@ -8,20 +8,11 @@ use std::sync::Arc;
 use num_traits::ToPrimitive as _;
 
 use crate::builtins::{
-    BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
+    BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_registered_args, type_mismatch,
 };
 use crate::value::stream::StreamHandle;
 use crate::value::{IntoWqValue, Value, WqResult, expected_bytes1, expected_string1};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
-
-const OPEN_FLAGS: &[&str] = &[
-    "read",
-    "write",
-    "append",
-    "truncate",
-    "create",
-    "create_new",
-];
 
 #[derive(Clone, Copy, Debug, Default)]
 struct OpenFlags {
@@ -52,7 +43,7 @@ impl OpenFlags {
 }
 
 pub(super) fn open(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BE::Open, [1], &args, OPEN_FLAGS)?;
+    check_registered_args(BE::Open, &args)?;
     let path = args[0]
         .try_to_rust_string()
         .ok_or_else(|| expected_string1(&args[0]).src(BE::Open).at_arg(0))?;

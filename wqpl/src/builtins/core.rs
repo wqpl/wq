@@ -19,8 +19,8 @@ use num_traits::ToPrimitive;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::builtins::at_least_arity_error;
 use crate::builtins::{
-    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_named, check_named_args,
-    type_mismatch,
+    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_registered_args,
+    check_registered_named_args, type_mismatch,
 };
 use crate::session::stdio::{WqInputPoll, WqIoError};
 use crate::value::{Excerpt, IntoWqValue, Value, WqResult, expected_string1, into_wq_string};
@@ -49,7 +49,7 @@ pub(super) fn print(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
 }
 
 pub(super) fn echo(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_named_args(&args, BuiltinEnum::Echo, super::ECHO_NAMED_ARGS)?;
+    check_registered_args(BuiltinEnum::Echo, &args)?;
 
     if args.is_empty() {
         vm.write_stdout_line("")
@@ -333,7 +333,7 @@ fn assertion_message(
 }
 
 pub(super) fn assert_condition(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BuiltinEnum::Assert, [1, 2], &args, super::ASSERT_NAMED_ARGS)?;
+    check_registered_args(BuiltinEnum::Assert, &args)?;
     let condition = match args[0] {
         Value::Bool(condition) => condition,
         ref value => {
@@ -363,12 +363,7 @@ pub(super) fn assert_condition(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn assert_equal(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(
-        BuiltinEnum::AssertEq,
-        [2, 3],
-        &args,
-        super::ASSERT_NAMED_ARGS,
-    )?;
+    check_registered_args(BuiltinEnum::AssertEq, &args)?;
     let message = assertion_message(&args, 2, BuiltinEnum::AssertEq, "values are not equal")?;
     let actual = &args[0];
     let expected = &args[1];
@@ -473,7 +468,7 @@ struct ExecOptions {
 #[cfg(not(target_arch = "wasm32"))]
 fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
     const SRC: BuiltinEnum = BuiltinEnum::Exec;
-    check_named_args(args, SRC, super::EXEC_NAMED_ARGS)?;
+    check_registered_named_args(args, SRC)?;
     let mut opts = ExecOptions::default();
 
     if let Some(v) = args.named("stdin") {

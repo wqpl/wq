@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::builtins::Builtins;
+use crate::builtins::{BuiltinNamedArg, Builtins};
 use crate::doc::DocTopic;
 use crate::frontend::Frontend;
 use crate::highlight::cursor_context_at;
@@ -36,6 +36,7 @@ pub struct CompletionCandidate {
     pub kind: CompletionKind,
     pub detail: Option<String>,
     pub documentation: Option<DocTopic>,
+    pub named_args: Vec<BuiltinNamedArg>,
 }
 
 impl CompletionCandidate {
@@ -45,6 +46,7 @@ impl CompletionCandidate {
             kind,
             detail: None,
             documentation: None,
+            named_args: Vec::new(),
         }
     }
 
@@ -55,6 +57,11 @@ impl CompletionCandidate {
 
     pub fn with_documentation(mut self, documentation: DocTopic) -> Self {
         self.documentation = Some(documentation);
+        self
+    }
+
+    pub fn with_named_args(mut self, named_args: &[BuiltinNamedArg]) -> Self {
+        self.named_args.extend_from_slice(named_args);
         self
     }
 }
@@ -107,6 +114,9 @@ pub fn builtin_completion_candidates(
             && let Some(usage) = Builtins::usage_from_id(id)
         {
             candidate = candidate.with_detail(usage);
+            if let Some(named_args) = Builtins::named_args_from_id(id) {
+                candidate = candidate.with_named_args(named_args);
+            }
         }
         if let Some(topic) = builtins.doc_for_name(&name) {
             candidate = candidate.with_documentation(topic);
@@ -115,6 +125,134 @@ pub fn builtin_completion_candidates(
     }
     candidates.sort_by(|a, b| a.label.cmp(&b.label));
     candidates
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltinNamedArgCompletionContext {
+    pub builtin_name: String,
+    pub prefix: String,
+    pub replace_start: usize,
+    pub used_names: Vec<String>,
+}
+
+pub fn builtin_named_arg_completion_context(
+    frontend: &Frontend,
+    content: &str,
+    byte_offset: usize,
+) -> Option<BuiltinNamedArgCompletionContext> {
+    let byte_offset = byte_offset.min(content.len());
+    if !content.is_char_boundary(byte_offset) {
+        return None;
+    }
+
+    let tokens = frontend.tokenize_recovery(content);
+    let (current_index, current) = tokens.iter().enumerate().find(|(_, token)| {
+        token.byte_start < byte_offset
+            && byte_offset <= token.byte_end
+            && matches!(&token.token_type, TokenType::Tag(_) | TokenType::Backtick)
+    })?;
+    let prefix_start = current.byte_start.checked_add(1)?;
+    let prefix = content.get(prefix_start..byte_offset)?;
+    if !prefix.chars().all(is_word_char) {
+        return None;
+    }
+
+    let mut delimiters = Vec::new();
+    for (index, token) in tokens[..current_index].iter().enumerate() {
+        match &token.token_type {
+            TokenType::LeftBracket => {
+                delimiters.push((CompletionDelimiter::Bracket, index));
+            }
+            TokenType::LeftParen => delimiters.push((CompletionDelimiter::Paren, index)),
+            TokenType::LeftBrace => delimiters.push((CompletionDelimiter::Brace, index)),
+            TokenType::RightBracket => {
+                pop_matching(&mut delimiters, CompletionDelimiter::Bracket);
+            }
+            TokenType::RightParen => {
+                pop_matching(&mut delimiters, CompletionDelimiter::Paren);
+            }
+            TokenType::RightBrace => {
+                pop_matching(&mut delimiters, CompletionDelimiter::Brace);
+            }
+            _ => {}
+        }
+    }
+    let (delimiter, bracket_index) = delimiters.last()?;
+    if *delimiter != CompletionDelimiter::Bracket {
+        return None;
+    }
+
+    let callee = tokens[..*bracket_index]
+        .iter()
+        .rev()
+        .find(|token| significant_token(token))
+        .and_then(|token| match &token.token_type {
+            TokenType::Identifier(name) => Some(name.as_str()),
+            _ => None,
+        })?;
+    if !frontend.builtins().is_enabled_name(callee) {
+        return None;
+    }
+
+    let mut nested = 0usize;
+    let mut last_top_level = None;
+    let mut used_names = Vec::new();
+    let call_tokens = &tokens[*bracket_index + 1..current_index];
+    for (index, token) in call_tokens.iter().enumerate() {
+        match &token.token_type {
+            TokenType::LeftBracket | TokenType::LeftParen | TokenType::LeftBrace => {
+                nested += 1;
+            }
+            TokenType::RightBracket | TokenType::RightParen | TokenType::RightBrace => {
+                nested = nested.saturating_sub(1);
+            }
+            _ if nested == 0 && significant_token(token) => {
+                last_top_level = Some(&token.token_type);
+                if let TokenType::Tag(name) = &token.token_type
+                    && call_tokens[index + 1..]
+                        .iter()
+                        .find(|next| significant_token(next))
+                        .is_some_and(|next| matches!(&next.token_type, TokenType::Colon))
+                {
+                    used_names.push(name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    if last_top_level.is_some_and(|token| !matches!(token, TokenType::Semicolon)) {
+        return None;
+    }
+
+    Some(BuiltinNamedArgCompletionContext {
+        builtin_name: callee.to_string(),
+        prefix: prefix.to_string(),
+        replace_start: current.byte_start,
+        used_names,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompletionDelimiter {
+    Bracket,
+    Paren,
+    Brace,
+}
+
+fn pop_matching(delimiters: &mut Vec<(CompletionDelimiter, usize)>, expected: CompletionDelimiter) {
+    if delimiters
+        .last()
+        .is_some_and(|(delimiter, _)| *delimiter == expected)
+    {
+        delimiters.pop();
+    }
+}
+
+fn significant_token(token: &Token) -> bool {
+    !matches!(
+        &token.token_type,
+        TokenType::Comment(_) | TokenType::Newline | TokenType::Eof
+    )
 }
 
 pub fn should_suppress_expression_completion(
@@ -307,5 +445,35 @@ mod tests {
         let pos = src.find('z').expect("invalid string contains z") + 1;
 
         assert!(should_suppress_expression_completion(&frontend, src, pos));
+    }
+
+    #[test]
+    fn named_arg_context_tracks_nested_builtin_calls_and_used_names() {
+        let frontend = Frontend::default();
+        let src = "echo[split[\"a,b\";\",\";`ma];`sep:\",\"]";
+        let pos = src.find("`ma").expect("partial named argument") + 3;
+        let context = builtin_named_arg_completion_context(&frontend, src, pos)
+            .expect("split named argument context");
+
+        assert_eq!(context.builtin_name, "split");
+        assert_eq!(context.prefix, "ma");
+        assert_eq!(&src[context.replace_start..pos], "`ma");
+        assert!(context.used_names.is_empty());
+
+        let src = "split[\"a,b\";`max:1;`ma]";
+        let pos = src.rfind("`ma").expect("second named argument") + 3;
+        let context = builtin_named_arg_completion_context(&frontend, src, pos)
+            .expect("split duplicate named argument context");
+        assert_eq!(context.used_names, vec!["max"]);
+    }
+
+    #[test]
+    fn named_arg_context_ignores_non_call_tags_and_strings() {
+        let frontend = Frontend::default();
+        assert!(builtin_named_arg_completion_context(&frontend, "(`ma:1)", 4).is_none());
+
+        let src = "split[\"`ma\"]";
+        let pos = src.find("ma").expect("string contents") + 2;
+        assert!(builtin_named_arg_completion_context(&frontend, src, pos).is_none());
     }
 }

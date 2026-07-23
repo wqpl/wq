@@ -9,9 +9,9 @@ echo simplify[@s 0^x]
 
 echo limit[@s (-x^2)/(x+1); @s x; @s inf]
 echo limit[@s (-x^2)/(x+1); @s x; @s -inf]
-echo limit[@s y/x; @s x; 0; `d:@s +]
-echo limit[@s (-y)/x; @s x; 0; `d:@s +]
-echo limit[@s ln[abs[x]]; @s x; 0; `d:@s +]
+echo limit[@s y/x; @s x; 0; `direction:@s +]
+echo limit[@s (-y)/x; @s x; 0; `direction:@s +]
+echo limit[@s ln[abs[x]]; @s x; 0; `direction:@s +]
 
 echo factor @s 2*x^2+2*x
 
