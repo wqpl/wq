@@ -18,7 +18,7 @@ use windows_sys::core::BOOL;
 
 use super::{Event, RawMode, RawReader, Renderer, Term, width};
 use crate::config::{Behavior, BellStyle, ColorMode, Config};
-use crate::highlight::Highlighter;
+use crate::highlight::{Highlighter, InputAreaStyle};
 use crate::keys::{KeyCode as K, KeyEvent, Modifiers as M};
 use crate::layout::{GraphemeClusterMode, Layout, Position, Unit};
 use crate::line_buffer::LineBuffer;
@@ -369,6 +369,137 @@ impl ConsoleRenderer {
         col
     }
 
+    fn push_text(&mut self, text: &str, col: Unit, wrap: bool) -> Unit {
+        if wrap {
+            self.wrap_at_eol(text, col)
+        } else {
+            self.buffer.push_str(text);
+            col
+        }
+    }
+
+    fn push_input_area_prefix(&mut self, style: InputAreaStyle, mut col: Unit) -> Unit {
+        self.buffer.push_str(style.background);
+        for _ in 0..style.horizontal_padding {
+            col = self.wrap_at_eol(" ", col);
+        }
+        col
+    }
+
+    fn push_input_area_suffix(&mut self, style: InputAreaStyle) {
+        self.buffer.push_str("\x1b[K");
+        self.buffer.push_str(style.reset);
+    }
+
+    fn push_input_area_blank(&mut self, style: InputAreaStyle) {
+        self.buffer.push_str(style.background);
+        self.buffer.push_str("\x1b[K");
+        self.buffer.push_str(style.reset);
+    }
+
+    fn push_input_area_top_padding(&mut self, style: InputAreaStyle) {
+        for _ in 0..style.vertical_padding {
+            self.push_input_area_blank(style);
+            self.buffer.push('\n');
+        }
+    }
+
+    fn push_input_area_bottom_padding(&mut self, style: InputAreaStyle) {
+        for _ in 0..style.vertical_padding {
+            self.buffer.push('\n');
+            self.push_input_area_blank(style);
+        }
+    }
+
+    fn push_multiline(
+        &mut self,
+        text: &str,
+        continuation_prompt: Option<&str>,
+        input_area_style: Option<InputAreaStyle>,
+        mut col: Unit,
+        wrap: bool,
+    ) -> Unit {
+        let mut parts = text.split('\n');
+        if let Some(first) = parts.next() {
+            col = self.push_text(first, col, wrap);
+        }
+        for part in parts {
+            if let Some(style) = input_area_style {
+                self.push_input_area_suffix(style);
+            }
+            self.buffer.push('\n');
+            col = 0;
+            if let Some(style) = input_area_style {
+                col = self.push_input_area_prefix(style, col);
+            }
+            if let Some(continuation_prompt) = continuation_prompt {
+                col = self.push_text(continuation_prompt, col, wrap);
+            }
+            col = self.push_text(part, col, wrap);
+        }
+        col
+    }
+
+    fn prepare_refresh_line<P: Prompt + ?Sized>(
+        &mut self,
+        prompt: &P,
+        continuation_prompt: Option<&str>,
+        line: &LineBuffer,
+        hint: Option<&str>,
+        new_layout: &Layout,
+        highlighter: Option<&dyn Highlighter>,
+    ) -> (Position, Position) {
+        self.buffer.clear();
+
+        let default_prompt = new_layout.default_prompt;
+        let cursor = new_layout.cursor;
+        let end_pos = new_layout.display_end();
+        let input_area_style = highlighter.and_then(Highlighter::input_area_style);
+
+        if let Some(style) = input_area_style {
+            self.push_input_area_top_padding(style);
+        }
+        let mut col = input_area_style.map_or(0, |style| self.push_input_area_prefix(style, 0));
+
+        if let Some(highlighter) = highlighter {
+            col = self.wrap_at_eol(
+                &highlighter.highlight_prompt(prompt.styled(), default_prompt),
+                col,
+            );
+            col = self.push_multiline(
+                &highlighter.highlight(line, line.pos()),
+                continuation_prompt,
+                input_area_style,
+                col,
+                true,
+            );
+        } else if self.colors_enabled {
+            col = self.wrap_at_eol(prompt.styled(), col);
+            col = self.push_multiline(line, continuation_prompt, input_area_style, col, true);
+        } else {
+            self.buffer.push_str(prompt.raw());
+            col = self.push_multiline(line, continuation_prompt, input_area_style, col, false);
+        }
+
+        if let Some(hint) = hint {
+            let highlighted = highlighter.map(|highlighter| highlighter.highlight_hint(hint));
+            let hint = highlighted.as_deref().unwrap_or(hint);
+            let _ = self.push_multiline(
+                hint,
+                None,
+                input_area_style,
+                col,
+                highlighter.is_some() || self.colors_enabled,
+            );
+        }
+        if let Some(style) = input_area_style {
+            self.push_input_area_suffix(style);
+            self.push_input_area_bottom_padding(style);
+        }
+
+        (cursor, end_pos)
+    }
+
     // position at the start of the prompt, clear to end of previous input
     fn clear_old_rows(
         &mut self,
@@ -376,7 +507,7 @@ impl ConsoleRenderer {
         layout: &Layout,
     ) -> Result<()> {
         let current_row = layout.cursor.row;
-        let old_rows = layout.end.row;
+        let old_rows = layout.display_end().row;
         let mut coord = info.dwCursorPosition;
         coord.X = 0;
         coord.Y -= current_row as i16;
@@ -436,49 +567,21 @@ impl Renderer for ConsoleRenderer {
     fn refresh_line<P: Prompt + ?Sized>(
         &mut self,
         prompt: &P,
-        _continuation_prompt: Option<&str>,
+        continuation_prompt: Option<&str>,
         line: &LineBuffer,
         hint: Option<&str>,
         old_layout: Option<&Layout>,
         new_layout: &Layout,
         highlighter: Option<&dyn Highlighter>,
     ) -> Result<()> {
-        let default_prompt = new_layout.default_prompt;
-        let cursor = new_layout.cursor;
-        let end_pos = new_layout.end;
-
-        self.buffer.clear();
-        let mut col = 0;
-        if let Some(highlighter) = highlighter {
-            // TODO handle ansi escape code (SetConsoleTextAttribute)
-            // append the prompt
-            col = self.wrap_at_eol(
-                &highlighter.highlight_prompt(prompt.styled(), default_prompt),
-                col,
-            );
-            // append the input line
-            col = self.wrap_at_eol(&highlighter.highlight(line, line.pos()), col);
-        } else if self.colors_enabled {
-            // append the prompt
-            col = self.wrap_at_eol(prompt.styled(), col);
-            // append the input line
-            col = self.wrap_at_eol(line, col);
-        } else {
-            // append the prompt
-            self.buffer.push_str(prompt.raw());
-            // append the input line
-            self.buffer.push_str(line);
-        }
-        // append hint
-        if let Some(hint) = hint {
-            if let Some(highlighter) = highlighter {
-                self.wrap_at_eol(&highlighter.highlight_hint(hint), col);
-            } else if self.colors_enabled {
-                self.wrap_at_eol(hint, col);
-            } else {
-                self.buffer.push_str(hint);
-            }
-        }
+        let (cursor, end_pos) = self.prepare_refresh_line(
+            prompt,
+            continuation_prompt,
+            line,
+            hint,
+            new_layout,
+            highlighter,
+        );
         let info = self.get_console_screen_buffer_info()?;
         // just to avoid flickering
         let mut guard = self.set_cursor_visibility(false)?;
@@ -595,12 +698,12 @@ impl Renderer for ConsoleRenderer {
         cursor.X = 0;
         cursor.Y += 1;
         let res = self.set_console_cursor_position(cursor, info.dwSize);
-        if let Err(error::ReadlineError::Io(ref e)) = res {
-            if e.raw_os_error() == Some(foundation::ERROR_INVALID_PARAMETER as i32) {
-                warn!(target: "rustyline", "invalid cursor position: ({:?}, {:?}) in ({:?}, {:?})", cursor.X, cursor.Y, info.dwSize.X, info.dwSize.Y);
-                write_all(self.conout, &[10; 1])?;
-                return Ok(());
-            }
+        if let Err(error::ReadlineError::Io(ref e)) = res
+            && e.raw_os_error() == Some(foundation::ERROR_INVALID_PARAMETER as i32)
+        {
+            warn!(target: "rustyline", "invalid cursor position: ({:?}, {:?}) in ({:?}, {:?})", cursor.X, cursor.Y, info.dwSize.X, info.dwSize.Y);
+            write_all(self.conout, &[10; 1])?;
+            return Ok(());
         }
         res.map(|_| ())
     }
@@ -948,7 +1051,41 @@ impl Drop for Handle {
 
 #[cfg(test)]
 mod test {
-    use super::Console;
+    use super::{Console, ConsoleRenderer};
+    use crate::config::BellStyle;
+    use crate::highlight::{Highlighter, InputAreaStyle};
+    use crate::layout::{GraphemeClusterMode, Position};
+    use crate::line_buffer::LineBuffer;
+    use crate::tty::Renderer as _;
+
+    struct PlainHighlighter;
+
+    impl Highlighter for PlainHighlighter {}
+
+    struct TestInputArea;
+
+    impl Highlighter for TestInputArea {
+        fn input_area_style(&self) -> Option<InputAreaStyle> {
+            Some(InputAreaStyle {
+                background: "\x1b[48;5;236m",
+                reset: "\x1b[0m",
+                horizontal_padding: 1,
+                vertical_padding: 1,
+            })
+        }
+    }
+
+    fn renderer(colors_enabled: bool) -> ConsoleRenderer {
+        ConsoleRenderer {
+            conout: std::ptr::null_mut(),
+            cols: 80,
+            buffer: String::with_capacity(1024),
+            utf16: Vec::with_capacity(1024),
+            colors_enabled,
+            grapheme_cluster_mode: GraphemeClusterMode::Unicode,
+            bell_style: BellStyle::None,
+        }
+    }
 
     #[test]
     fn test_send() {
@@ -960,5 +1097,60 @@ mod test {
     fn test_sync() {
         fn assert_sync<T: Sync>() {}
         assert_sync::<Console>();
+    }
+
+    #[test]
+    fn continuation_prompt_is_rendered_on_multiline_input() {
+        let mut out = renderer(true);
+        let prompt = "> ";
+        let continuation_prompt = ".. ";
+        let line = LineBuffer::init("one\ntwo", "one\ntwo".len());
+        let prompt_size = out.calculate_position(prompt, Position::default(), Position::default());
+        let continuation_size = out.calculate_position(
+            continuation_prompt,
+            Position::default(),
+            Position::default(),
+        );
+        let layout = out.compute_layout(prompt_size, Some(continuation_size), true, &line, None);
+
+        let (cursor, end) = out.prepare_refresh_line(
+            prompt,
+            Some(continuation_prompt),
+            &line,
+            None,
+            &layout,
+            Some(&PlainHighlighter),
+        );
+
+        assert_eq!("> one\n.. two", out.buffer);
+        assert_eq!(Position { col: 6, row: 1 }, cursor);
+        assert_eq!(cursor, end);
+    }
+
+    #[test]
+    fn input_area_style_adds_padding_and_background() {
+        let mut out = renderer(true);
+        let prompt = "> ";
+        let style = TestInputArea
+            .input_area_style()
+            .expect("test highlighter has input area style");
+        let mut prompt_size =
+            out.calculate_position(prompt, Position::default(), Position::default());
+        prompt_size.row += style.vertical_padding;
+        prompt_size.col += style.horizontal_padding;
+        let line = LineBuffer::init("abc", 3);
+        let mut layout = out.compute_layout(prompt_size, None, true, &line, None);
+        layout.input_area_top_padding = style.vertical_padding;
+        layout.input_area_bottom_padding = style.vertical_padding;
+
+        let (cursor, end) =
+            out.prepare_refresh_line(prompt, None, &line, None, &layout, Some(&TestInputArea));
+
+        assert_eq!(
+            "\x1b[48;5;236m\x1b[K\x1b[0m\n\x1b[48;5;236m > abc\x1b[K\x1b[0m\n\x1b[48;5;236m\x1b[K\x1b[0m",
+            out.buffer
+        );
+        assert_eq!(Position { col: 6, row: 1 }, cursor);
+        assert_eq!(Position { col: 0, row: 2 }, end);
     }
 }

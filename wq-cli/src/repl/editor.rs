@@ -806,27 +806,19 @@ impl Validator for WqReplHighlighter {
 
 impl RLHighlighter for WqReplHighlighter {
     fn input_area_style(&self) -> Option<InputAreaStyle> {
-        if cfg!(unix) {
-            Some(InputAreaStyle {
-                background: REPL_INPUT_BG,
-                reset: REPL_INPUT_RESET,
-                horizontal_padding: 1,
-                vertical_padding: 1,
-            })
-        } else {
-            None
-        }
+        Some(InputAreaStyle {
+            background: REPL_INPUT_BG,
+            reset: REPL_INPUT_RESET,
+            horizontal_padding: 1,
+            vertical_padding: 1,
+        })
     }
 
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         if !self.enabled() {
             return std::borrow::Cow::Borrowed(line);
         }
-        if cfg!(unix) {
-            Cow::Owned(self.colorize_input(line))
-        } else {
-            Cow::Owned(self.highlight_text(line))
-        }
+        Cow::Owned(self.colorize_input(line))
     }
 
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
@@ -834,22 +826,14 @@ impl RLHighlighter for WqReplHighlighter {
         prompt: &'p str,
         _default: bool,
     ) -> Cow<'b, str> {
-        if cfg!(unix) {
-            Cow::Owned(prompt.replace(RESET, REPL_INPUT_TOKEN_RESET))
-        } else {
-            Cow::Borrowed(prompt)
-        }
+        Cow::Owned(prompt.replace(RESET, REPL_INPUT_TOKEN_RESET))
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        if cfg!(unix) {
-            if Self::is_completion_menu_hint(hint) {
-                Cow::Owned(Self::colorize_completion_menu_hint(hint))
-            } else {
-                Cow::Owned(format!("{HINT_DIM}{hint}{HINT_RESET}"))
-            }
+        if Self::is_completion_menu_hint(hint) {
+            Cow::Owned(Self::colorize_completion_menu_hint(hint))
         } else {
-            Cow::Borrowed(hint)
+            Cow::Owned(format!("{HINT_DIM}{hint}{HINT_RESET}"))
         }
     }
 
@@ -892,6 +876,21 @@ mod tests {
     }
 
     #[test]
+    fn input_area_style_is_platform_independent() {
+        let h = WqReplHighlighter::new();
+
+        assert_eq!(
+            Some(InputAreaStyle {
+                background: REPL_INPUT_BG,
+                reset: REPL_INPUT_RESET,
+                horizontal_padding: 1,
+                vertical_padding: 1,
+            }),
+            h.input_area_style()
+        );
+    }
+
+    #[test]
     fn highlight_text_marks_ref_capture_deeper_blue() {
         let h = WqReplHighlighter::new();
         let src = "a:1; f:'{[] a}; f[]";
@@ -917,18 +916,14 @@ mod tests {
         let src = "\n> * alpha    first item\n  * beta     second item\n  1-2 of 2  selected 1/2  builtin  alpha";
         let out = h.highlight_hint(src);
 
-        if cfg!(unix) {
-            assert!(out.contains(MENU_MARKER_SELECTED));
-            assert!(out.contains(MENU_FOOTER));
-        }
+        assert!(out.contains(MENU_MARKER_SELECTED));
+        assert!(out.contains(MENU_FOOTER));
         assert_eq!(strip_ansi(&out), src);
 
         let selected_line = "> * alpha    first item";
         let selected_out = h.highlight_hint(selected_line);
 
-        if cfg!(unix) {
-            assert!(selected_out.contains(MENU_MARKER_SELECTED));
-        }
+        assert!(selected_out.contains(MENU_MARKER_SELECTED));
         assert_eq!(strip_ansi(&selected_out), selected_line);
     }
 

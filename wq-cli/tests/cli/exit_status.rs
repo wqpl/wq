@@ -1,7 +1,10 @@
+#[cfg(unix)]
 use std::process::Command;
 
 use crate::strip_ansi;
-use crate::support::{ResultContext as _, TestResult, test_error, wq_command};
+#[cfg(unix)]
+use crate::support::test_error;
+use crate::support::{ResultContext as _, TestResult, wq_command};
 
 #[test]
 fn exec_success_exits_zero() -> TestResult {

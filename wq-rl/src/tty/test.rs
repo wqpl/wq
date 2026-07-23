@@ -94,6 +94,7 @@ impl RawReader for IntoIter<KeyEvent> {
 pub struct Sink {
     pub output: String,
     pub hints: Vec<Option<String>>,
+    pub refresh_layouts: Vec<(Option<Position>, Position)>,
     pub colors_enabled: bool,
     pub multiline_positions: bool,
 }
@@ -111,11 +112,15 @@ impl Renderer for Sink {
         _continuation_prompt: Option<&str>,
         _line: &LineBuffer,
         hint: Option<&str>,
-        _old_layout: Option<&Layout>,
-        _new_layout: &Layout,
+        old_layout: Option<&Layout>,
+        new_layout: &Layout,
         _highlighter: Option<&dyn Highlighter>,
     ) -> Result<()> {
         self.hints.push(hint.map(str::to_owned));
+        self.refresh_layouts.push((
+            old_layout.map(Layout::display_end),
+            new_layout.display_end(),
+        ));
         if let Some(hint) = hint {
             self.output.push_str(hint);
         }

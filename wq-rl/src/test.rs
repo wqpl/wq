@@ -190,6 +190,54 @@ fn list_completion_aligns_and_truncates_descriptions() {
     assert!(!out.output.contains("and more tail."));
 }
 
+fn complete_large_list(answer: KeyEvent) -> Sink {
+    let mut out = Sink::default();
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(DescribedCompleter);
+    let mut s = init_state(&mut out, "a", 1, helper.as_ref(), &history);
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .completion_show_all_if_ambiguous(true)
+        .completion_prompt_limit(1)
+        .build();
+    let bindings = Bindings::new();
+    let mut input_state = InputState::new(&config, &bindings);
+    let mut rdr = vec![answer].into_iter();
+
+    super::complete_line(&mut rdr, &mut s, &mut input_state, &config).expect("complete");
+    drop(s);
+    out
+}
+
+#[test]
+fn accepting_large_completion_list_keeps_saved_layout() {
+    let out = complete_large_list(E(K::Char('y'), M::NONE));
+
+    assert_eq!(
+        (None, crate::layout::Position { col: 3, row: 0 }),
+        out.refresh_layouts
+            .last()
+            .copied()
+            .expect("completion list repaints the input")
+    );
+}
+
+#[test]
+fn declining_large_completion_list_clears_confirmation_prompt() {
+    let out = complete_large_list(E(K::Char('n'), M::NONE));
+
+    assert_eq!(
+        (
+            Some(crate::layout::Position { col: 3, row: 1 }),
+            crate::layout::Position { col: 3, row: 0 }
+        ),
+        out.refresh_layouts
+            .last()
+            .copied()
+            .expect("declining completion list refreshes the input")
+    );
+}
+
 #[test]
 fn menu_completion_is_bounded_without_prompt_or_pager() {
     let mut out = Sink::default();
