@@ -1,14 +1,11 @@
 use std::process::Command;
 
-use anyhow::{Context as _, Result};
-use assert_cmd::prelude::*;
-
 use crate::strip_ansi;
+use crate::support::{ResultContext as _, TestResult, test_error, wq_command};
 
 #[test]
-fn exec_success_exits_zero() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn exec_success_exits_zero() -> TestResult {
+    let output = wq_command()
         .args(["exec", "1+1", "-p"])
         .output()
         .context("run successful wq exec")?;
@@ -26,9 +23,8 @@ fn exec_success_exits_zero() -> Result<()> {
 }
 
 #[test]
-fn exec_runtime_error_exits_one() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn exec_runtime_error_exits_one() -> TestResult {
+    let output = wq_command()
         .args(["exec", "raise \"boom\""])
         .output()
         .context("run failing wq exec")?;
@@ -46,9 +42,8 @@ fn exec_runtime_error_exits_one() -> Result<()> {
 }
 
 #[test]
-fn exec_parse_error_exits_one() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn exec_parse_error_exits_one() -> TestResult {
+    let output = wq_command()
         .args(["exec", "(1;2;3"])
         .output()
         .context("run parse-error wq exec")?;
@@ -69,14 +64,13 @@ fn exec_parse_error_exits_one() -> Result<()> {
 }
 
 #[test]
-fn script_runtime_error_exits_one() -> Result<()> {
+fn script_runtime_error_exits_one() -> TestResult {
     let dir = std::env::temp_dir().join(format!("wq-exit-status-{}", std::process::id()));
     std::fs::create_dir_all(&dir).context("create temp script dir")?;
     let script = dir.join("bad.wq");
     std::fs::write(&script, "raise \"script boom\"\n").context("write failing script")?;
 
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+    let output = wq_command()
         .arg(&script)
         .output()
         .context("run failing wq script")?;
@@ -96,7 +90,7 @@ fn script_runtime_error_exits_one() -> Result<()> {
 #[cfg(unix)]
 fn interrupt_after_ready(
     command: &mut Command,
-) -> Result<(std::process::ExitStatus, String, String)> {
+) -> TestResult<(std::process::ExitStatus, String, String)> {
     use std::io::{BufRead as _, BufReader, Read as _};
     use std::process::Stdio;
     use std::sync::mpsc;
@@ -144,15 +138,11 @@ fn interrupt_after_ready(
     if let Some(reason) = readiness_error {
         let _ = child.kill();
         let _ = child.wait();
-        let stdout_text = stdout_thread
-            .join()
-            .map_err(|_| anyhow::anyhow!("stdout reader panicked"))??;
-        let stderr_text = stderr_thread
-            .join()
-            .map_err(|_| anyhow::anyhow!("stderr reader panicked"))??;
-        anyhow::bail!(
+        let stdout_text = join_reader(stdout_thread, "stdout")?;
+        let stderr_text = join_reader(stderr_thread, "stderr")?;
+        return Err(test_error(format!(
             "wq process did not report readiness ({reason}):\n{stdout_text}{stderr_text}"
-        );
+        )));
     }
 
     let signal_status = Command::new("kill")
@@ -169,30 +159,34 @@ fn interrupt_after_ready(
         if Instant::now() >= exit_deadline {
             child.kill().context("stop timed-out process")?;
             let _ = child.wait();
-            let stdout_text = stdout_thread
-                .join()
-                .map_err(|_| anyhow::anyhow!("stdout reader panicked"))??;
-            let stderr_text = stderr_thread
-                .join()
-                .map_err(|_| anyhow::anyhow!("stderr reader panicked"))??;
-            anyhow::bail!("interrupted wq process did not exit:\n{stdout_text}{stderr_text}");
+            let stdout_text = join_reader(stdout_thread, "stdout")?;
+            let stderr_text = join_reader(stderr_thread, "stderr")?;
+            return Err(test_error(format!(
+                "interrupted wq process did not exit:\n{stdout_text}{stderr_text}"
+            )));
         }
         std::thread::sleep(Duration::from_millis(20));
     };
 
-    let stdout_text = stdout_thread
-        .join()
-        .map_err(|_| anyhow::anyhow!("stdout reader panicked"))??;
-    let stderr_text = stderr_thread
-        .join()
-        .map_err(|_| anyhow::anyhow!("stderr reader panicked"))??;
+    let stdout_text = join_reader(stdout_thread, "stdout")?;
+    let stderr_text = join_reader(stderr_thread, "stderr")?;
     Ok((status, stdout_text, stderr_text))
 }
 
 #[cfg(unix)]
+fn join_reader(
+    reader: std::thread::JoinHandle<std::io::Result<String>>,
+    stream: &str,
+) -> TestResult<String> {
+    Ok(reader
+        .join()
+        .map_err(|_| test_error(format!("{stream} reader panicked")))??)
+}
+
+#[cfg(unix)]
 #[test]
-fn interrupted_exec_exits_130_without_a_runtime_error() -> Result<()> {
-    let mut command = Command::cargo_bin("wq").context("cargo_bin('wq') failed")?;
+fn interrupted_exec_exits_130_without_a_runtime_error() -> TestResult {
+    let mut command = wq_command();
     command.args(["exec", "echo \"started\";W[T;0]"]);
     let (status, stdout, stderr) = interrupt_after_ready(&mut command)?;
 
@@ -206,8 +200,8 @@ fn interrupted_exec_exits_130_without_a_runtime_error() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
-fn interrupted_exec_builtin_terminates_its_child_and_exits_130() -> Result<()> {
-    let mut command = Command::cargo_bin("wq").context("cargo_bin('wq') failed")?;
+fn interrupted_exec_builtin_terminates_its_child_and_exits_130() -> TestResult {
+    let mut command = wq_command();
     command.args(["exec", "echo \"started\";exec[\"sleep\";\"5\"]"]);
     let (status, stdout, stderr) = interrupt_after_ready(&mut command)?;
 
@@ -221,11 +215,11 @@ fn interrupted_exec_builtin_terminates_its_child_and_exits_130() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
-fn interrupted_script_exits_130_without_a_runtime_error() -> Result<()> {
+fn interrupted_script_exits_130_without_a_runtime_error() -> TestResult {
     let script =
         std::env::temp_dir().join(format!("wq-interrupted-script-{}.wq", std::process::id(),));
     std::fs::write(&script, "echo \"started\"\nW[T;0]\n").context("write interruptible script")?;
-    let mut command = Command::cargo_bin("wq").context("cargo_bin('wq') failed")?;
+    let mut command = wq_command();
     command.arg(&script);
     let (status, stdout, stderr) = interrupt_after_ready(&mut command)?;
 

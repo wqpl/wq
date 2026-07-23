@@ -1,19 +1,17 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStdin, ExitStatus, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
-use assert_cmd::prelude::*;
+use crate::support::{ResultContext as _, TestResult, test_error, wq_command};
 
-type DapMessageReceiver = Receiver<Result<String, String>>;
+type DapMessageReceiver = Receiver<std::result::Result<String, String>>;
 type LaunchedDap = (ChildGuard, ChildStdin, DapMessageReceiver);
 
 #[test]
-fn dap_initialize_handshake() -> Result<()> {
-    let mut child = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn dap_initialize_handshake() -> TestResult {
+    let mut child = wq_command()
         .arg("dap")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -70,11 +68,10 @@ fn dap_initialize_handshake() -> Result<()> {
 }
 
 #[test]
-fn dap_running_requests_and_disconnect_are_bounded() -> Result<()> {
+fn dap_running_requests_and_disconnect_are_bounded() -> TestResult {
     let script = std::env::temp_dir().join(format!("wq-dap-running-{}.wq", std::process::id()));
     std::fs::write(&script, "W[true;0]\n").context("write running DAP script")?;
-    let mut child = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+    let mut child = wq_command()
         .args(["dap", script.to_str().context("script path is utf8")?])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -147,7 +144,7 @@ fn dap_running_requests_and_disconnect_are_bounded() -> Result<()> {
 }
 
 #[test]
-fn dap_pending_breakpoint_resolves_in_a_later_script_region() -> Result<()> {
+fn dap_pending_breakpoint_resolves_in_a_later_script_region() -> TestResult {
     let script = TempScript::new("pending-breakpoint", "\\p\nvalue:1\n")?;
     let (mut child, mut stdin, reader) = spawn_launched_dap(script.path())?;
     let set_breakpoints = format!(
@@ -212,7 +209,7 @@ fn dap_pending_breakpoint_resolves_in_a_later_script_region() -> Result<()> {
 }
 
 #[test]
-fn dap_terminate_interrupts_a_running_debuggee() -> Result<()> {
+fn dap_terminate_interrupts_a_running_debuggee() -> TestResult {
     let script = TempScript::new("terminate", "W[true;0]\n")?;
     let (mut child, mut stdin, reader) = spawn_launched_dap(script.path())?;
     send_message(
@@ -257,7 +254,7 @@ fn dap_terminate_interrupts_a_running_debuggee() -> Result<()> {
 }
 
 #[test]
-fn dap_normal_completion_emits_exited_then_terminated() -> Result<()> {
+fn dap_normal_completion_emits_exited_then_terminated() -> TestResult {
     let script = TempScript::new("normal-exit", "1\n")?;
     let (mut child, mut stdin, reader) = spawn_launched_dap(script.path())?;
     send_message(
@@ -269,9 +266,8 @@ fn dap_normal_completion_emits_exited_then_terminated() -> Result<()> {
     disconnect_dap(&mut child, &mut stdin, &reader, 4)
 }
 
-fn spawn_launched_dap(script: &Path) -> Result<LaunchedDap> {
-    let child = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn spawn_launched_dap(script: &Path) -> TestResult<LaunchedDap> {
+    let child = wq_command()
         .args(["dap", script.to_str().context("script path is utf8")?])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -317,7 +313,7 @@ fn spawn_launched_dap(script: &Path) -> Result<LaunchedDap> {
     Ok((child, stdin, reader))
 }
 
-fn assert_exit_event_order(reader: &DapMessageReceiver) -> Result<()> {
+fn assert_exit_event_order(reader: &DapMessageReceiver) -> TestResult {
     let messages = collect_until(reader, Duration::from_secs(5), |messages| {
         messages
             .iter()
@@ -343,7 +339,7 @@ fn disconnect_dap(
     stdin: &mut ChildStdin,
     reader: &DapMessageReceiver,
     seq: usize,
-) -> Result<()> {
+) -> TestResult {
     send_message(
         stdin,
         &format!(r#"{{"seq":{seq},"type":"request","command":"disconnect"}}"#),
@@ -364,9 +360,9 @@ fn disconnect_dap(
                     .context("read DAP stderr")?;
                 child.waited = true;
             }
-            anyhow::bail!(
+            return Err(test_error(format!(
                 "disconnect response timeout; process status: {status:?}; stderr: {stderr:?}"
-            );
+            )));
         }
     };
     assert!(response.contains("\"success\":true"), "{response}");
@@ -379,7 +375,7 @@ fn collect_until(
     reader: &DapMessageReceiver,
     timeout: Duration,
     predicate: impl Fn(&[String]) -> bool,
-) -> Result<Vec<String>> {
+) -> TestResult<Vec<String>> {
     let deadline = Instant::now() + timeout;
     let mut messages = Vec::new();
     while Instant::now() < deadline {
@@ -400,7 +396,7 @@ struct TempScript {
 }
 
 impl TempScript {
-    fn new(label: &str, source: &str) -> Result<Self> {
+    fn new(label: &str, source: &str) -> TestResult<Self> {
         let path = std::env::temp_dir().join(format!(
             "wq-dap-{label}-{}-{:?}.wq",
             std::process::id(),
@@ -450,7 +446,7 @@ impl Drop for ChildGuard {
     }
 }
 
-fn send_message(stdin: &mut std::process::ChildStdin, body: &str) -> Result<()> {
+fn send_message(stdin: &mut std::process::ChildStdin, body: &str) -> TestResult {
     let msg = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
     stdin.write_all(msg.as_bytes()).context("write stdin")?;
     stdin.flush().context("flush stdin")?;
@@ -460,10 +456,10 @@ fn send_message(stdin: &mut std::process::ChildStdin, body: &str) -> Result<()> 
 fn read_message_with_timeout(
     reader: &DapMessageReceiver,
     timeout: Duration,
-) -> Result<Option<String>> {
+) -> TestResult<Option<String>> {
     match reader.recv_timeout(timeout) {
         Ok(Ok(message)) => Ok(Some(message)),
-        Ok(Err(error)) => Err(anyhow::anyhow!(error)),
+        Ok(Err(error)) => Err(test_error(error)),
         Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => Ok(None),
     }
 }
@@ -472,7 +468,7 @@ fn recv_until(
     reader: &DapMessageReceiver,
     timeout: Duration,
     predicate: impl Fn(&str) -> bool,
-) -> Result<Option<String>> {
+) -> TestResult<Option<String>> {
     let deadline = Instant::now() + timeout;
     loop {
         let now = Instant::now();
@@ -510,7 +506,7 @@ fn spawn_message_reader(stdout: std::process::ChildStdout) -> DapMessageReceiver
     rx
 }
 
-fn read_message(reader: &mut BufReader<std::process::ChildStdout>) -> Result<Option<String>> {
+fn read_message(reader: &mut BufReader<std::process::ChildStdout>) -> TestResult<Option<String>> {
     let mut header = String::new();
     loop {
         header.clear();

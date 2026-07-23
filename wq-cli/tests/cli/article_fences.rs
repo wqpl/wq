@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result, bail};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use wqpl::session::Session;
+
+use crate::support::{ResultContext as _, TestResult, test_error};
 
 #[derive(Debug)]
 struct WqFence {
@@ -13,7 +14,7 @@ struct WqFence {
 }
 
 #[test]
-fn article_wq_fences_are_executable_unless_marked() -> Result<()> {
+fn article_wq_fences_are_executable_unless_marked() -> TestResult {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("wq-cli has a workspace parent");
@@ -43,12 +44,12 @@ fn article_wq_fences_are_executable_unless_marked() -> Result<()> {
     }
 
     if !failures.is_empty() {
-        bail!("{}", failures.join("\n\n"));
+        return Err(test_error(failures.join("\n\n")));
     }
     Ok(())
 }
 
-fn collect_wq_fences(root: &Path) -> Result<Vec<WqFence>> {
+fn collect_wq_fences(root: &Path) -> TestResult<Vec<WqFence>> {
     let mut files = Vec::new();
     collect_markdown_files(root, &mut files)?;
     let mut fences = Vec::new();
@@ -60,7 +61,7 @@ fn collect_wq_fences(root: &Path) -> Result<Vec<WqFence>> {
     Ok(fences)
 }
 
-fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> TestResult {
     for entry in fs::read_dir(dir).with_context(|| format!("read dir {}", dir.display()))? {
         let entry = entry.with_context(|| format!("read entry in {}", dir.display()))?;
         let path = entry.path();

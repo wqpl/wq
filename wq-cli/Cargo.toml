@@ -29,7 +29,3 @@ signal-hook.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 ctrlc.workspace = true
-
-[dev-dependencies]
-assert_cmd = "2"
-anyhow = "1"

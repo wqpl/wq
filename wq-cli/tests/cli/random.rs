@@ -1,12 +1,8 @@
-use std::process::Command;
-
-use anyhow::{Context, Result};
-use assert_cmd::cargo::CommandCargoExt as _;
+use crate::support::{ResultContext as _, TestResult, wq_command};
 
 #[test]
-fn seeded_rng_values_are_callable_and_reproducible() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn seeded_rng_values_are_callable_and_reproducible() -> TestResult {
+    let output = wq_command()
         .args([
             "exec",
             "a:rng 42;b:rng 42;((a[];a[10];a[-5;5])=(b[];b[10];b[-5;5]);type a;str a)",
@@ -23,9 +19,8 @@ fn seeded_rng_values_are_callable_and_reproducible() -> Result<()> {
 }
 
 #[test]
-fn rng_assignment_aliases_generator_state() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn rng_assignment_aliases_generator_state() -> TestResult {
+    let output = wq_command()
         .args(["exec", "a:rng 7;b:a;c:rng 7;(a[];b[])=(c[];c[])", "-p"])
         .output()
         .context("run rng alias program")?;
@@ -38,10 +33,9 @@ fn rng_assignment_aliases_generator_state() -> Result<()> {
 }
 
 #[test]
-fn cli_seed_reproduces_the_default_rand_stream() -> Result<()> {
-    let run = |program: &str| -> Result<Vec<u8>> {
-        let output = Command::cargo_bin("wq")
-            .context("cargo_bin('wq') failed")?
+fn cli_seed_reproduces_the_default_rand_stream() -> TestResult {
+    let run = |program: &str| -> TestResult<Vec<u8>> {
+        let output = wq_command()
             .args(["--seed", "42", "exec", program, "-p"])
             .output()
             .context("run seeded rand program")?;

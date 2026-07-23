@@ -16,6 +16,8 @@ mod random;
 mod repl;
 #[path = "cli/script_directives.rs"]
 mod script_directives;
+#[path = "cli/support.rs"]
+mod support;
 
 fn strip_ansi(s: &str) -> String {
     let mut out = String::new();

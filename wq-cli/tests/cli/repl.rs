@@ -1,3 +1,8 @@
+use std::io::Write as _;
+use std::process::Stdio;
+
+use crate::support::{ResultContext as _, TestResult, wq_command};
+
 #[cfg(unix)]
 mod unix {
     use std::io::{BufRead as _, BufReader, Write as _};
@@ -7,8 +12,7 @@ mod unix {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use anyhow::{Context as _, Result, bail};
-    use assert_cmd::prelude::*;
+    use crate::support::{ResultContext as _, TestResult, test_error, wq_command};
 
     struct ChildGuard(Child);
 
@@ -40,7 +44,10 @@ mod unix {
         sender: mpsc::Sender<String>,
     ) -> thread::JoinHandle<()> {
         thread::spawn(move || {
-            for line in BufReader::new(reader).lines().map_while(Result::ok) {
+            for line in BufReader::new(reader)
+                .lines()
+                .map_while(std::result::Result::ok)
+            {
                 if sender.send(line).is_err() {
                     break;
                 }
@@ -52,7 +59,7 @@ mod unix {
         receiver: &Receiver<String>,
         output: &mut Vec<String>,
         expected: &str,
-    ) -> Result<()> {
+    ) -> TestResult {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             match receiver.recv_timeout(Duration::from_millis(100)) {
@@ -67,17 +74,16 @@ mod unix {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
-        bail!(
+        Err(test_error(format!(
             "timed out waiting for {expected:?}; output:\n{}",
             output.join("\n")
-        )
+        )))
     }
 
     #[test]
-    fn ctrl_c_interrupts_only_the_current_repl_turn() -> Result<()> {
+    fn ctrl_c_interrupts_only_the_current_repl_turn() -> TestResult {
         let mut child = ChildGuard(
-            Command::cargo_bin("wq")
-                .context("cargo_bin('wq') failed")?
+            wq_command()
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -115,10 +121,10 @@ mod unix {
             if Instant::now() >= deadline {
                 child.kill().context("stop timed-out REPL")?;
                 let _ = child.wait();
-                bail!(
+                return Err(test_error(format!(
                     "REPL did not exit after EOF; output:\n{}",
                     output.join("\n")
-                );
+                )));
             }
             thread::sleep(Duration::from_millis(20));
         };
@@ -145,10 +151,22 @@ mod unix {
 }
 
 #[test]
-fn runtime_input_keeps_a_blank_line_before_the_result() -> anyhow::Result<()> {
-    let mut command = assert_cmd::Command::cargo_bin("wq")?;
-    let assert = command.write_stdin("input[]\nhello\n").assert().success();
-    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+fn runtime_input_keeps_a_blank_line_before_the_result() -> TestResult {
+    let mut child = wq_command()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("spawn wq REPL")?;
+    let mut stdin = child.stdin.take().context("capture REPL stdin")?;
+    stdin
+        .write_all(b"input[]\nhello\n")
+        .context("write REPL input")?;
+    drop(stdin);
+    let output = child.wait_with_output().context("wait for wq REPL")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}{stderr}");
 
     assert!(
         stdout.contains("wq[1] \n\n▍ \"hello\""),

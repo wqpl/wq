@@ -1,12 +1,10 @@
 use std::process::Command;
 
-use anyhow::{Context as _, Result};
-use assert_cmd::prelude::*;
-
 use crate::strip_ansi;
+use crate::support::{ResultContext as _, TestResult, wq_command};
 
 #[test]
-fn script_receives_only_args_after_separator() -> Result<()> {
+fn script_receives_only_args_after_separator() -> TestResult {
     let dir = std::env::temp_dir().join(format!("wq-cli-args-{}", std::process::id()));
     std::fs::create_dir_all(&dir).context("create temp script dir")?;
     let script = dir.join("argv.wq");
@@ -16,8 +14,7 @@ fn script_receives_only_args_after_separator() -> Result<()> {
     )
     .context("write argv script")?;
 
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+    let output = wq_command()
         .arg(&script)
         .args(["--", "one", "--two", "three words"])
         .output()
@@ -35,9 +32,8 @@ fn script_receives_only_args_after_separator() -> Result<()> {
 }
 
 #[test]
-fn exec_receives_args_after_separator() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn exec_receives_args_after_separator() -> TestResult {
+    let output = wq_command()
         .args([
             "exec",
             "(`len:#argv[];`first:argv[] 0;`second:argv[] 1)",
@@ -61,7 +57,7 @@ fn exec_receives_args_after_separator() -> Result<()> {
 }
 
 #[test]
-fn cliargs_uses_help_and_usage_exit_codes_without_continuing() -> Result<()> {
+fn cliargs_uses_help_and_usage_exit_codes_without_continuing() -> TestResult {
     let dir = std::env::temp_dir().join(format!("wq-cliargs-{}", std::process::id()));
     std::fs::create_dir_all(&dir).context("create temp script dir")?;
     let script = dir.join("cliargs.wq");
@@ -70,7 +66,7 @@ fn cliargs_uses_help_and_usage_exit_codes_without_continuing() -> Result<()> {
         "spec:(`name:\"demo\";`about:\"demo app\";`args:,(`name:`value;`kind:`positional;`required:T));parsed:cliargs[spec];echo \"continued\"\n",
     )
     .context("write cliargs script")?;
-    let wq = Command::cargo_bin("wq").context("cargo_bin('wq') failed")?;
+    let wq = wq_command();
 
     let help = Command::new(wq.get_program())
         .arg(&script)

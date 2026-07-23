@@ -1,17 +1,9 @@
-use std::process::Command;
-
-use anyhow::{Context as _, Result};
-use assert_cmd::prelude::*;
-
 use crate::strip_ansi;
+use crate::support::{ResultContext as _, TestResult, wq_command};
 
 #[test]
-fn top_level_help_command_preserves_cli_help() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
-        .arg("help")
-        .output()
-        .context("run wq help")?;
+fn top_level_help_command_preserves_cli_help() -> TestResult {
+    let output = wq_command().arg("help").output().context("run wq help")?;
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
@@ -23,9 +15,8 @@ fn top_level_help_command_preserves_cli_help() -> Result<()> {
 }
 
 #[test]
-fn subcommand_help_is_still_available() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn subcommand_help_is_still_available() -> TestResult {
+    let output = wq_command()
         .args(["help", "exec"])
         .output()
         .context("run wq help exec")?;
@@ -39,9 +30,8 @@ fn subcommand_help_is_still_available() -> Result<()> {
 }
 
 #[test]
-fn topic_flag_bypasses_subcommand_help() -> Result<()> {
-    let exec = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn topic_flag_bypasses_subcommand_help() -> TestResult {
+    let exec = wq_command()
         .args(["help", "--no-pager", "--topic", "exec"])
         .output()
         .context("run wq help --topic exec")?;
@@ -51,8 +41,7 @@ fn topic_flag_bypasses_subcommand_help() -> Result<()> {
     assert!(stdout.contains("exec builtin"));
     assert!(stdout.contains("Run a host process"));
 
-    let fmt = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+    let fmt = wq_command()
         .args(["help", "--no-pager", "--topic", "fmt"])
         .output()
         .context("run wq help --topic fmt")?;
@@ -65,9 +54,8 @@ fn topic_flag_bypasses_subcommand_help() -> Result<()> {
 }
 
 #[test]
-fn reference_docs_render_auto_wraps_as_hard_breaks() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn reference_docs_render_auto_wraps_as_hard_breaks() -> TestResult {
+    let output = wq_command()
         .args([
             "help",
             "--no-pager",
@@ -87,9 +75,8 @@ fn reference_docs_render_auto_wraps_as_hard_breaks() -> Result<()> {
 }
 
 #[test]
-fn builtin_and_keyword_docs_render() -> Result<()> {
-    let map = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn builtin_and_keyword_docs_render() -> TestResult {
+    let map = wq_command()
         .args(["help", "--no-pager", "map"])
         .output()
         .context("run wq help map")?;
@@ -99,8 +86,7 @@ fn builtin_and_keyword_docs_render() -> Result<()> {
     assert!(stdout.contains("map builtin"));
     assert!(stdout.contains("arity: `2 3`"));
 
-    let rng = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+    let rng = wq_command()
         .args(["help", "--no-pager", "rng"])
         .output()
         .context("run wq help rng")?;
@@ -110,8 +96,7 @@ fn builtin_and_keyword_docs_render() -> Result<()> {
     assert!(stdout.contains("rng builtin"));
     assert!(stdout.contains("wq-rng-v1"));
 
-    let ret = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+    let ret = wq_command()
         .args(["help", "--no-pager", "@r"])
         .output()
         .context("run wq help @r")?;
@@ -124,9 +109,8 @@ fn builtin_and_keyword_docs_render() -> Result<()> {
 }
 
 #[test]
-fn unknown_help_topic_errors() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn unknown_help_topic_errors() -> TestResult {
+    let output = wq_command()
         .args(["help", "--no-pager", "not-a-topic"])
         .output()
         .context("run unknown help")?;

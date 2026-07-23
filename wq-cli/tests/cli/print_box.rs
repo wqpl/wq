@@ -1,12 +1,8 @@
-use std::process::Command;
-
-use anyhow::{Context as _, Result};
-use assert_cmd::prelude::*;
+use crate::support::{ResultContext as _, TestResult, wq_command};
 
 #[test]
-fn exec_print_uses_boxed_display() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn exec_print_uses_boxed_display() -> TestResult {
+    let output = wq_command()
         .args(["exec", "reshape[1..=6;(2;3)]", "-p"])
         .output()
         .context("run wq exec")?;
@@ -20,12 +16,11 @@ fn exec_print_uses_boxed_display() -> Result<()> {
 }
 
 #[test]
-fn script_print_uses_boxed_display() -> Result<()> {
+fn script_print_uses_boxed_display() -> TestResult {
     let path = std::env::temp_dir().join(format!("wq-box-print-{}-script.wq", std::process::id()));
     std::fs::write(&path, "reshape[1..=6;(2;3)]\n").context("write script")?;
 
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+    let output = wq_command()
         .arg(&path)
         .arg("-p")
         .output()
@@ -40,9 +35,8 @@ fn script_print_uses_boxed_display() -> Result<()> {
 }
 
 #[test]
-fn box_flag_can_disable_boxed_printing() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn box_flag_can_disable_boxed_printing() -> TestResult {
+    let output = wq_command()
         .args(["--box", "-box", "exec", "reshape[1..=6;(2;3)]", "-p"])
         .output()
         .context("run wq exec")?;
@@ -54,9 +48,8 @@ fn box_flag_can_disable_boxed_printing() -> Result<()> {
 }
 
 #[test]
-fn box_flag_can_rewrite_display_config() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn box_flag_can_rewrite_display_config() -> TestResult {
+    let output = wq_command()
         .args(["--box", "box,color", "exec", "reshape[1..=4;(2;2)]", "-p"])
         .output()
         .context("run wq exec")?;
@@ -69,9 +62,8 @@ fn box_flag_can_rewrite_display_config() -> Result<()> {
 }
 
 #[test]
-fn box_flag_can_enable_xray_printing() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn box_flag_can_enable_xray_printing() -> TestResult {
+    let output = wq_command()
         .args(["--box", "+xray", "exec", "reshape[1..=4;(2;2)]", "-p"])
         .output()
         .context("run wq exec")?;
@@ -85,9 +77,8 @@ fn box_flag_can_enable_xray_printing() -> Result<()> {
 }
 
 #[test]
-fn ragged_print_uses_index_fence_and_values() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn ragged_print_uses_index_fence_and_values() -> TestResult {
+    let output = wq_command()
         .args(["exec", "(1;(2;3);(4;5;(6;7)))", "-p"])
         .output()
         .context("run wq exec")?;
@@ -101,9 +92,8 @@ fn ragged_print_uses_index_fence_and_values() -> Result<()> {
 }
 
 #[test]
-fn box_flag_can_disable_all_box_config() -> Result<()> {
-    let output = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed")?
+fn box_flag_can_disable_all_box_config() -> TestResult {
+    let output = wq_command()
         .args(["--box", "off", "exec", "reshape[1..=4;(2;2)]", "-p"])
         .output()
         .context("run wq exec")?;
