@@ -80,7 +80,7 @@ the following operations:
 5. Creates a release commit and annotated `vVERSION` tag.
 6. Offers to push each mirror first and GitHub last. Every remote receives the
    branch and tag in one atomic push. The GitHub tag triggers package
-   publishing.
+   publishing, cross-platform binary builds, and GitHub Release publishing.
 
 The command never runs `npm publish` locally.
 
@@ -155,6 +155,13 @@ The GitHub remote is always reordered last, regardless of argument order.
 Manually dispatch `publish-wq-wasm.yml`. A manual dispatch builds, validates,
 tests, and inspects the npm package but skips `npm publish`. Pushing a matching
 `vVERSION` tag runs the same checks and publishes with npm trusted publishing.
+
+The manual `build-binaries.yml` workflow builds unpackaged `wq` and `wqls`
+artifacts for Linux, Windows, and macOS. A pushed `vVERSION` tag calls the same
+workflow, packages each platform's binaries, and creates a GitHub Release after
+all builds pass. Its release body contains the non-`N/A` entries from each
+commit's `Release Notes:` section after the previous reachable tag. The first
+tag uses all reachable commits.
 
 ## Failure and recovery behavior
 

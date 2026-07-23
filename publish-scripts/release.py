@@ -315,7 +315,8 @@ def offer_to_push(
     try:
         answer = input(
             f"\nPush {tag} and {branch} to {remote_list} now? "
-            "The GitHub tag push triggers package publishing. [y/N] "
+            "The GitHub tag push triggers package and GitHub Release publishing. "
+            "[y/N] "
         )
     except EOFError:
         answer = ""

@@ -2,6 +2,13 @@ name: Build Binaries
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      package_release_assets:
+        description: Package binaries for a GitHub Release
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -33,6 +40,28 @@ jobs:
       - name: Build binaries
         run: cargo build --locked --profile R --package wq-cli --package wqls
 
+      - name: Package Unix release assets
+        if: inputs.package_release_assets && runner.os != 'Windows'
+        env:
+          ARTIFACT_PLATFORM: ${{ matrix.artifact_platform }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          archive="wq-${RELEASE_TAG}-${ARTIFACT_PLATFORM}.tar.gz"
+          tar -C target/R -czf "$GITHUB_WORKSPACE/$archive" wq wqls
+
+      - name: Package Windows release assets
+        if: inputs.package_release_assets && runner.os == 'Windows'
+        env:
+          ARTIFACT_PLATFORM: ${{ matrix.artifact_platform }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: pwsh
+        run: |
+          $archive = "wq-$env:RELEASE_TAG-$env:ARTIFACT_PLATFORM.zip"
+          Compress-Archive `
+            -Path target/R/wq.exe, target/R/wqls.exe `
+            -DestinationPath "$env:GITHUB_WORKSPACE/$archive"
+
       - name: Upload binaries
         uses: actions/upload-artifact@v7
         with:
@@ -40,4 +69,12 @@ jobs:
           path: |
             target/R/wq${{ matrix.executable_suffix }}
             target/R/wqls${{ matrix.executable_suffix }}
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: inputs.package_release_assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.artifact_platform }}
+          path: wq-${{ github.ref_name }}-${{ matrix.artifact_platform }}.*
           if-no-files-found: error
