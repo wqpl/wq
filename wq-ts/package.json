@@ -28,6 +28,7 @@
     "tree-sitter-cli": "^0.26.10"
   },
   "scripts": {
+    "generate": "tree-sitter generate",
     "prestart": "tree-sitter build --wasm",
     "start": "tree-sitter playground",
     "test": "tree-sitter test"
