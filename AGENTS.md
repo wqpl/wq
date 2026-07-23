@@ -85,8 +85,6 @@
   - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*empty list*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
 - Ensure `cargo clippy --all-targets -- -D warnings` passes.
   - Avoid using `#[allow(...)]` to pass clippy.
-    - An exception is dead code that won't be used anymore, where you are allowed to use `#[allow(...)]` instead of removing it
-  - If you can't pass clippy by fixing code for any reason, ask the user whether it's fine to use `#[allow(...)]`
   - If passing clippy requires a large-scope edit, pause and ask the user.
 - format command: `cargo +nightly fmt`
 - If you changed wq lexer/grammar:
@@ -96,18 +94,13 @@
 - Development should be test-driven. Choose between unit tests and snapshot tests depending on situation.
   - Integration/snapshot tests use `hotchoco.py`.
     - This tests semantics, formatter, backtraces, etc.
-    - `python3 hotchoco.py run`, when you touched:
+    - `uv run hotchoco.py run`, when you touched:
       - lexer/parser/compiler/vm/interpreter
-      - anything that affects semantics
-      - a `e/*.wq` script
-      - formatter
+      - anything that affects semantics, backtrace, debugger, formatter, output format, etc
+      - `e/*.wq`
     - If a new major module is added, you may create a new test config for it.
     - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept --test TEST`.
-    - See `python3 hotchoco.py --help` for details.
-  - Test policy: prefer broader tests rather than only focused ones, e.g.
-    - Full `tree-sitter test` if you changed `grammar.js`
-    - Full `cargo test -p wqpl` if you changed `wqpl`
-    - But usually avoid full workspace `cargo test` unless necessary
+    - See `uv run hotchoco.py --help` for details.
 - At handoff, recommend a good commit message based on the appendix guidelines.
   - Do not commit unless the user explicitly asked for it.
 - Unless the user explicitly requested/approved, don't build/run with `release` profile.
@@ -131,9 +124,9 @@
 - If you changed `wqpl/viz`, also update `wqide/viz`.
 - If you added/changed syntax feature or builtin, also update:
   - `wqpl/doc`
-  - optionally `d/articles/wqpl` if it is core to the language
+  - `d/articles/wqpl` if it is mentioned there
 - No em dashes in comments/docs/code. Adjust wording to avoid em dashes.
-- Use these newer Rust features when they can make code cleaner:
+- Use these newer Rust features when they make code cleaner:
 
 | Feature         | Stabilized in | Release date | Notes                                                                                                 |
 | --------------- | ------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
@@ -172,6 +165,15 @@
 - Treat `multiple-versions` warnings as informational by default. Do not spend significant time trying to eliminate them, since duplicate versions are often caused by transitive dependency constraints and are not necessarily actionable.
   - Fix a warning only when the solution is obvious, low risk, and narrowly scoped, such as updating a direct dependency, refreshing the lockfile, or removing an unnecessary dependency. Do not add dependency overrides, patch transitive crates, downgrade unrelated packages, or make broad dependency changes solely to remove a warning.
   - If no straightforward fix is available, leave the warning in place and continue.
+
+## Test policy
+
+For all implemented changes, run the full:
+
+- `cargo test -p wqpl`
+- `cargo test -p wq-cli`
+
+Do not replace these with targeted runs at final handoff. Targeted runs are fine while iterating, but the final verification must include the full commands above unless the user explicitly says not to run them or an external blocker prevents them.
 
 ## wq-ts policy
 
