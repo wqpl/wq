@@ -90,9 +90,9 @@
   - If passing clippy requires a large-scope edit, pause and ask the user.
 - format command: `cargo +nightly fmt`
 - If you changed wq lexer/grammar:
-  - Also update `wq-ts/grammar.js`, and
-  - verify it with `tree-sitter generate`, and
-  - add a new corpse test using `tree-sitter test -u`
+  - Update `wq-ts/grammar.js`
+  - Regenerate tree-sitter parser
+  - Add new corpse tests
 - Development should be test-driven. Choose between unit tests and snapshot tests depending on situation.
   - Integration/snapshot tests use `hotchoco.py`.
     - This tests semantics, formatter, backtraces, etc.
@@ -172,6 +172,14 @@
 - Treat `multiple-versions` warnings as informational by default. Do not spend significant time trying to eliminate them, since duplicate versions are often caused by transitive dependency constraints and are not necessarily actionable.
   - Fix a warning only when the solution is obvious, low risk, and narrowly scoped, such as updating a direct dependency, refreshing the lockfile, or removing an unnecessary dependency. Do not add dependency overrides, patch transitive crates, downgrade unrelated packages, or make broad dependency changes solely to remove a warning.
   - If no straightforward fix is available, leave the warning in place and continue.
+
+## wq-ts policy
+
+Use the npm-managed local Tree-sitter CLI. Regenerate the parser with `npm run generate`; do not invoke a globally installed Tree-sitter CLI.
+
+Add new corpus tests under `test/corpus`. After writing each test case, run `npm exec tree-sitter test -u`, review the generated expected parse tree for correctness, then run `npm exec tree-sitter test` without `-u` to verify the full suite.
+
+Large changes to generated `parser.c` can be normal after grammar changes. Do not hand-edit generated files. Carefully inspect unexpectedly large changes to `node-types.json`, since they indicate changes to the grammar’s exposed node structure and should correspond to intentional grammar changes.
 
 ## Commit messages
 
