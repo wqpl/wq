@@ -6,7 +6,7 @@ use crate::vm::inst::{BinaryOpData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::wqerror::WqError;
 
-pub(super) fn format_debug_expr(source: &str, start: usize, end: usize) -> String {
+fn format_debug_expr(source: &str, start: usize, end: usize) -> String {
     const LIMIT: usize = 80;
 
     let Some(slice) = source.get(start..end) else {

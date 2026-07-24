@@ -193,7 +193,7 @@ impl Vm {
         if error.crash.is_some() {
             return error;
         }
-        let mut error = crate::interpret::vanilla::debug::attach_pc_source_ctx(
+        let mut error = crate::interpret::vanilla::trace::attach_pc_source_ctx(
             self,
             self.pc.saturating_sub(1),
             error,

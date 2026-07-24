@@ -22,16 +22,16 @@ use crate::wqdb::data::{ChunkId, CodeLoc};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 mod call;
-pub(crate) mod debug;
 mod mutate;
 mod operand;
 mod target;
+pub(crate) mod trace;
 
 use call::*;
-use debug::*;
 use mutate::*;
 use operand::*;
 use target::*;
+use trace::*;
 
 pub(crate) struct VanillaInterpreter;
 const NAME: &str = "vanilla";
