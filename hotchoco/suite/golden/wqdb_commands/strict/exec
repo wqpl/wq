@@ -1,6 +1,6 @@
 2
 unexpected argument 'ignored'; usage: continue
 invalid count 'nope'; usage: peek [n]
-syntax 'track <name>' is no longer supported; use 'track add local <name>' or 'track add global <name>'
-syntax 'stop-hook add -o <command>' is no longer supported; use 'stop-hook add <command...>'
+invalid track action 'value'; usage: track add <global|local|capture> <target> | track list | track delete <id> | track clear
+invalid stop-hook command: unknown wqdb command '-o', type 'h' for help
 invalid stop-hook command: unexpected argument 'ignored'; usage: continue

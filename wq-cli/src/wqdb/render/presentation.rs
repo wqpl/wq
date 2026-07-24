@@ -461,16 +461,4 @@ pub(in crate::wqdb) fn format_loc_hint(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compact_instructions_count_terminal_columns() {
-        let instruction = format!("\x1b[31mLoadConst\x1b[0m({})", "界".repeat(80));
-
-        let compact = compact_instruction(&instruction);
-
-        assert!(compact.ends_with("…\x1b[0m"));
-        assert!(ansi_visible_width(&compact) <= 120);
-    }
-}
+mod tests;

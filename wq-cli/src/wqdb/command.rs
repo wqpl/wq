@@ -490,10 +490,6 @@ pub(super) enum CommandParseError<'a> {
         value: &'a str,
         usage: Usage,
     },
-    LegacySyntax {
-        syntax: &'static str,
-        replacement: &'static str,
-    },
 }
 
 impl fmt::Display for CommandParseError<'_> {
@@ -517,15 +513,6 @@ impl fmt::Display for CommandParseError<'_> {
             Self::InvalidValue { name, value, usage } => {
                 write!(formatter, "invalid {name} '{value}'; usage: {usage}")
             }
-            Self::LegacySyntax {
-                syntax,
-                replacement,
-            } => {
-                write!(
-                    formatter,
-                    "syntax '{syntax}' is no longer supported; use {replacement}"
-                )
-            }
         }
     }
 }
@@ -535,9 +522,6 @@ pub(super) fn parse_line(line: &str) -> Result<ParsedLine<'_>, CommandParseError
     let Some(name) = words.next().map(|word| word.text) else {
         return Ok(ParsedLine::Empty);
     };
-    if let Some(error) = parse_legacy_command(name, &mut words) {
-        return Err(error);
-    }
     let Some(command) = Command::parse(name) else {
         return Err(CommandParseError::UnknownCommand(name));
     };
@@ -623,22 +607,6 @@ pub(super) fn parse_line(line: &str) -> Result<ParsedLine<'_>, CommandParseError
     Ok(ParsedLine::Command(parsed))
 }
 
-fn parse_legacy_command<'a>(name: &str, words: &mut Words<'a>) -> Option<CommandParseError<'a>> {
-    match name {
-        "tracks" => Some(legacy("tracks", "'track list'")),
-        "it" => Some(legacy("it", "'track list'")),
-        "untrack" | "ut" => {
-            let clear = words.next().is_some_and(|word| word.text == "all");
-            Some(if clear {
-                legacy("untrack all", "'track clear'")
-            } else {
-                legacy("untrack <id>", "'track delete <id>'")
-            })
-        }
-        _ => None,
-    }
-}
-
 fn parse_granularity<'a>(
     value: &'a str,
     usage: Usage,
@@ -684,17 +652,6 @@ fn parse_track<'a>(words: &mut Words<'a>) -> Result<TrackCommand<'a>, CommandPar
             reject_extra(words, Usage::TrackClear)?;
             Ok(TrackCommand::Clear)
         }
-        "global" => Err(legacy("track global <name>", "'track add global <name>'")),
-        "local" => Err(legacy("track local <name>", "'track add local <name>'")),
-        "capture" => Err(legacy("track capture <slot>", "'track add capture <slot>'")),
-        "g" | "l" | "cap" => Err(legacy(
-            "track <scope> <target>",
-            "'track add <global|local|capture> <target>'",
-        )),
-        _ if words.next().is_none() => Err(legacy(
-            "track <name>",
-            "'track add local <name>' or 'track add global <name>'",
-        )),
         _ => Err(invalid("track action", action, Usage::Track)),
     }
 }
@@ -721,12 +678,6 @@ fn parse_track_add<'a>(words: &mut Words<'a>) -> Result<TrackCommand<'a>, Comman
             reject_extra(words, Usage::TrackAddCapture)?;
             TrackTarget::Capture(slot)
         }
-        "g" | "l" | "cap" => {
-            return Err(legacy(
-                "track add <scope-alias> <target>",
-                "'track add <global|local|capture> <target>'",
-            ));
-        }
         _ => {
             return Err(invalid("track scope", scope, Usage::TrackAdd));
         }
@@ -748,16 +699,6 @@ fn parse_stop_hook<'a>(
                     usage: Usage::StopHookAdd,
                 });
             }
-            if command
-                .split_whitespace()
-                .next()
-                .is_some_and(|word| word == "-o")
-            {
-                return Err(legacy(
-                    "stop-hook add -o <command>",
-                    "'stop-hook add <command...>'",
-                ));
-            }
             Ok(StopHookCommand::Add { command })
         }
         "list" => {
@@ -774,11 +715,6 @@ fn parse_stop_hook<'a>(
             reject_extra(words, Usage::StopHookClear)?;
             Ok(StopHookCommand::Clear)
         }
-        "ls" => Err(legacy("stop-hook ls", "'stop-hook list'")),
-        "del" | "remove" | "rm" => Err(legacy(
-            "stop-hook <delete-alias> <id>",
-            "'stop-hook delete <id>'",
-        )),
         _ => Err(invalid("stop-hook action", action.text, Usage::StopHook)),
     }
 }
@@ -814,13 +750,6 @@ fn parse_usize<'a>(
 
 fn invalid<'a>(name: &'static str, value: &'a str, usage: Usage) -> CommandParseError<'a> {
     CommandParseError::InvalidValue { name, value, usage }
-}
-
-fn legacy<'a>(syntax: &'static str, replacement: &'static str) -> CommandParseError<'a> {
-    CommandParseError::LegacySyntax {
-        syntax,
-        replacement,
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -1023,22 +952,16 @@ mod tests {
             )))
         );
         assert_eq!(
-            parse_line("track total")
-                .expect_err("implicit tracking")
-                .to_string(),
-            "syntax 'track <name>' is no longer supported; use 'track add local <name>' or 'track add global <name>'"
+            parse_error("track total"),
+            "invalid track action 'total'; usage: track add <global|local|capture> <target> | track list | track delete <id> | track clear"
         );
         assert_eq!(
-            parse_line("track global total")
-                .expect_err("legacy tracking")
-                .to_string(),
-            "syntax 'track global <name>' is no longer supported; use 'track add global <name>'"
+            parse_error("track global total"),
+            "invalid track action 'global'; usage: track add <global|local|capture> <target> | track list | track delete <id> | track clear"
         );
         assert_eq!(
-            parse_line("tracks")
-                .expect_err("legacy list command")
-                .to_string(),
-            "syntax 'tracks' is no longer supported; use 'track list'"
+            parse_error("tracks"),
+            "unknown wqdb command 'tracks', type 'h' for help"
         );
     }
 
@@ -1071,10 +994,10 @@ mod tests {
             )))
         );
         assert_eq!(
-            parse_line("stop-hook add -o c")
-                .expect_err("legacy option")
-                .to_string(),
-            "syntax 'stop-hook add -o <command>' is no longer supported; use 'stop-hook add <command...>'"
+            parse_line("stop-hook add -o c"),
+            Ok(ParsedLine::Command(ParsedCommand::StopHook(
+                StopHookCommand::Add { command: "-o c" }
+            )))
         );
         assert_eq!(
             parse_line("stop-hook list ignored")
@@ -1118,23 +1041,23 @@ mod tests {
     }
 
     #[test]
-    fn parser_rejects_noncanonical_nested_aliases_with_migrations() {
+    fn parser_rejects_noncanonical_nested_aliases() {
         assert_eq!(
             parse_error("track add g total"),
-            "syntax 'track add <scope-alias> <target>' is no longer supported; use 'track add <global|local|capture> <target>'"
+            "invalid track scope 'g'; usage: track add <global|local|capture> <target>"
         );
         assert_eq!(
             parse_error("stop-hook ls"),
-            "syntax 'stop-hook ls' is no longer supported; use 'stop-hook list'"
+            "invalid stop-hook action 'ls'; usage: stop-hook add <command...> | stop-hook list | stop-hook delete <id> | stop-hook clear"
         );
         assert_eq!(
             parse_error("stop-hook rm 2"),
-            "syntax 'stop-hook <delete-alias> <id>' is no longer supported; use 'stop-hook delete <id>'"
+            "invalid stop-hook action 'rm'; usage: stop-hook add <command...> | stop-hook list | stop-hook delete <id> | stop-hook clear"
         );
     }
 
     #[test]
-    fn parser_distinguishes_empty_unknown_and_legacy_commands() {
+    fn parser_distinguishes_empty_and_unknown_commands() {
         assert_eq!(parse_line("   "), Ok(ParsedLine::Empty));
         assert_eq!(
             parse_line("wat arg")
@@ -1143,16 +1066,12 @@ mod tests {
             "unknown wqdb command 'wat', type 'h' for help"
         );
         assert_eq!(
-            parse_line("untrack 3")
-                .expect_err("legacy delete command")
-                .to_string(),
-            "syntax 'untrack <id>' is no longer supported; use 'track delete <id>'"
+            parse_error("untrack 3"),
+            "unknown wqdb command 'untrack', type 'h' for help"
         );
         assert_eq!(
-            parse_line("untrack all")
-                .expect_err("legacy clear command")
-                .to_string(),
-            "syntax 'untrack all' is no longer supported; use 'track clear'"
+            parse_error("ut all"),
+            "unknown wqdb command 'ut', type 'h' for help"
         );
     }
 

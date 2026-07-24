@@ -7,13 +7,6 @@ use wqpl::wqdb::{CodeLoc, CrashFrame, DebugInfo, SourceFile, Span};
 mod presentation;
 mod table;
 
-#[cfg(test)]
-pub(super) use presentation::styled_command;
-#[cfg(test)]
-pub(super) use presentation::{
-    ansi_visible_width, compact_instruction, format_expr_stop_card, format_inst_stop_card,
-    format_line_stop_card, resolved_stop_span, unavailable_stop_card,
-};
 pub(super) use presentation::{
     bold, color, dim, format_loc_hint, header, help_row, prompt, render_debug_instruction,
     render_stop_card, stop_controls, styled_flag, styled_subcommand, title,

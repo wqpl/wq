@@ -3,22 +3,20 @@
 mod stop_hooks;
 mod tracking;
 
-use tracking::execute as execute_tracking;
 pub(in crate::wqdb) use tracking::print_symbol_mutation;
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
 use wqpl::wqdb::{CodeLoc, DebugInfo, DebugLocalsFrame, DebugResume, StepGranularity};
 
 use super::command::{
-    COMMANDS as WQDB_COMMANDS, CommandForm, GRANULARITIES, ParsedCommand, ParsedLine,
-    STOP_HOOK_ACTIONS, TRACK_ACTIONS, TRACK_SCOPES, Usage, command_usage_plain, parse_line,
+    COMMANDS, CommandForm, GRANULARITIES, ParsedCommand, ParsedLine, STOP_HOOK_ACTIONS,
+    TRACK_ACTIONS, TRACK_SCOPES, Usage, command_usage_plain, parse_line,
 };
-use super::host::Host as WqdbHost;
+use super::host::Host;
 use super::render::{
-    bold as wqdb_bold, dim as wqdb_dim, enabled_marker, format_crash_frame, format_loc_hint,
-    header as wqdb_header, help_row as wqdb_help_row, render_debug_instruction,
-    render_stop_card as render_stop_card_with_color_mode, render_table, stop_controls, styled_flag,
-    styled_subcommand, title as wqdb_title,
+    bold, dim, enabled_marker, format_crash_frame, format_loc_hint, header, help_row,
+    render_debug_instruction, render_stop_card, render_table, stop_controls, styled_flag,
+    styled_subcommand, title,
 };
 
 const CURRENT_LOCATION_UNAVAILABLE: &str = "current location unavailable";
@@ -27,9 +25,9 @@ fn wqdb_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMod
     paint(text, style, color_mode)
 }
 
-fn print_wqdb_help(host: &WqdbHost<'_, '_>) {
+fn print_wqdb_help(host: &Host<'_, '_>) {
     let color_mode = host.color_mode();
-    let usage_width = WQDB_COMMANDS
+    let usage_width = COMMANDS
         .iter()
         .map(|spec| command_usage_plain(spec).len())
         .max()
@@ -38,22 +36,22 @@ fn print_wqdb_help(host: &WqdbHost<'_, '_>) {
         host,
         format!(
             "{} {}",
-            wqdb_title("wqdb", color_mode),
-            wqdb_dim("=======================================", color_mode)
+            title("wqdb", color_mode),
+            dim("=======================================", color_mode)
         )
     );
-    for spec in WQDB_COMMANDS {
-        wqdb_println!(host, wqdb_help_row(spec, usage_width, color_mode));
+    for spec in COMMANDS {
+        wqdb_println!(host, help_row(spec, usage_width, color_mode));
     }
     wqdb_println!(host, "");
-    wqdb_println!(host, wqdb_bold("stepping granularity", color_mode));
+    wqdb_println!(host, bold("stepping granularity", color_mode));
     for granularity in GRANULARITIES {
         wqdb_println!(
             host,
             format!(
                 "  {}  {}",
                 styled_subcommand(granularity.value, color_mode),
-                wqdb_dim(granularity.description, color_mode)
+                dim(granularity.description, color_mode)
             )
         );
     }
@@ -66,13 +64,13 @@ fn print_wqdb_help(host: &WqdbHost<'_, '_>) {
     wqdb_println!(host, "");
     print_command_forms(host, "stop hooks", STOP_HOOK_ACTIONS.iter());
     wqdb_println!(host, "");
-    wqdb_println!(host, wqdb_bold("batch commands", color_mode));
+    wqdb_println!(host, bold("batch commands", color_mode));
     wqdb_println!(
         host,
         format!(
             "  CLI {}{}{} commands run once at the first debugger stop.",
             styled_flag("-o", color_mode),
-            wqdb_dim("/", color_mode),
+            dim("/", color_mode),
             styled_flag("--wqdb-cmd", color_mode)
         )
     );
@@ -80,32 +78,32 @@ fn print_wqdb_help(host: &WqdbHost<'_, '_>) {
         host,
         format!(
             "  Use {} for commands that should run every time execution stops.",
-            wqdb_bold(&Usage::StopHookAdd.to_string(), color_mode)
+            bold(&Usage::StopHookAdd.to_string(), color_mode)
         )
     );
 }
 
 fn print_command_forms<'a>(
-    host: &WqdbHost<'_, '_>,
+    host: &Host<'_, '_>,
     title: &str,
     forms: impl Iterator<Item = &'a CommandForm>,
 ) {
     let color_mode = host.color_mode();
-    wqdb_println!(host, wqdb_bold(title, color_mode));
+    wqdb_println!(host, bold(title, color_mode));
     for form in forms {
         wqdb_println!(
             host,
             format!(
                 "  {}  {}",
-                wqdb_bold(&form.usage.to_string(), color_mode),
-                wqdb_dim(form.candidate.description, color_mode)
+                bold(&form.usage.to_string(), color_mode),
+                dim(form.candidate.description, color_mode)
             )
         );
     }
 }
 
 pub(in crate::wqdb) fn exec_single_wqdb_cmd(
-    host: &mut WqdbHost<'_, '_>,
+    host: &mut Host<'_, '_>,
     cmd: &str,
 ) -> Option<DebugResume> {
     let command = match parse_line(cmd) {
@@ -138,7 +136,7 @@ pub(in crate::wqdb) fn exec_single_wqdb_cmd(
             None
         }
         ParsedCommand::Track(command) => {
-            if let Err(error) = execute_tracking(host, command) {
+            if let Err(error) = tracking::execute(host, command) {
                 wqdb_println!(host, error);
             }
             None
@@ -288,7 +286,7 @@ pub(in crate::wqdb) fn exec_single_wqdb_cmd(
     }
 }
 
-fn set_step_granularity(host: &mut WqdbHost<'_, '_>, granularity: Option<StepGranularity>) {
+fn set_step_granularity(host: &mut Host<'_, '_>, granularity: Option<StepGranularity>) {
     let Some(granularity) = granularity else {
         wqdb_println!(
             host,
@@ -306,7 +304,7 @@ fn set_step_granularity(host: &mut WqdbHost<'_, '_>, granularity: Option<StepGra
 }
 
 pub(in crate::wqdb) fn exec_wqdb_cmds(
-    host: &mut WqdbHost<'_, '_>,
+    host: &mut Host<'_, '_>,
     cmds: &[String],
 ) -> Option<DebugResume> {
     for cmd in cmds {
@@ -321,12 +319,12 @@ pub(in crate::wqdb) fn exec_wqdb_cmds(
     None
 }
 
-pub(in crate::wqdb) fn exec_stop_hooks(host: &mut WqdbHost<'_, '_>) -> Option<DebugResume> {
+pub(in crate::wqdb) fn exec_stop_hooks(host: &mut Host<'_, '_>) -> Option<DebugResume> {
     let cmds = host.stop_hook_commands();
     exec_wqdb_cmds(host, &cmds)
 }
 
-fn set_breakpoint_at_pc(host: &mut WqdbHost<'_, '_>, pc: usize) -> Result<(), String> {
+fn set_breakpoint_at_pc(host: &mut Host<'_, '_>, pc: usize) -> Result<(), String> {
     let Some(loc) = host.location() else {
         return Err(CURRENT_LOCATION_UNAVAILABLE.to_string());
     };
@@ -348,7 +346,7 @@ fn set_breakpoint_at_pc(host: &mut WqdbHost<'_, '_>, pc: usize) -> Result<(), St
 }
 
 fn set_breakpoint_at_function(
-    host: &mut WqdbHost<'_, '_>,
+    host: &mut Host<'_, '_>,
     fname: &str,
     pc_opt: Option<usize>,
 ) -> Result<(), String> {
@@ -388,7 +386,7 @@ fn format_breakpoint_loc(di: &DebugInfo, loc: CodeLoc) -> String {
     format!("pc {}", loc.pc)
 }
 
-pub(in crate::wqdb) fn print_crash_locals(host: &mut WqdbHost<'_, '_>) {
+pub(in crate::wqdb) fn print_crash_locals(host: &mut Host<'_, '_>) {
     let frames = (0..host.backtrace().len())
         .filter_map(|index| host.frame_locals(index))
         .collect::<Vec<_>>();
@@ -404,7 +402,7 @@ pub(in crate::wqdb) fn print_crash_locals(host: &mut WqdbHost<'_, '_>) {
     }
 }
 
-fn print_locals(host: &mut WqdbHost<'_, '_>) {
+fn print_locals(host: &mut Host<'_, '_>) {
     let Some(frame) = host.frame_locals(0) else {
         wqdb_println!(host, "no locals");
         return;
@@ -412,7 +410,7 @@ fn print_locals(host: &mut WqdbHost<'_, '_>) {
     print_frame_locals(host, &frame, false);
 }
 
-fn print_frame_locals(host: &WqdbHost<'_, '_>, frame: &DebugLocalsFrame, include_header: bool) {
+fn print_frame_locals(host: &Host<'_, '_>, frame: &DebugLocalsFrame, include_header: bool) {
     let di = host.debug_info();
     if include_header {
         wqdb_println!(
@@ -451,18 +449,15 @@ fn print_frame_locals(host: &WqdbHost<'_, '_>, frame: &DebugLocalsFrame, include
     wqdb_println!(host, render_table(&["name", "value", "kind"], &rows, &[]));
 }
 
-pub(in crate::wqdb) fn print_stop_card(host: &WqdbHost<'_, '_>) {
-    wqdb_println!(
-        host,
-        render_stop_card_with_color_mode(host, host.color_mode())
-    );
+pub(in crate::wqdb) fn print_stop_card(host: &Host<'_, '_>) {
+    wqdb_println!(host, render_stop_card(host, host.color_mode()));
 }
 
-pub(in crate::wqdb) fn print_stop_controls(host: &WqdbHost<'_, '_>, granularity: StepGranularity) {
+pub(in crate::wqdb) fn print_stop_controls(host: &Host<'_, '_>, granularity: StepGranularity) {
     wqdb_println!(host, stop_controls(granularity, host.color_mode()));
 }
 
-fn peek_context(host: &mut WqdbHost<'_, '_>, n: usize) {
+fn peek_context(host: &mut Host<'_, '_>, n: usize) {
     let di = host.debug_info();
     let Some(loc) = host.location() else {
         wqdb_println!(host, CURRENT_LOCATION_UNAVAILABLE);
@@ -507,7 +502,7 @@ fn peek_context(host: &mut WqdbHost<'_, '_>, n: usize) {
     }
 }
 
-fn peek_instructions(host: &mut WqdbHost<'_, '_>, n: usize) {
+fn peek_instructions(host: &mut Host<'_, '_>, n: usize) {
     let di = host.debug_info();
     let Some(loc) = host.location() else {
         wqdb_println!(host, CURRENT_LOCATION_UNAVAILABLE);
@@ -523,7 +518,7 @@ fn peek_instructions(host: &mut WqdbHost<'_, '_>, n: usize) {
         return;
     }
 
-    wqdb_println!(host, wqdb_header("INST", host.color_mode()));
+    wqdb_println!(host, header("INST", host.color_mode()));
 
     let start = loc.pc.saturating_sub(n);
     let end = (loc.pc + n).min(len.saturating_sub(1));
@@ -546,330 +541,4 @@ fn peek_instructions(host: &mut WqdbHost<'_, '_>, n: usize) {
 }
 
 #[cfg(test)]
-mod tests {
-    use wqpl::wqdb::Span;
-
-    use super::*;
-    use crate::wqdb::render::{
-        ansi_visible_width as ansi_visible_len, compact_instruction,
-        format_expr_stop_card as format_expr_stop_card_with_color_mode,
-        format_inst_stop_card as format_inst_stop_card_with_color_mode,
-        format_line_stop_card as format_line_stop_card_with_color_mode,
-        prompt as wqdb_prompt_with_color_mode, resolved_stop_span,
-        styled_command as styled_command_with_color_mode,
-        unavailable_stop_card as unavailable_stop_card_with_color_mode,
-    };
-
-    fn stop_card_debug_info() -> (DebugInfo, CodeLoc) {
-        let mut di = DebugInfo::default();
-        let file_id = di.new_file("demo.wq", "first\n  total:price*qty\nlast\n");
-        let chunk = di.new_chunk("calc", file_id, 5);
-        assert!(di.set_statement_span(
-            CodeLoc { chunk, pc: 2 },
-            Span {
-                file_id,
-                start: 6,
-                end: 23,
-            },
-        ));
-        assert!(di.set_exact_span(
-            CodeLoc { chunk, pc: 2 },
-            Span {
-                file_id,
-                start: 14,
-                end: 23,
-            },
-        ));
-        (di, CodeLoc { chunk, pc: 2 })
-    }
-
-    #[test]
-    fn command_styles_use_explicit_style_renderer() {
-        assert_eq!(
-            styled_command_with_color_mode("continue", ColorMode::Always),
-            "\x1b[32mcontinue\x1b[0m"
-        );
-        assert_eq!(
-            wqdb_paint_with_color_mode(
-                "INST",
-                TextStyle::new().bold().underline(),
-                ColorMode::Never,
-            ),
-            "INST"
-        );
-    }
-
-    #[test]
-    fn command_help_rows_are_indented() {
-        let usage_width = WQDB_COMMANDS
-            .iter()
-            .map(|spec| command_usage_plain(spec).len())
-            .max()
-            .expect("wqdb commands");
-        let row = wqdb_help_row(&WQDB_COMMANDS[0], usage_width, ColorMode::Never);
-
-        assert!(row.starts_with("  "));
-    }
-
-    #[test]
-    fn prompt_keeps_the_active_granularity_visible() {
-        assert_eq!(
-            wqdb_prompt_with_color_mode(StepGranularity::Expr, 3, ColorMode::Never),
-            "wqdb[expr:3] "
-        );
-    }
-
-    #[test]
-    fn unavailable_stop_cards_name_the_active_mode() {
-        assert_eq!(
-            unavailable_stop_card_with_color_mode(StepGranularity::Line, ColorMode::Never),
-            "LINE  current location unavailable"
-        );
-        assert_eq!(
-            unavailable_stop_card_with_color_mode(StepGranularity::Expr, ColorMode::Never),
-            "EXPR  current location unavailable"
-        );
-        assert_eq!(
-            unavailable_stop_card_with_color_mode(StepGranularity::Inst, ColorMode::Never),
-            "INST  current location unavailable"
-        );
-    }
-
-    #[test]
-    fn stale_locations_render_without_panicking() {
-        let di = DebugInfo::default();
-        let loc = CodeLoc {
-            chunk: wqpl::wqdb::ChunkId(u32::MAX),
-            pc: 7,
-        };
-
-        assert_eq!(
-            format_breakpoint_loc(&di, loc),
-            "pc 7 (location unavailable)"
-        );
-        assert_eq!(
-            format_loc_hint(&di, loc, Some("calc")),
-            "pc 7 in calc (location unavailable)"
-        );
-        assert_eq!(resolved_stop_span(&di, loc), (Span::NONE, false));
-    }
-
-    #[test]
-    fn line_stop_card_is_source_first_and_preserves_indentation() {
-        let (di, loc) = stop_card_debug_info();
-
-        let rendered = format_line_stop_card_with_color_mode(&di, loc, "calc", 1, ColorMode::Never);
-
-        assert_eq!(
-            rendered,
-            "LINE  demo.wq:2 in calc\n   1    first\n   2 ->   total:price*qty\n   3    last"
-        );
-    }
-
-    #[test]
-    fn expression_stop_card_focuses_the_exact_span() {
-        let (di, loc) = stop_card_debug_info();
-
-        let rendered = format_expr_stop_card_with_color_mode(
-            &di,
-            loc,
-            "calc",
-            Some("BinaryOp(Multiply)"),
-            ColorMode::Never,
-        );
-
-        assert_eq!(
-            rendered,
-            "EXPR  demo.wq:2:9 in calc\n  2 ->   total:price*qty\n               ~~~~~~~~~\npc 2  BinaryOp(Multiply)"
-        );
-    }
-
-    #[test]
-    fn expression_stop_card_preserves_pretty_instruction_color() {
-        let (di, loc) = stop_card_debug_info();
-        let instruction = "\x1b[35mBinaryOp\x1b[0m(Multiply)";
-
-        let rendered = format_expr_stop_card_with_color_mode(
-            &di,
-            loc,
-            "calc",
-            Some(instruction),
-            ColorMode::Always,
-        );
-
-        assert!(
-            rendered.ends_with(&format!("\x1b[90mpc 2  \x1b[0m{instruction}")),
-            "card was: {rendered:?}"
-        );
-    }
-
-    #[test]
-    fn instruction_stop_card_leads_with_disassembly_then_source() {
-        let (di, loc) = stop_card_debug_info();
-        let instructions = vec![
-            (0, "LoadLocal(0)".to_string()),
-            (1, "LoadLocal(1)".to_string()),
-            (2, "BinaryOp(Multiply)".to_string()),
-            (3, "StoreLocal(2)".to_string()),
-        ];
-
-        let rendered = format_inst_stop_card_with_color_mode(
-            &di,
-            loc,
-            "calc",
-            5,
-            &instructions,
-            ColorMode::Never,
-        );
-
-        assert_eq!(
-            rendered,
-            "INST  calc  pc 2/4\n   0    LoadLocal(0)\n   1    LoadLocal(1)\n   2 -> BinaryOp(Multiply)\n   3    StoreLocal(2)\n\nSOURCE  demo.wq:2:9\n  2 ->   total:price*qty\n               ~~~~~~~~~"
-        );
-    }
-
-    #[test]
-    fn instruction_stop_card_colors_prefix_without_overriding_opcode() {
-        let (di, loc) = stop_card_debug_info();
-        let instruction = "\x1b[35mBinaryOp\x1b[0m(Multiply)";
-
-        let rendered = format_inst_stop_card_with_color_mode(
-            &di,
-            loc,
-            "calc",
-            5,
-            &[(2, instruction.to_string())],
-            ColorMode::Always,
-        );
-
-        assert!(
-            rendered.contains(&format!("\x1b[1;32m   2 -> \x1b[0m{instruction}")),
-            "card was: {rendered:?}"
-        );
-    }
-
-    #[test]
-    fn compact_instruction_preserves_complete_ansi_sequences() {
-        let instruction = format!("\x1b[31mLoadConst\x1b[0m({})", "x".repeat(140));
-
-        let compact = compact_instruction(&instruction);
-
-        assert!(compact.starts_with("\x1b[31mLoadConst\x1b[0m("));
-        assert!(compact.ends_with("…\x1b[0m"));
-        assert_eq!(ansi_visible_len(&compact), 120);
-    }
-
-    #[test]
-    fn expression_stop_card_clamps_a_multiline_span() {
-        let mut di = DebugInfo::default();
-        let file_id = di.new_file("demo.wq", "x:(1;\n  2)\n");
-        let chunk = di.new_chunk("calc", file_id, 1);
-        assert!(di.set_exact_span(
-            CodeLoc { chunk, pc: 0 },
-            Span {
-                file_id,
-                start: 2,
-                end: 10,
-            },
-        ));
-
-        let rendered = format_expr_stop_card_with_color_mode(
-            &di,
-            CodeLoc { chunk, pc: 0 },
-            "calc",
-            Some("MakeList(2)"),
-            ColorMode::Never,
-        );
-
-        assert_eq!(
-            rendered,
-            "EXPR  demo.wq:1:3 in calc\n  1 -> x:(1;\n         ~~~\npc 0  MakeList(2)"
-        );
-    }
-
-    #[test]
-    fn stop_cards_keep_instruction_context_when_source_is_unavailable() {
-        let mut di = DebugInfo::default();
-        let file_id = di.new_file("demo.wq", "");
-        let chunk = di.new_chunk("calc", file_id, 1);
-        let loc = CodeLoc { chunk, pc: 0 };
-
-        let expr = format_expr_stop_card_with_color_mode(
-            &di,
-            loc,
-            "calc",
-            Some("Return"),
-            ColorMode::Never,
-        );
-        let inst = format_inst_stop_card_with_color_mode(
-            &di,
-            loc,
-            "calc",
-            1,
-            &[(0, "Return".to_string())],
-            ColorMode::Never,
-        );
-
-        assert_eq!(
-            expr,
-            "EXPR  pc 0 in calc\n  source unavailable\npc 0  Return"
-        );
-        assert!(
-            inst.ends_with("\n\nSOURCE  unavailable"),
-            "card was: {inst}"
-        );
-    }
-
-    #[test]
-    fn expression_stop_card_reports_display_columns() {
-        let mut di = DebugInfo::default();
-        let file_id = di.new_file("demo.wq", "α:1\n");
-        let chunk = di.new_chunk("calc", file_id, 1);
-        assert!(di.set_exact_span(
-            CodeLoc { chunk, pc: 0 },
-            Span {
-                file_id,
-                start: 3,
-                end: 4,
-            },
-        ));
-
-        let rendered = format_expr_stop_card_with_color_mode(
-            &di,
-            CodeLoc { chunk, pc: 0 },
-            "calc",
-            None,
-            ColorMode::Never,
-        );
-
-        assert!(
-            rendered.starts_with("EXPR  demo.wq:1:3 in calc"),
-            "card was: {rendered}"
-        );
-    }
-
-    #[test]
-    fn line_stop_card_omits_a_phantom_line_after_final_newline() {
-        let mut di = DebugInfo::default();
-        let file_id = di.new_file("demo.wq", "a:1\nb:2\n");
-        let chunk = di.new_chunk("calc", file_id, 1);
-        assert!(di.set_statement_span(
-            CodeLoc { chunk, pc: 0 },
-            Span {
-                file_id,
-                start: 4,
-                end: 7,
-            },
-        ));
-
-        let rendered = format_line_stop_card_with_color_mode(
-            &di,
-            CodeLoc { chunk, pc: 0 },
-            "calc",
-            2,
-            ColorMode::Never,
-        );
-
-        assert!(!rendered.contains("\n   3"), "card was: {rendered}");
-    }
-}
+mod tests;

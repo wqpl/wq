@@ -82,10 +82,7 @@ mod tests {
         );
         assert_eq!(
             validate_command("stop-hook add stop-hook add -o c"),
-            Err(
-                "syntax 'stop-hook add -o <command>' is no longer supported; use 'stop-hook add <command...>'"
-                    .to_string()
-            )
+            Err("unknown wqdb command '-o', type 'h' for help".to_string())
         );
     }
 }
