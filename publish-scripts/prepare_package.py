@@ -4,7 +4,6 @@ import shutil
 import sys
 from pathlib import Path
 
-
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 CRATE_DIRECTORY = SCRIPT_DIRECTORY.parent / "wq-wasm"
 
@@ -22,7 +21,7 @@ def main() -> int:
             )
         shutil.copyfile(source, destination)
         return 0
-    except Exception as error:
+    except OSError as error:
         print(f"Package preparation failed: {error}", file=sys.stderr)
         return 1
 

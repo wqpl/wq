@@ -26,11 +26,10 @@ import re
 import shutil
 import subprocess
 import sys
-from contextlib import contextmanager
-from datetime import datetime
-from pathlib import Path
-
 import tomllib
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 
 SUITE_DIR = Path(__file__).resolve().parent / "hotchoco" / "suite"
 PROJECT_ROOT = SUITE_DIR.parent.parent  # hotchoco/suite -> project root
@@ -90,7 +89,7 @@ def expected_exit_code_for(testcase: dict, mode: dict, test_name: str) -> int:
 def build_wq_cli() -> None:
     sys.stderr.write("Building wq-cli debug binary...\n")
     sys.stderr.flush()
-    proc = subprocess.run(WQ_CLI_DEBUG_BUILD_CMD, cwd=PROJECT_ROOT)
+    proc = subprocess.run(WQ_CLI_DEBUG_BUILD_CMD, cwd=PROJECT_ROOT, check=False)
     if proc.returncode != 0:
         sys.exit(proc.returncode)
 
@@ -144,7 +143,7 @@ def apply_filters_to_output(text: str, config: dict) -> str:
 # =====================================
 
 
-def discover_testcases(config: dict) -> list[dict]:
+def discover_testcases() -> list[dict]:
     """Load all TOML testcase files and expand source_globs into individual tests."""
     result = []
     tc_dir = SUITE_DIR / "testcases"
@@ -158,10 +157,10 @@ def discover_testcases(config: dict) -> list[dict]:
             # Check exclusion
             try:
                 first_line = src_path.read_text().split("\n", 1)[0].strip().lower()
-                if first_line.startswith(exclude_marker.lower()):
-                    continue
-            except Exception:
-                pass
+            except OSError, UnicodeError:
+                first_line = ""
+            if first_line.startswith(exclude_marker.lower()):
+                continue
             test_name = src_path.stem
             output_extension = tc.get("output_extension", "")
             for mode in tc["modes"]:
@@ -209,6 +208,7 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
             text=True,
             timeout=timeout,
             cwd=PROJECT_ROOT,
+            check=False,
         )
         stdout = proc.stdout
         stderr = proc.stderr
@@ -217,9 +217,9 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
         stdout = ""
         stderr = f"TIMEOUT after {timeout}s"
         return_code = -1
-    except Exception as e:
+    except OSError as error:
         stdout = ""
-        stderr = str(e)
+        stderr = str(error)
         return_code = -1
 
     # Capture based on mode config
@@ -252,6 +252,7 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
                 text=True,
                 timeout=timeout,
                 cwd=PROJECT_ROOT,
+                check=False,
             )
             if stable_proc.stdout != stdout:
                 validation_errors.append(
@@ -600,7 +601,7 @@ def create_output_dir() -> Path:
     output_base = SUITE_DIR / "output"
     pid = os.getpid()
     for attempt in range(100):
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
         name = f"{ts}_{pid}"
         if attempt:
             name = f"{name}_{attempt}"
@@ -749,7 +750,7 @@ def accept_detail(result: dict) -> str:
 
 def cmd_run(args: argparse.Namespace) -> None:
     config = load_config()
-    tests = discover_testcases(config)
+    tests = discover_testcases()
     tests = filter_tests(tests, args.group, args.test)
     if not tests:
         print(f"No tests matched {selector_label(args.group, args.test)}.")
@@ -828,7 +829,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
-    output_dir, summary = load_summary(None)
+    _, summary = load_summary(None)
     summary = filter_summary(summary, args.group, args.test)
     if not summary:
         print(f"No tests matched {selector_label(args.group, args.test)}.")
@@ -862,7 +863,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
 
 
 def cmd_show(args: argparse.Namespace) -> None:
-    output_dir, summary = load_summary(None)
+    _, summary = load_summary(None)
     summary = filter_summary(summary, args.group, args.test)
     if not summary:
         print(f"No tests matched {selector_label(args.group, args.test)}.")
@@ -903,7 +904,7 @@ def cmd_show(args: argparse.Namespace) -> None:
         pager = os.environ.get("PAGER", "less -R")
         if pager:
             try:
-                subprocess.run(pager.split(), input=output, text=True)
+                subprocess.run(pager.split(), input=output, text=True, check=False)
             except FileNotFoundError:
                 sys.stdout.write(output)
         else:
@@ -991,7 +992,7 @@ def cmd_status(args: argparse.Namespace) -> None:
             print(f"  {ansi(icon, style)} {key}{suffix}")
 
 
-def cmd_clean(args: argparse.Namespace) -> None:
+def cmd_clean(_args: argparse.Namespace) -> None:
     output_base = SUITE_DIR / "output"
     if not output_base.exists():
         print("No output directory found.")
@@ -1082,7 +1083,7 @@ def cmd_review(args: argparse.Namespace) -> None:
         while True:
             try:
                 resp = input(review_prompt()).strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError, KeyboardInterrupt:
                 resp = "q"
 
             if resp in ("a", "accept"):

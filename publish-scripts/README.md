@@ -7,7 +7,7 @@ assume the current directory is the workspace root.
 
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.14.6
 - Cargo 1.90 or newer
 - Node.js 24
 - npm 11.18.0

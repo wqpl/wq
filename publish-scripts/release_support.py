@@ -7,7 +7,6 @@ from itertools import zip_longest
 
 from command import PublishError
 
-
 _IDENTIFIER = r"[0-9A-Za-z-]+"
 _VERSION_PATTERN = re.compile(
     rf"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"

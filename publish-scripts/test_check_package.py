@@ -1,16 +1,22 @@
 import unittest
+from typing import ClassVar
 
 from check_package import PublishError, validate_package_metadata
 
 
 class PackageMetadataTests(unittest.TestCase):
-    PACKAGE = {
+    PACKAGE: ClassVar[dict[str, object]] = {
         "name": "wq-wasm",
         "version": "0.9.0-preview1",
         "repository": {"url": "git+https://github.com/wqpl/wq.git"},
     }
-    GENERATED = {"name": "wq-wasm", "version": "0.9.0-preview1"}
-    CARGO = {"packages": [{"name": "wq-wasm", "version": "0.9.0-preview1"}]}
+    GENERATED: ClassVar[dict[str, object]] = {
+        "name": "wq-wasm",
+        "version": "0.9.0-preview1",
+    }
+    CARGO: ClassVar[dict[str, object]] = {
+        "packages": [{"name": "wq-wasm", "version": "0.9.0-preview1"}]
+    }
 
     def test_validates_preview_metadata(self) -> None:
         npm_tag = validate_package_metadata(

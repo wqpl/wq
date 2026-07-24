@@ -1,0 +1,44 @@
+name: Test Python
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Lint and test Python tools
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14.6"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9
+
+      - name: Sync Python tools
+        run: uv sync --locked
+
+      - name: Lint Python
+        run: uv run --frozen ruff check .
+
+      - name: Check Python formatting
+        run: uv run --frozen ruff format --check .
+
+      - name: Test Python tools
+        run: uv run --frozen python -m unittest test_hotchoco test_wqbench
+
+      - name: Test publishing scripts
+        run: >-
+          uv run --frozen python -m unittest discover
+          -s publish-scripts
+          -t publish-scripts
+          -p 'test_*.py'

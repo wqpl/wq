@@ -24,7 +24,6 @@ from release_support import (
     workspace_version,
 )
 
-
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 WORKSPACE_DIRECTORY = SCRIPT_DIRECTORY.parent
 WASM_CRATE_DIRECTORY = WORKSPACE_DIRECTORY / "wq-wasm"
@@ -362,8 +361,7 @@ def release(options: argparse.Namespace) -> None:
 
     current_version = workspace_version(original_cargo_manifest)
     target_version = options.version or next_version(current_version)
-    if target_version.startswith("v"):
-        target_version = target_version[1:]
+    target_version = target_version.removeprefix("v")
     parse_version(target_version)
     require_version_advance(current_version, target_version)
     tag = f"v{target_version}"
@@ -428,9 +426,11 @@ def release(options: argparse.Namespace) -> None:
                 "-m",
                 f"release {tag}",
                 "-m",
-                "Bump Cargo, npm package, and Tree-sitter grammar versions "
-                "for the release.\n\n"
-                "Release Notes:\n\n- N/A",
+                (
+                    "Bump Cargo, npm package, and Tree-sitter grammar versions "
+                    "for the release.\n\n"
+                    "Release Notes:\n\n- N/A"
+                ),
             ),
             cwd=WORKSPACE_DIRECTORY,
         )
@@ -477,7 +477,7 @@ def main(arguments: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nRelease interrupted.", file=sys.stderr)
         return 130
-    except Exception as error:
+    except PublishError as error:
         print(f"\nRelease failed: {error}", file=sys.stderr)
         return 1
 

@@ -50,14 +50,16 @@ class HotchocoHarnessTests(unittest.TestCase):
             "capture": "stdout",
             "output_extension": "",
         }
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with mock.patch.object(hotchoco.subprocess, "run", side_effect=fake_run):
-                hotchoco.run_one_test(test, {}, Path(tmp_dir))
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            mock.patch.object(hotchoco.subprocess, "run", side_effect=fake_run),
+        ):
+            hotchoco.run_one_test(test, {}, Path(tmp_dir))
 
         self.assertEqual(calls[0][1]["timeout"], 30)
 
     def test_run_one_test_reports_exit_code_mismatch(self) -> None:
-        def fake_run(cmd, **kwargs):
+        def fake_run(_cmd, **_kwargs):
             return subprocess_result(stdout="same output\n", returncode=1)
 
         test = {
@@ -83,14 +85,17 @@ class HotchocoHarnessTests(unittest.TestCase):
         self.assertEqual(hotchoco.exit_code_note(result), "exit code 1, expected 0")
 
     def test_build_wq_cli_uses_debug_build_command(self) -> None:
-        with mock.patch.object(hotchoco.subprocess, "run") as run:
-            with mock.patch.object(hotchoco.sys, "stderr"):
-                run.return_value = subprocess_result(returncode=0)
-                hotchoco.build_wq_cli()
+        with (
+            mock.patch.object(hotchoco.subprocess, "run") as run,
+            mock.patch.object(hotchoco.sys, "stderr"),
+        ):
+            run.return_value = subprocess_result(returncode=0)
+            hotchoco.build_wq_cli()
 
         run.assert_called_once_with(
             ["cargo", "build", "-p", "wq-cli"],
             cwd=hotchoco.PROJECT_ROOT,
+            check=False,
         )
 
     def test_compute_diff_labels_changes_without_bare_plus_minus(self) -> None:
@@ -279,7 +284,7 @@ def subprocess_result(stdout="", stderr="", returncode=0):
 
 class FixedDatetime:
     @classmethod
-    def now(cls):
+    def now(cls, _tz=None):
         return cls()
 
     def strftime(self, _fmt):

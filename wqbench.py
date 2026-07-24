@@ -78,7 +78,7 @@ import shlex
 import statistics
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -321,7 +321,7 @@ def git_blob_sha256(commit: str, rel_path: str) -> str | None:
             cwd=PROJECT_ROOT,
             stderr=subprocess.DEVNULL,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         GIT_BLOB_HASH_CACHE[key] = None
         return None
 
@@ -364,11 +364,11 @@ def record_profile(rec: dict[str, Any]) -> str:
 def record_timestamp(rec: dict[str, Any]) -> datetime:
     raw = str(rec.get("timestamp") or "")
     try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(raw)
     except ValueError:
-        return datetime.min.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=UTC)
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
+        return parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -379,7 +379,7 @@ def is_excluded(path: Path) -> bool:
         first = path.read_text(encoding="utf-8").splitlines()[0]
         trimmed = first.strip().lower()
         return any(trimmed.startswith(p) for p in exclude_comment)
-    except Exception:
+    except IndexError, OSError, UnicodeError:
         return False
 
 
@@ -459,6 +459,7 @@ def run_hyperfine_individual(
                 capture_output=True,
                 text=True,
                 cwd=PROJECT_ROOT,
+                check=False,
             )
         except OSError as exc:
             reason = f"could not run wq preflight: {exc}"
@@ -1105,9 +1106,7 @@ def _resolve_run_dir_from_record(rec: dict[str, Any]) -> Path:
     profile = record_profile(rec)
     ts = rec.get("timestamp", "")
     try:
-        ts_str = datetime.fromisoformat(str(ts).replace("Z", "+00:00")).strftime(
-            "%Y%m%d_%H%M%S"
-        )
+        ts_str = datetime.fromisoformat(str(ts)).strftime("%Y%m%d_%H%M%S")
     except ValueError:
         ts_str = "unknown"
     return BENCHMARKS_ROOT / f"v{version}_{profile}_{ts_str}"
@@ -1215,7 +1214,7 @@ def main() -> int:
     files = collect_benchmarks()
     git_info = get_git_info()
     version = get_version(git_info, args.version)
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     ts_str = ts.strftime("%Y%m%d_%H%M%S")
     run_dir = BENCHMARKS_ROOT / (
         f"v{safe_dir_component(version)}_{safe_dir_component(profile)}_{ts_str}"

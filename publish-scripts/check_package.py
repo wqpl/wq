@@ -9,7 +9,6 @@ from typing import Any
 from command import PublishError, run_command
 from release_support import parse_version
 
-
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 WORKSPACE_DIRECTORY = SCRIPT_DIRECTORY.parent
 CRATE_DIRECTORY = WORKSPACE_DIRECTORY / "wq-wasm"
@@ -125,7 +124,7 @@ def main() -> int:
             ) as output:
                 output.write(f"npm_tag={npm_tag}\n")
         return 0
-    except Exception as error:
+    except (OSError, PublishError) as error:
         print(f"Package check failed: {error}", file=sys.stderr)
         return 1
 

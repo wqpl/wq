@@ -59,6 +59,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14.6"
+
       - name: Extract release notes
         env:
           RELEASE_TAG: ${{ github.ref_name }}

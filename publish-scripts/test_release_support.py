@@ -31,15 +31,19 @@ class VersionTests(unittest.TestCase):
             ("0.9.0-preview2", "0.9.0-preview1"),
             ("0.9.0+build.1", "0.9.0+build.2"),
         ):
-            with self.subTest(current=current, target=target):
-                with self.assertRaisesRegex(PublishError, "not newer"):
-                    require_version_advance(current, target)
+            with (
+                self.subTest(current=current, target=target),
+                self.assertRaisesRegex(PublishError, "not newer"),
+            ):
+                require_version_advance(current, target)
 
     def test_rejects_invalid_semver(self) -> None:
         for version in ("1", "1.2", "01.2.3", "1.2.3-01", "1.2.3-"):
-            with self.subTest(version=version):
-                with self.assertRaisesRegex(PublishError, "invalid version"):
-                    next_version(version)
+            with (
+                self.subTest(version=version),
+                self.assertRaisesRegex(PublishError, "invalid version"),
+            ):
+                next_version(version)
 
 
 class CargoManifestTests(unittest.TestCase):

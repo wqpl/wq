@@ -38,8 +38,10 @@ Release Notes:
         self.assertEqual(
             extract_release_notes(messages),
             [
-                "- Added the first feature with a description that\n"
-                "  continues on another line.",
+                (
+                    "- Added the first feature with a description that\n"
+                    "  continues on another line."
+                ),
                 "- Fixed the second feature.",
             ],
         )
