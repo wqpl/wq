@@ -32,6 +32,10 @@ function normalizeEditorText(text) {
   return String(text).replace(/\r\n?/g, "\n");
 }
 
+export function isImeCompositionKey(event, compositionActive = false) {
+  return compositionActive || event.isComposing || event.keyCode === 229;
+}
+
 function ownsSelection(el) {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return false;
@@ -122,6 +126,7 @@ export function createWqEditor(textarea, options = {}) {
     end: value.length,
   };
   let composing = false;
+  let compositionCommitFrame = null;
   let symbolAnalysis = null;
   let symbolAnalysisSource = null;
   let symbolAnalysisTimer = null;
@@ -192,6 +197,7 @@ export function createWqEditor(textarea, options = {}) {
   }
 
   function refreshSymbolOverlays() {
+    if (composing || compositionCommitFrame !== null) return;
     const nextSelection = selectionOffsets(el, value) || selection;
     removeSymbolOverlays();
     addSymbolOverlays(nextSelection.start);
@@ -240,6 +246,13 @@ export function createWqEditor(textarea, options = {}) {
     if (multilineMode === "shift") return event.shiftKey;
     if (multilineMode === "plain") return !event.shiftKey;
     return false;
+  }
+
+  function isImeCompositionActive(event) {
+    return isImeCompositionKey(
+      event,
+      composing || compositionCommitFrame !== null,
+    );
   }
 
   function render({ preserveSelection = true } = {}) {
@@ -303,6 +316,20 @@ export function createWqEditor(textarea, options = {}) {
     dispatchEditorInput(el);
   }
 
+  function syncFromDom() {
+    const nextValue = normalizeValue(el.textContent || "");
+    const currentSelection = selectionOffsets(el, nextValue.length);
+    value = nextValue;
+    if (currentSelection) {
+      selection = {
+        start: clampOffset(value, currentSelection.start),
+        end: clampOffset(value, currentSelection.end),
+      };
+    }
+    render({ preserveSelection: true });
+    scheduleSymbolAnalysis();
+  }
+
   el.addEventListener("focus", () => {
     setDomSelection(el, value, selection.start, selection.end);
     refreshSymbolOverlays();
@@ -312,6 +339,7 @@ export function createWqEditor(textarea, options = {}) {
   el.addEventListener("mouseup", refreshSymbolOverlays);
 
   el.addEventListener("keydown", (event) => {
+    if (isImeCompositionActive(event)) return;
     if (event.key === "Enter" && singleLineMode) {
       event.preventDefault();
       return;
@@ -343,43 +371,34 @@ export function createWqEditor(textarea, options = {}) {
   });
 
   el.addEventListener("compositionstart", () => {
+    if (compositionCommitFrame !== null) {
+      window.cancelAnimationFrame(compositionCommitFrame);
+      compositionCommitFrame = null;
+    }
     composing = true;
   });
 
   el.addEventListener("compositionend", () => {
     composing = false;
-    const nextValue = normalizeValue(el.textContent || "");
-    const nextSelection = selectionOffsets(el, nextValue.length) || {
-      start: nextValue.length,
-      end: nextValue.length,
-    };
-    setValue(nextValue, {
-      selectionStart: nextSelection.start,
-      selectionEnd: nextSelection.end,
-      preserveSelection: true,
+    compositionCommitFrame = window.requestAnimationFrame(() => {
+      compositionCommitFrame = null;
+      if (!composing) syncFromDom();
     });
   });
 
   el.addEventListener("input", () => {
-    if (composing) {
+    if (composing || compositionCommitFrame !== null) {
       value = normalizeValue(el.textContent || "");
       return;
     }
-    const nextValue = normalizeValue(el.textContent || "");
-    const currentSelection = selectionOffsets(el, nextValue.length);
-    value = nextValue;
-    if (currentSelection) {
-      selection = {
-        start: clampOffset(value, currentSelection.start),
-        end: clampOffset(value, currentSelection.end),
-      };
-    }
-    render({ preserveSelection: true });
-    scheduleSymbolAnalysis();
+    syncFromDom();
   });
 
   const editor = {
     element: el,
+    get isComposing() {
+      return composing || compositionCommitFrame !== null;
+    },
     get value() {
       return value;
     },

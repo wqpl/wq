@@ -26,7 +26,7 @@ import {
   queueEval,
   formatWqError,
 } from "./wq-shared.js";
-import { createWqEditor } from "./editor.js";
+import { createWqEditor, isImeCompositionKey } from "./editor.js";
 import {
   createEvaluationController,
   isAbortError,
@@ -1539,6 +1539,7 @@ export async function mountRepl(root) {
   });
   ui.codeEl.addEventListener("input", () => syncInputPresentation());
   ui.codeEl.addEventListener("keydown", (e) => {
+    if (isImeCompositionKey(e, ui.codeEl.isComposing)) return;
     if (e.key === "Escape" && evaluationController.active) {
       e.preventDefault();
       evaluationController.stop("stop requested");
