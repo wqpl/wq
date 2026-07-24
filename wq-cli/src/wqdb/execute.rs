@@ -4,7 +4,7 @@ mod stop_hooks;
 mod tracking;
 
 use tracking::execute as execute_tracking;
-pub(super) use tracking::print_symbol_mutation;
+pub(in crate::wqdb) use tracking::print_symbol_mutation;
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
 use wqpl::wqdb::{CodeLoc, DebugInfo, DebugLocalsFrame, DebugResume, StepGranularity};
