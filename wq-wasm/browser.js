@@ -83,6 +83,35 @@ function inputCallbackMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+const DEBUGGER_RESUME_ACTIONS = new Set([
+  "continue",
+  "step_in",
+  "step_over",
+  "step_out",
+]);
+
+function debuggerResumeAction(value) {
+  if (DEBUGGER_RESUME_ACTIONS.has(value)) return value;
+  throw new TypeError(
+    "onDebuggerPause must return 'continue', 'step_in', 'step_over', or 'step_out'",
+  );
+}
+
+function debuggerSourceLines(lines) {
+  if (lines == null || typeof lines[Symbol.iterator] !== "function") {
+    throw new TypeError("debugger breakpoint lines must be iterable");
+  }
+  const values = Array.from(lines, Number);
+  for (const line of values) {
+    if (!Number.isSafeInteger(line) || line < 1 || line > 0xffff_ffff) {
+      throw new TypeError(
+        "debugger breakpoint lines must be positive 32-bit integers",
+      );
+    }
+  }
+  return new Uint32Array(values);
+}
+
 /**
  * Public browser session facade.
  *
@@ -94,6 +123,7 @@ export class WasmWqSession {
   #session;
   #activeCalls = 0;
   #activeEvaluation = false;
+  #activePauseId = null;
   #disposeRequested = false;
   #disposalController = new AbortController();
   #stdinCallback = null;
@@ -134,6 +164,68 @@ export class WasmWqSession {
     } finally {
       this.#activeCalls -= 1;
       this.#flushDisposal();
+    }
+  }
+
+  #debuggerStop(pause, sourcePath) {
+    const pauseId = pause.id;
+    const requireCurrentPause = () => {
+      if (this.#activePauseId !== pauseId) {
+        throw new Error("Debugger pause is no longer active");
+      }
+    };
+    const call = (method, ...args) => {
+      requireCurrentPause();
+      return this.#evaluationCall(method, ...args);
+    };
+    return Object.freeze({
+      pause,
+      sourcePath,
+      stack: () => Array.from(call("debugger_stack")),
+      globals: () => Array.from(call("debugger_globals")),
+      locals: (frameIndex) =>
+        Array.from(call("debugger_locals", frameIndex)),
+      instruction: (pc = pause.pc) =>
+        call("debugger_instruction", pc),
+      granularity: () => call("get_debugger_step_granularity"),
+      setGranularity: (name) =>
+        call("set_debugger_step_granularity", name),
+      setSourceBreakpoints: (lines) =>
+        Array.from(
+          call(
+            "set_debugger_source_breakpoints",
+            sourcePath,
+            debuggerSourceLines(lines),
+          ),
+        ),
+      trackSymbol: (name) => call("track_debugger_symbol", name),
+      trackGlobal: (name) => call("track_debugger_global", name),
+      trackLocal: (name) => call("track_debugger_local", name),
+      trackCapture: (slot) => call("track_debugger_capture", slot),
+      trackers: () =>
+        Array.from(call("debugger_symbol_trackers")),
+      removeTracker: (id) =>
+        call("remove_debugger_symbol_tracker", id),
+      clearTrackers: () => call("clear_debugger_symbol_trackers"),
+      takeNotifications: () =>
+        Array.from(call("take_debugger_notifications")),
+    });
+  }
+
+  async #deliverDebuggerNotifications(
+    callback,
+    signal,
+  ) {
+    if (!callback) return;
+    const notifications = Array.from(
+      this.#evaluationCall("take_debugger_notifications"),
+    );
+    for (const notification of notifications) {
+      await awaitWithCancellation(
+        callback(notification),
+        signal,
+        this.#disposalController.signal,
+      );
     }
   }
 
@@ -189,6 +281,24 @@ export class WasmWqSession {
     }
 
     const { signal } = options;
+    const sourcePath = options.sourcePath ?? "<wasm>";
+    const onDebuggerPause = options.onDebuggerPause;
+    const onDebuggerNotification = options.onDebuggerNotification;
+    if (typeof sourcePath !== "string" || sourcePath.length === 0) {
+      throw new TypeError("sourcePath must be a non-empty string");
+    }
+    if (
+      onDebuggerPause !== undefined &&
+      typeof onDebuggerPause !== "function"
+    ) {
+      throw new TypeError("onDebuggerPause must be a function");
+    }
+    if (
+      onDebuggerNotification !== undefined &&
+      typeof onDebuggerNotification !== "function"
+    ) {
+      throw new TypeError("onDebuggerNotification must be a function");
+    }
     const timeSliceMs = options.timeSliceMs ?? DEFAULT_TIME_SLICE_MS;
     if (!Number.isFinite(timeSliceMs) || timeSliceMs <= 0) {
       throw new TypeError("timeSliceMs must be a positive finite number");
@@ -202,7 +312,7 @@ export class WasmWqSession {
       if (signal?.aborted) {
         throw abortError(signal.reason);
       }
-      this.#evaluationCall("start_eval_wq", src);
+      this.#evaluationCall("start_eval_wq_named", sourcePath, src);
       started = true;
 
       while (true) {
@@ -232,6 +342,10 @@ export class WasmWqSession {
         );
 
         if (result.status === "ready") {
+          await this.#deliverDebuggerNotifications(
+            onDebuggerNotification,
+            signal,
+          );
           finished = true;
           return result.value;
         }
@@ -293,9 +407,44 @@ export class WasmWqSession {
           }
           continue;
         }
+        if (result.status === "paused") {
+          await this.#deliverDebuggerNotifications(
+            onDebuggerNotification,
+            signal,
+          );
+          if (!onDebuggerPause) {
+            throw new Error(
+              "Evaluation paused in wqdb, but onDebuggerPause is not configured",
+            );
+          }
+          this.#activePauseId = result.pause.id;
+          try {
+            const action = debuggerResumeAction(
+              await awaitWithCancellation(
+                onDebuggerPause(
+                  this.#debuggerStop(result.pause, sourcePath),
+                ),
+                signal,
+                this.#disposalController.signal,
+              ),
+            );
+            this.#evaluationCall(
+              "resume_eval_wq_debugger",
+              result.pause.id,
+              action,
+            );
+          } finally {
+            this.#activePauseId = null;
+          }
+          continue;
+        }
         if (result.status !== "yielded") {
           throw new Error(`Unknown evaluation status '${result.status}'`);
         }
+        await this.#deliverDebuggerNotifications(
+          onDebuggerNotification,
+          signal,
+        );
         await yieldToHost();
       }
     } finally {
@@ -306,6 +455,7 @@ export class WasmWqSession {
           // Preserve the original evaluation, abort, or disposal error.
         }
       }
+      this.#activePauseId = null;
       this.#activeEvaluation = false;
       this.#flushDisposal();
     }
@@ -337,6 +487,76 @@ export class WasmWqSession {
 
   get_wqdb_mode() {
     return this.#call("get_wqdb_mode");
+  }
+
+  arm_wqdb_next() {
+    return this.#call("arm_wqdb_next");
+  }
+
+  debugger_stack() {
+    return Array.from(this.#call("debugger_stack"));
+  }
+
+  debugger_globals() {
+    return Array.from(this.#call("debugger_globals"));
+  }
+
+  debugger_locals(frameIndex) {
+    return Array.from(this.#call("debugger_locals", frameIndex));
+  }
+
+  debugger_instruction(pc) {
+    return this.#call("debugger_instruction", pc);
+  }
+
+  get_debugger_step_granularity() {
+    return this.#call("get_debugger_step_granularity");
+  }
+
+  set_debugger_step_granularity(name) {
+    return this.#call("set_debugger_step_granularity", name);
+  }
+
+  set_debugger_source_breakpoints(sourcePath, lines) {
+    return Array.from(
+      this.#call(
+        "set_debugger_source_breakpoints",
+        sourcePath,
+        debuggerSourceLines(lines),
+      ),
+    );
+  }
+
+  track_debugger_symbol(name) {
+    return this.#call("track_debugger_symbol", name);
+  }
+
+  track_debugger_global(name) {
+    return this.#call("track_debugger_global", name);
+  }
+
+  track_debugger_local(name) {
+    return this.#call("track_debugger_local", name);
+  }
+
+  track_debugger_capture(slot) {
+    return this.#call("track_debugger_capture", slot);
+  }
+
+  debugger_symbol_trackers() {
+    return Array.from(this.#call("debugger_symbol_trackers"));
+  }
+
+  remove_debugger_symbol_tracker(id) {
+    return this.#call("remove_debugger_symbol_tracker", id);
+  }
+
+  clear_debugger_symbol_trackers() {
+    return this.#call("clear_debugger_symbol_trackers");
+  }
+
+  take_debugger_notifications() {
+    return Array.from(this.#call("take_debugger_notifications"));
   }
 
   globals() {

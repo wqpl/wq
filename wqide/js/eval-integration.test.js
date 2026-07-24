@@ -37,9 +37,10 @@ test("wqide has no queued, modal, or preloaded stdin integration", async () => {
 
 test("every wqide async evaluation receives its run signal", async () => {
   const source = await integrationSource();
-  const calls = source.match(/eval_wq_async\([^\n]+/g) || [];
+  const calls = [...source.matchAll(/eval_wq_async\(/g)];
   assert.ok(calls.length >= 5);
   for (const call of calls) {
-    assert.match(call, /\{ signal \}/);
+    const callSource = source.slice(call.index, call.index + 300);
+    assert.match(callSource, /\bsignal\b/);
   }
 });

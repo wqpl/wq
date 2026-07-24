@@ -1329,7 +1329,7 @@ impl Session {
         // for it.
         // A pause handler is configured independently through set_pause_handler().
         if temp_wqdb_on {
-            self.vm.dbg_step_in();
+            self.vm.dbg_arm_entry();
         }
         Ok(None)
     }
@@ -2076,6 +2076,53 @@ mod tests {
     }
 
     #[test]
+    fn cooperative_debugger_resume_advances_past_the_paused_boundary() {
+        let mut session = Session::new();
+        session.set_wqdb(true);
+        let mut evaluation = session
+            .start_script_evaluation("resume-boundary.wq", "first:1\nsecond:2\n@p first+second")
+            .expect("start cooperative evaluation");
+        let mut reasons = Vec::new();
+
+        loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 10)
+                .expect("poll cooperative evaluation")
+            {
+                EvaluationPoll::Paused(pause) => {
+                    reasons.push(pause.event().reason);
+                    if pause.event().reason == PauseReason::Entry {
+                        let breakpoints = session
+                            .debugger()
+                            .set_source_breakpoints("resume-boundary.wq", &[2]);
+                        let [breakpoint] = breakpoints.as_slice() else {
+                            panic!("expected one source breakpoint");
+                        };
+                        assert!(breakpoint.location.is_none());
+                    }
+                    session
+                        .resume_script_debugger(&mut evaluation, pause.id(), ResumeAction::Continue)
+                        .expect("debugger pause should resume");
+                    assert!(reasons.len() <= 3, "pause boundary repeated after resume");
+                }
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::Ready(value) => {
+                    assert_eq!(value, Value::Int(3));
+                    break;
+                }
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("debugger test should not request input")
+                }
+            }
+        }
+
+        assert_eq!(reasons.len(), 3);
+        assert_eq!(reasons[0], PauseReason::Entry);
+        assert!(matches!(reasons[1], PauseReason::Breakpoint { .. }));
+        assert!(matches!(reasons[2], PauseReason::ExplicitPause { .. }));
+    }
+
+    #[test]
     fn symbol_tracking_produces_typed_mutation_notifications() {
         let mut session = Session::new();
         session.set_pause_handler(|_, debugger| {
@@ -2642,11 +2689,14 @@ mod tests {
 
     #[test]
     fn enabled_wqdb_can_be_rearmed_for_another_eval() {
-        let pauses = Arc::new(AtomicUsize::new(0));
-        let captured_pauses = Arc::clone(&pauses);
+        let reasons = Arc::new(Mutex::new(Vec::new()));
+        let captured_reasons = Arc::clone(&reasons);
         let mut session = Session::new();
-        session.set_pause_handler(move |_, _| {
-            captured_pauses.fetch_add(1, Ordering::SeqCst);
+        session.set_pause_handler(move |event, _| {
+            captured_reasons
+                .lock()
+                .expect("pause reasons lock")
+                .push(event.reason);
             DebugResume::Continue
         });
         session.set_wqdb(true);
@@ -2655,7 +2705,10 @@ mod tests {
         session.arm_wqdb_next();
         session.eval_string("x+:1").expect("second eval should run");
 
-        assert_eq!(pauses.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            reasons.lock().expect("pause reasons lock").as_slice(),
+            &[PauseReason::Entry, PauseReason::Entry]
+        );
     }
 
     #[test]

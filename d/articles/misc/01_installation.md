@@ -12,7 +12,7 @@ The official site for wq, [wq-pl.com](https://wq-pl.com), hosts **wqide**, the w
 
 wqide is useful for learning, experimenting, and quick mobile access.
 
-However, it currently lacks support for advanced features such as advanced REPL commands, file I/O, and wqdb.
+The browser sandbox still limits file I/O and some advanced REPL commands. The REPL includes wqdb with entry pauses, stepping, source-line breakpoints, stack and binding inspection, and symbol tracking.
 
 ## Install with Cargo
 

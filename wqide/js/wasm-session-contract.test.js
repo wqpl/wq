@@ -222,6 +222,126 @@ test("session callback boundaries return structured diagnostics", async (t) => {
         return true;
       },
     );
+
+    session.set_stdin_callback(null);
+    session.set_wqdb_mode(true);
+    const debuggerNotifications = [];
+    const pauseReasons = [];
+    let staleStop = null;
+    const debugResult = await session.eval_wq_async(
+      'answer:40+2\n@p answer',
+      {
+        sourcePath: "<contract:debug>",
+        onDebuggerNotification(notification) {
+          debuggerNotifications.push(notification);
+        },
+        onDebuggerPause(stop) {
+          staleStop = stop;
+          pauseReasons.push(stop.pause.reason);
+          assert.equal(stop.pause.location.path, "<contract:debug>");
+          assert.ok(stop.pause.location.line >= 1);
+          assert.ok(Array.isArray(stop.pause.location.span));
+          assert.ok(stop.instruction());
+          assert.ok(stop.stack().length >= 1);
+          assert.equal(stop.granularity(), "expr");
+          if (stop.pause.reason === "entry") {
+            const tracked = stop.trackGlobal("answer");
+            assert.equal(tracked.added, true);
+          } else {
+            assert.equal(stop.pause.reason, "explicit_pause");
+            assert.equal(stop.pause.breakpoint_id, null);
+            assert.ok(stop.pause.explicit_pause_id > 0);
+            assert.ok(
+              stop.globals().some((binding) => binding.name === "answer"),
+            );
+          }
+          return "continue";
+        },
+      },
+    );
+    assert.equal(debugResult.display, "42");
+    assert.deepEqual(pauseReasons, ["entry", "explicit_pause"]);
+    assert.equal(debuggerNotifications.length, 1);
+    assert.equal(debuggerNotifications[0].target.name, "answer");
+    assert.equal(debuggerNotifications[0].new_value.display, "42");
+    assert.throws(
+      () => staleStop.stack(),
+      /Debugger pause is no longer active/,
+    );
+
+    session.arm_wqdb_next();
+    const breakpointReasons = [];
+    const breakpointResult = await session.eval_wq_async(
+      "first:1\nsecond:2\nfirst+second",
+      {
+        sourcePath: "<contract:breakpoint>",
+        onDebuggerPause(stop) {
+          breakpointReasons.push(stop.pause.reason);
+          if (stop.pause.reason === "entry") {
+            const [breakpoint] = stop.setSourceBreakpoints([2]);
+            assert.equal(breakpoint.source_path, "<contract:breakpoint>");
+            assert.equal(breakpoint.requested_line, 2);
+            assert.equal(breakpoint.chunk, null);
+          }
+          return "continue";
+        },
+      },
+    );
+    assert.equal(breakpointResult.display, "3");
+    assert.deepEqual(breakpointReasons, ["entry", "breakpoint"]);
+
+    session.arm_wqdb_next();
+    const stepReasons = [];
+    const stepResult = await session.eval_wq_async(
+      "left:1;right:2;left+right",
+      {
+        sourcePath: "<contract:step>",
+        onDebuggerPause(stop) {
+          stepReasons.push(stop.pause.reason);
+          return stepReasons.length === 1 ? "step_over" : "continue";
+        },
+      },
+    );
+    assert.equal(stepResult.display, "3");
+    assert.deepEqual(stepReasons, ["entry", "step"]);
+
+    session.arm_wqdb_next();
+    await assert.rejects(
+      session.eval_wq_async("1", {
+        sourcePath: "<contract:missing-handler>",
+      }),
+      /onDebuggerPause is not configured/,
+    );
+
+    session.arm_wqdb_next();
+    const debugController = new AbortController();
+    let signalPauseReached;
+    const pauseReached = new Promise((resolve) => {
+      signalPauseReached = resolve;
+    });
+    let abortedStop = null;
+    const pausedEvaluation = session.eval_wq_async("1", {
+      signal: debugController.signal,
+      sourcePath: "<contract:abort>",
+      onDebuggerPause(stop) {
+        abortedStop = stop;
+        signalPauseReached();
+        return new Promise(() => {});
+      },
+    });
+    await pauseReached;
+    debugController.abort("debugger cancelled");
+    await assert.rejects(pausedEvaluation, (error) => {
+      assert.equal(error.name, "AbortError");
+      assert.match(error.message, /debugger cancelled/);
+      return true;
+    });
+    assert.throws(
+      () => abortedStop.globals(),
+      /Debugger pause is no longer active/,
+    );
+    session.set_wqdb_mode(false);
+    assert.equal(session.eval_wq("6+7").display, "13");
   } finally {
     session.free();
   }

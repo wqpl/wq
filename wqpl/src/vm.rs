@@ -29,7 +29,7 @@ use crate::vm::inst::Instruction;
 use crate::vm::owned_const::extract_owned_consts;
 use crate::vm::trace::TraceRecord;
 use crate::wqdb::DebugPause;
-use crate::wqdb::data::{ChunkId, CrashSnapshot, DebugInfo};
+use crate::wqdb::data::{ChunkId, CodeLoc, CrashSnapshot, DebugInfo};
 use crate::wqdb::state::DebugState;
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -90,6 +90,7 @@ pub(crate) struct Vm {
     pub(crate) debug_info: DebugInfo,
     pub(crate) pause_handler: Option<Box<dyn PauseHandler>>,
     pub(crate) pending_debug_pause: Option<DebugPause>,
+    pub(crate) skip_debug_pause_once: Option<CodeLoc>,
     pub(crate) next_debug_pause_id: u64,
     pub(crate) current_chunk: Option<ChunkId>,
     pub(crate) call_stack: Vec<CallFrame>,
@@ -300,6 +301,7 @@ impl Vm {
             debug_info: DebugInfo::default(),
             pause_handler: None,
             pending_debug_pause: None,
+            skip_debug_pause_once: None,
             next_debug_pause_id: 0,
             current_chunk: None,
             call_stack: Vec::new(),
@@ -353,6 +355,7 @@ impl Vm {
         self.cooperative_execution = false;
         self.pending_input_request = None;
         self.pending_debug_pause = None;
+        self.skip_debug_pause_once = None;
         self.pending_host_error = None;
         // Keep debug_src_offset as set by session for current run
     }

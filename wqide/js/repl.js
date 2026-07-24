@@ -40,6 +40,7 @@ import {
   formatGlobalsTable,
   formatNameColumns,
 } from "./repl-globals.js";
+import { createWqdbController, renderWqdbPanel } from "./wqdb.js";
 
 let session = null;
 let frontend = null;
@@ -58,8 +59,10 @@ let autoScroll = true;
 let userScrolledUp = false;
 let scrollTimeout = null;
 let evaluationController = null;
+let wqdbController = null;
 let stdinRequester = null;
 let resetRequested = false;
+let inspectorTab = "globals";
 
 const HISTORY_KEY = "wqide:repl:history";
 const HISTORY_LIMIT = 200;
@@ -531,6 +534,35 @@ function syncGlobalsPanel() {
   ui.globalsPanel.dataset.state = state;
 }
 
+function setInspectorTab(tab) {
+  if (!ui?.globalsTab || !ui?.debuggerTab) return;
+  inspectorTab = tab;
+  const showGlobals = tab === "globals";
+  ui.globalsTab.classList.toggle("active", showGlobals);
+  ui.globalsTab.setAttribute("aria-selected", String(showGlobals));
+  ui.debuggerTab.classList.toggle("active", !showGlobals);
+  ui.debuggerTab.setAttribute("aria-selected", String(!showGlobals));
+  ui.globalsBody.hidden = !showGlobals;
+  ui.debuggerBody.hidden = showGlobals;
+  ui.globalsPanelActions.hidden = !showGlobals;
+  ui.debuggerPanelStatus.hidden = showGlobals;
+}
+
+function syncWqdbPanel(state = wqdbController?.state) {
+  if (!state || !ui?.debuggerBody) return;
+  ui.debuggerPanelStatus.textContent =
+    state.status === "paused"
+      ? "Paused"
+      : state.status === "running"
+        ? "Running"
+        : "Idle";
+  ui.globalsPanel.dataset.debuggerState = state.status;
+  renderWqdbPanel(ui.debuggerBody, state, wqdbController);
+  if (state.status === "paused") {
+    setInspectorTab("debugger");
+  }
+}
+
 function setButtonStatus(btn, label) {
   if (!btn) return;
   const idle = btn.dataset.idleLabel || btn.textContent;
@@ -612,6 +644,7 @@ function resetSession() {
     return;
   }
   const oldSession = session;
+  wqdbController?.reset();
   session = null;
   oldSession?.free();
   // Keep history across resets
@@ -1005,6 +1038,7 @@ async function doEval({ recordHistory = true } = {}) {
   const code = ui.codeEl.value;
   if (!code.trim() || evaluationController?.active) return;
   autoScroll = true;
+  const evaluationNumber = execCounter;
   createTurn("input", promptPrefix().trim(), code.trim());
   execCounter++;
   ui.evalBtn.disabled = true;
@@ -1031,6 +1065,7 @@ async function doEval({ recordHistory = true } = {}) {
     const useOneshotTime = oneshotTime;
     const prevDebug = oneshotDebug ? session.get_debug_flags() : null;
     const prevWqdb = oneshotWqdb ? session.get_wqdb_mode() : null;
+    const sourcePath = `<repl:${evaluationNumber}>`;
     const result = await evaluationController.run(({ signal, setState }) =>
       queueEval(
         async () => {
@@ -1042,9 +1077,27 @@ async function doEval({ recordHistory = true } = {}) {
           if (oneshotWqdb) {
             session.set_wqdb_mode(true);
           }
+          if (session.get_wqdb_mode()) {
+            session.arm_wqdb_next();
+          }
           try {
-            return await session.eval_wq_async(code, { signal });
+            return await session.eval_wq_async(code, {
+              signal,
+              sourcePath,
+              onDebuggerPause(stop) {
+                setState("paused");
+                return wqdbController
+                  .pause(stop, { source: code, sourcePath })
+                  .finally(() => {
+                    if (!signal.aborted) setState("running");
+                  });
+              },
+              onDebuggerNotification(notification) {
+                wqdbController.recordNotification(notification);
+              },
+            });
           } finally {
+            wqdbController.finish();
             bindRuntimeCallbacks();
             if (prevDebug !== null) {
               session.set_debug_flags(prevDebug);
@@ -1277,9 +1330,14 @@ export async function mountRepl(root) {
     historySearchResults: root.querySelector("#historySearchResults"),
     clearHistoryBtn: root.querySelector("#clearHistoryBtn"),
     globalsPanel: root.querySelector(".globals-panel"),
+    globalsTab: root.querySelector("#globalsTab"),
+    debuggerTab: root.querySelector("#debuggerTab"),
     globalsBody: root.querySelector("#globalsBody"),
     globalsCount: root.querySelector("#globalsCount"),
+    globalsPanelActions: root.querySelector("#globalsPanelActions"),
     refreshGlobalsBtn: root.querySelector("#refreshGlobalsBtn"),
+    debuggerBody: root.querySelector("#debuggerBody"),
+    debuggerPanelStatus: root.querySelector("#debuggerPanelStatus"),
   };
 
   evaluationController = createEvaluationController((state) => {
@@ -1289,6 +1347,9 @@ export async function mountRepl(root) {
     ui.stopBtn.hidden = !active;
     ui.stopBtn.disabled = state === "stopping";
     ui.composerForm.dataset.evaluationState = state;
+  });
+  wqdbController = createWqdbController((state) => {
+    syncWqdbPanel(state);
   });
   const renderStdin = createDomStdinRenderer(ui.term);
   stdinRequester = createStdinRequester({
@@ -1339,6 +1400,12 @@ export async function mountRepl(root) {
   });
   ui.refreshGlobalsBtn?.addEventListener("click", () => {
     syncGlobalsPanel();
+  });
+  ui.globalsTab?.addEventListener("click", () => {
+    setInspectorTab("globals");
+  });
+  ui.debuggerTab?.addEventListener("click", () => {
+    setInspectorTab("debugger");
   });
   ui.pillBox?.addEventListener("click", () => {
     toggleRuntimePanel(ui.pillBox, ui.boxPanel);
@@ -1486,6 +1553,8 @@ export async function mountRepl(root) {
   });
 
   autoSizeComposer();
+  setInspectorTab(inspectorTab);
+  syncWqdbPanel();
   resetSession();
 }
 
@@ -1495,6 +1564,7 @@ export function activateRepl() {
   syncBoxControl();
   syncDebugControls();
   syncGlobalsPanel();
+  syncWqdbPanel();
 }
 
 export function applyReplRoute(root, params) {

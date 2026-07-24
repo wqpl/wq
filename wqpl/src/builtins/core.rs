@@ -16,12 +16,11 @@ use num_traits::Num;
 #[cfg(not(target_arch = "wasm32"))]
 use num_traits::ToPrimitive;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::builtins::at_least_arity_error;
 use crate::builtins::{
-    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_registered_args,
-    check_registered_named_args, type_mismatch,
+    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_registered_args, type_mismatch,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::builtins::{at_least_arity_error, check_registered_named_args};
 use crate::session::stdio::{WqInputPoll, WqIoError};
 use crate::value::{Excerpt, IntoWqValue, Value, WqResult, expected_string1, into_wq_string};
 use crate::wqerror::{Bound, Requirement, WqError, WqErrorType};

@@ -49,6 +49,42 @@ sampling, and every interpreter kind use the same yielding VM loop.
 Context algorithms and callback forms without resumable VM state still execute
 as one work unit and can take longer than the requested slice duration.
 
+## Debugger
+
+Enable wqdb on a session and provide a pause handler to inspect and resume
+cooperative evaluations:
+
+```js
+session.set_wqdb_mode(true);
+
+const result = await session.eval_wq_async(
+  "answer:40+2\n@p answer",
+  {
+    sourcePath: "scratch.wq",
+    onDebuggerPause(stop) {
+      console.log(stop.pause.reason, stop.pause.location);
+      console.table(stop.stack());
+      console.table(stop.globals());
+      console.log(stop.instruction());
+      return "continue";
+    },
+  },
+);
+```
+
+The handler can return `continue`, `step_in`, `step_over`, or `step_out`,
+either directly or through a Promise. A debugger stop also exposes frame
+locals, source-line breakpoints, step granularity, symbol trackers, and
+mutation notifications. Debugger inspection values use the representation
+oriented `kind` field.
+
+Call `arm_wqdb_next()` before a later evaluation when persistent wqdb should
+pause at entry again. Debugger stop methods are valid only while that stop is
+active. Calling one after the handler resumes, aborts, or completes throws a
+stale-pause error. An enabled wqdb evaluation without `onDebuggerPause` rejects
+with an actionable configuration error instead of returning an unknown
+evaluation status.
+
 ## Language frontend
 
 `WasmFrontend` provides evaluator-free language tooling for editors, REPLs, and

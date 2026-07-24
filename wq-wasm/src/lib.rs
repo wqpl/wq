@@ -27,8 +27,9 @@ use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::Value;
 use wqpl::wqdb::{
-    CrashFrame, DebugInstruction, DebugNotification, DebugPause, PauseReason, ResumeAction,
-    SourceBreakpoint, SymbolMutation, SymbolTrackTarget,
+    CrashFrame, DebugInstruction, DebugNotification, DebugPause, Debugger, PauseReason,
+    ResumeAction, SourceBreakpoint, StepGranularity, SymbolMutation, SymbolTrackTarget,
+    SymbolTracker, TrackResult,
 };
 use wqpl::wqerror::WqError;
 
@@ -84,8 +85,20 @@ export interface DebugPause {
     id: string;
     reason: "entry" | "step" | "breakpoint" | "temporary_breakpoint" | "explicit_pause";
     breakpoint_id: number | null;
+    explicit_pause_id: number | null;
     chunk: number;
     pc: number;
+    location: DebuggerLocation;
+}
+
+export interface DebuggerLocation {
+    chunk: number;
+    pc: number;
+    function: string | null;
+    path: string | null;
+    line: number | null;
+    column: number | null;
+    span: WqByteSpan | null;
 }
 
 export interface DebuggerValue {
@@ -132,6 +145,22 @@ export interface DebuggerSymbolMutation {
     pc: number;
     old_value: DebuggerValue | null;
     new_value: DebuggerValue;
+}
+
+export interface DebuggerSymbolTracker {
+    id: number;
+    enabled: boolean;
+    target: {
+        scope: "global" | "local" | "capture";
+        name: string | null;
+        chunk: number | null;
+        slot: number | null;
+    };
+}
+
+export interface DebuggerTrackResult {
+    added: boolean;
+    tracker: DebuggerSymbolTracker;
 }
 
 export interface GlobalBinding {
@@ -367,6 +396,21 @@ struct RenderedValueData {
     xray: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DebugPauseData {
+    id: u64,
+    reason: &'static str,
+    breakpoint_id: Option<usize>,
+    explicit_pause_id: Option<usize>,
+    chunk: usize,
+    pc: usize,
+    function: Option<String>,
+    path: Option<String>,
+    line: Option<usize>,
+    column: Option<usize>,
+    span: Option<(usize, usize)>,
+}
+
 /// Low-level wasm-bindgen session core.
 ///
 /// Browser consumers should construct `WasmWqSession` from `browser.js`, which
@@ -475,6 +519,17 @@ impl WasmWqSession {
 
     /// Start a cooperatively evaluated script.
     pub fn start_eval_wq(&self, src: &str) -> Result<(), JsValue> {
+        self.start_eval_wq_named("<wasm>", src)
+    }
+
+    /// Start a cooperatively evaluated script with a host-visible source path.
+    pub fn start_eval_wq_named(&self, source_path: &str, src: &str) -> Result<(), JsValue> {
+        if source_path.is_empty() {
+            return Err(api_error_js(
+                "invalid-source-path",
+                "evaluation source path must not be empty",
+            ));
+        }
         let mut evaluation = self
             .evaluation
             .try_borrow_mut()
@@ -486,7 +541,7 @@ impl WasmWqSession {
         let (result, color_mode) = {
             let mut session = self.try_session_mut()?;
             let color_mode = session.stderr_color_mode();
-            let result = session.start_script_evaluation("<wasm>", src);
+            let result = session.start_script_evaluation(source_path, src);
             (result, color_mode)
         };
         match result {
@@ -529,7 +584,14 @@ impl WasmWqSession {
             Ok(SessionEvaluationPoll::AwaitingInput { request_id, prompt }) => {
                 Ok(evaluation_awaiting_input_to_js(request_id, &prompt).into())
             }
-            Ok(SessionEvaluationPoll::Paused(pause)) => Ok(evaluation_paused_to_js(&pause).into()),
+            Ok(SessionEvaluationPoll::Paused(pause)) => {
+                let pause = {
+                    let mut session = self.try_session_mut()?;
+                    let debugger = session.debugger();
+                    debug_pause_data(&pause, &debugger)
+                };
+                Ok(evaluation_paused_to_js(&pause).into())
+            }
             Ok(SessionEvaluationPoll::Ready(value)) => {
                 evaluation.take();
                 let rendered = render_value(&value, self.box_config.get());
@@ -722,6 +784,81 @@ impl WasmWqSession {
         Ok(result)
     }
 
+    pub fn get_debugger_step_granularity(&self) -> Result<String, JsValue> {
+        let mut session = self.try_session_mut()?;
+        Ok(session.debugger().step_granularity().as_str().to_string())
+    }
+
+    pub fn set_debugger_step_granularity(&self, name: &str) -> Result<String, JsValue> {
+        let granularity = StepGranularity::parse(name).ok_or_else(|| {
+            api_error_js(
+                "invalid-debugger-granularity",
+                "debugger stepping granularity must be 'line', 'expr', or 'inst'",
+            )
+        })?;
+        let mut session = self.try_session_mut()?;
+        session.debugger().set_step_granularity(granularity);
+        Ok(granularity.as_str().to_string())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerTrackResult")]
+    pub fn track_debugger_symbol(&self, name: &str) -> Result<Object, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let result = session
+            .debugger()
+            .track_symbol(name)
+            .map_err(|error| api_error_js("debugger-track-failed", &error.to_string()))?;
+        Ok(debugger_track_result_to_js(&result))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerTrackResult")]
+    pub fn track_debugger_global(&self, name: &str) -> Result<Object, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let result = session.debugger().track_global_symbol(name);
+        Ok(debugger_track_result_to_js(&result))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerTrackResult")]
+    pub fn track_debugger_local(&self, name: &str) -> Result<Object, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let result = session
+            .debugger()
+            .track_local_symbol(name)
+            .map_err(|error| api_error_js("debugger-track-failed", &error.to_string()))?;
+        Ok(debugger_track_result_to_js(&result))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerTrackResult")]
+    pub fn track_debugger_capture(&self, slot: u16) -> Result<Object, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let result = session
+            .debugger()
+            .track_capture_slot(slot)
+            .map_err(|error| api_error_js("debugger-track-failed", &error.to_string()))?;
+        Ok(debugger_track_result_to_js(&result))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerSymbolTracker[]")]
+    pub fn debugger_symbol_trackers(&self) -> Result<Array, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let result = Array::new();
+        for tracker in session.debugger().symbol_trackers() {
+            result.push(&debugger_symbol_tracker_to_js(&tracker));
+        }
+        Ok(result)
+    }
+
+    pub fn remove_debugger_symbol_tracker(&self, id: usize) -> Result<bool, JsValue> {
+        let mut session = self.try_session_mut()?;
+        Ok(session.debugger().remove_symbol_tracker(id))
+    }
+
+    pub fn clear_debugger_symbol_trackers(&self) -> Result<(), JsValue> {
+        let mut session = self.try_session_mut()?;
+        session.debugger().clear_symbol_trackers();
+        Ok(())
+    }
+
     #[wasm_bindgen(unchecked_return_type = "DebuggerSymbolMutation[]")]
     pub fn take_debugger_notifications(&self) -> Result<Array, JsValue> {
         let mut session = self.try_session_mut()?;
@@ -791,6 +928,11 @@ impl WasmWqSession {
 
     pub fn get_wqdb_mode(&self) -> Result<bool, JsValue> {
         Ok(self.try_session()?.is_wqdb_enabled())
+    }
+
+    pub fn arm_wqdb_next(&self) -> Result<(), JsValue> {
+        self.try_session_mut()?.arm_wqdb_next();
+        Ok(())
     }
 
     pub fn set_wqdb_mode(&self, on: bool) -> Result<(), JsValue> {
@@ -1178,33 +1320,70 @@ fn evaluation_awaiting_input_to_js(request_id: u64, prompt: &str) -> Object {
     object
 }
 
-fn evaluation_paused_to_js(pause: &DebugPause) -> Object {
+fn debug_pause_data(pause: &DebugPause, debugger: &Debugger<'_>) -> DebugPauseData {
     let event = pause.event();
-    let (reason, breakpoint_id) = match event.reason {
-        PauseReason::Entry => ("entry", None),
-        PauseReason::Step => ("step", None),
-        PauseReason::Breakpoint { id } => ("breakpoint", Some(id)),
-        PauseReason::TemporaryBreakpoint => ("temporary_breakpoint", None),
-        PauseReason::ExplicitPause { id } => ("explicit_pause", Some(id)),
+    let (reason, breakpoint_id, explicit_pause_id) = match event.reason {
+        PauseReason::Entry => ("entry", None, None),
+        PauseReason::Step => ("step", None, None),
+        PauseReason::Breakpoint { id } => ("breakpoint", Some(id), None),
+        PauseReason::TemporaryBreakpoint => ("temporary_breakpoint", None, None),
+        PauseReason::ExplicitPause { id } => ("explicit_pause", None, Some(id)),
     };
+    let resolved = debugger.resolve_location(event.location);
+    let source = resolved
+        .as_ref()
+        .and_then(|resolved| resolved.source.as_ref());
+    DebugPauseData {
+        id: pause.id().get(),
+        reason,
+        breakpoint_id,
+        explicit_pause_id,
+        chunk: event.location.chunk.0 as usize,
+        pc: event.location.pc,
+        function: resolved
+            .as_ref()
+            .map(|resolved| resolved.function.to_string()),
+        path: source.map(|source| source.path.to_string()),
+        line: source.map(|source| source.line),
+        column: source.map(|source| source.column),
+        span: source.map(|source| (source.span.start, source.span.end)),
+    }
+}
+
+fn evaluation_paused_to_js(pause: &DebugPauseData) -> Object {
     let pause_data = Object::new();
-    set_js_property(
-        &pause_data,
-        "id",
-        &JsValue::from_str(&pause.id().get().to_string()),
-    );
-    set_js_property(&pause_data, "reason", &JsValue::from_str(reason));
+    set_js_property(&pause_data, "id", &JsValue::from_str(&pause.id.to_string()));
+    set_js_property(&pause_data, "reason", &JsValue::from_str(pause.reason));
     set_js_property(
         &pause_data,
         "breakpoint_id",
-        &optional_usize_js(breakpoint_id),
+        &optional_usize_js(pause.breakpoint_id),
     );
     set_js_property(
         &pause_data,
-        "chunk",
-        &usize_js(event.location.chunk.0 as usize),
+        "explicit_pause_id",
+        &optional_usize_js(pause.explicit_pause_id),
     );
-    set_js_property(&pause_data, "pc", &usize_js(event.location.pc));
+    set_js_property(&pause_data, "chunk", &usize_js(pause.chunk));
+    set_js_property(&pause_data, "pc", &usize_js(pause.pc));
+
+    let location = Object::new();
+    set_js_property(&location, "chunk", &usize_js(pause.chunk));
+    set_js_property(&location, "pc", &usize_js(pause.pc));
+    set_js_property(
+        &location,
+        "function",
+        &optional_string_js(pause.function.as_deref()),
+    );
+    set_js_property(
+        &location,
+        "path",
+        &optional_string_js(pause.path.as_deref()),
+    );
+    set_js_property(&location, "line", &optional_usize_js(pause.line));
+    set_js_property(&location, "column", &optional_usize_js(pause.column));
+    set_js_property(&location, "span", &optional_span_js(pause.span));
+    set_js_property(&pause_data, "location", &location.into());
 
     let result = Object::new();
     set_js_property(&result, "status", &JsValue::from_str("paused"));
@@ -1372,6 +1551,29 @@ fn debugger_symbol_target_to_js(target: &SymbolTrackTarget) -> Object {
     set_js_property(&object, "name", &optional_string_js(name));
     set_js_property(&object, "chunk", &optional_usize_js(chunk));
     set_js_property(&object, "slot", &optional_usize_js(slot));
+    object
+}
+
+fn debugger_symbol_tracker_to_js(tracker: &SymbolTracker) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "id", &usize_js(tracker.id));
+    set_js_property(&object, "enabled", &JsValue::from_bool(tracker.enabled));
+    set_js_property(
+        &object,
+        "target",
+        &debugger_symbol_target_to_js(&tracker.target).into(),
+    );
+    object
+}
+
+fn debugger_track_result_to_js(result: &TrackResult) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "added", &JsValue::from_bool(result.was_added()));
+    set_js_property(
+        &object,
+        "tracker",
+        &debugger_symbol_tracker_to_js(result.tracker()).into(),
+    );
     object
 }
 
@@ -2488,6 +2690,95 @@ mod tests {
             }
         };
         assert_eq!(value, Value::Int(1));
+    }
+
+    #[test]
+    fn debugger_pause_data_resolves_source_and_keeps_reason_ids_distinct() {
+        let source = "label:\"🦀\"\n@p label";
+        let mut session = Session::new();
+        session.set_wqdb(true);
+        let mut evaluation = session
+            .start_script_evaluation("<repl:7>", source)
+            .expect("cooperative evaluation should start");
+
+        let entry = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 10)
+                .expect("entry evaluation should poll")
+            {
+                SessionEvaluationPoll::Paused(pause) => break pause,
+                SessionEvaluationPoll::Yielded { .. } => {}
+                other => panic!("expected debugger entry pause, got {other:?}"),
+            }
+        };
+        let entry_data = debug_pause_data(&entry, &session.debugger());
+        assert_eq!(entry_data.reason, "entry");
+        assert_eq!(entry_data.breakpoint_id, None);
+        assert_eq!(entry_data.explicit_pause_id, None);
+        assert_eq!(entry_data.path.as_deref(), Some("<repl:7>"));
+        assert_eq!(entry_data.line, Some(1));
+        let entry_span = entry_data
+            .span
+            .expect("entry pause should have a source span");
+        assert_eq!(&source[entry_span.0..entry_span.1], "\"🦀\"");
+
+        session
+            .resume_script_debugger(&mut evaluation, entry.id(), ResumeAction::Continue)
+            .expect("entry pause should resume");
+        let explicit = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 10)
+                .expect("explicit pause evaluation should poll")
+            {
+                SessionEvaluationPoll::Paused(pause) => break pause,
+                SessionEvaluationPoll::Yielded { .. } => {}
+                other => panic!("expected explicit debugger pause, got {other:?}"),
+            }
+        };
+        let explicit_data = debug_pause_data(&explicit, &session.debugger());
+        assert_eq!(explicit_data.reason, "explicit_pause");
+        assert_eq!(explicit_data.breakpoint_id, None);
+        assert!(explicit_data.explicit_pause_id.is_some());
+        assert_eq!(explicit_data.path.as_deref(), Some("<repl:7>"));
+        assert_eq!(explicit_data.line, Some(2));
+
+        session
+            .resume_script_debugger(&mut evaluation, explicit.id(), ResumeAction::Continue)
+            .expect("explicit pause should resume");
+        loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 10)
+                .expect("evaluation should finish")
+            {
+                SessionEvaluationPoll::Ready(value) => {
+                    assert_eq!(value.to_string(), "\"🦀\"");
+                    break;
+                }
+                SessionEvaluationPoll::Yielded { .. } => {}
+                other => panic!("expected resumed evaluation to finish, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn wasm_debugger_configuration_exposes_rearm_and_granularity() {
+        let session = WasmWqSession::new();
+        session.set_wqdb_mode(true).expect("wqdb should be enabled");
+        assert_eq!(
+            session
+                .get_debugger_step_granularity()
+                .expect("granularity should be readable"),
+            "expr"
+        );
+        assert_eq!(
+            session
+                .set_debugger_step_granularity("line")
+                .expect("line granularity should be accepted"),
+            "line"
+        );
+        session
+            .arm_wqdb_next()
+            .expect("enabled wqdb should be rearmed");
     }
 
     #[test]

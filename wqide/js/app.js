@@ -1312,20 +1312,52 @@ const REPL_HTML = html`
           </form>
         </div>
       </div>
-      <aside class="globals-panel" aria-labelledby="globalsPanelHeading">
+      <aside class="globals-panel" aria-label="Runtime inspector">
         <div class="globals-panel-head">
-          <h2 id="globalsPanelHeading">Globals</h2>
-          <div class="globals-panel-actions">
+          <div class="inspector-tabs" role="tablist" aria-label="Runtime data">
+            <button
+              id="globalsTab"
+              class="inspector-tab active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="globalsBody">
+              Globals
+            </button>
+            <button
+              id="debuggerTab"
+              class="inspector-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="debuggerBody">
+              Debugger
+            </button>
+          </div>
+          <div id="globalsPanelActions" class="globals-panel-actions">
             <span id="globalsCount" class="globals-panel-count">0</span>
             <button id="refreshGlobalsBtn" class="btn" type="button">
               Refresh
             </button>
           </div>
+          <span
+            id="debuggerPanelStatus"
+            class="wqdb-panel-status"
+            hidden>Idle</span>
         </div>
         <div
           id="globalsBody"
           class="globals-panel-body"
+          role="tabpanel"
+          aria-labelledby="globalsTab"
           aria-live="polite"></div>
+        <div
+          id="debuggerBody"
+          class="globals-panel-body wqdb-panel-body"
+          role="tabpanel"
+          aria-labelledby="debuggerTab"
+          aria-live="polite"
+          hidden></div>
       </aside>
     </div>
   </main>

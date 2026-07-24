@@ -345,6 +345,11 @@ impl DebugState {
         self.current_pause = None;
     }
 
+    pub(crate) fn arm_entry(&mut self, depth: usize) {
+        self.last_pause = None;
+        self.req_in(depth);
+    }
+
     pub(crate) fn req_over(&mut self, depth: usize) {
         self.mode = StepMode::Over;
         self.base_depth = depth;

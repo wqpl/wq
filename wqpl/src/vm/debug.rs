@@ -97,6 +97,9 @@ impl Vm {
             return DebugBoundary::Continue;
         };
         let location = CodeLoc { chunk, pc: self.pc };
+        if self.skip_debug_pause_once.take() == Some(location) {
+            return DebugBoundary::Continue;
+        }
         let reason = self.debug_state.pause_reason_at(
             &self.debug_info,
             location,
@@ -142,6 +145,7 @@ impl Vm {
                 pause.id().get()
             )));
         }
+        self.skip_debug_pause_once = Some(pause.event().location);
         self.pending_debug_pause = None;
         self.apply_debug_resume(action);
         Ok(())
@@ -932,6 +936,10 @@ impl Vm {
             self.debug_log
                 .emit_line("[wqdb]: step-in mode on, will pause at next statement");
         }
+    }
+
+    pub(crate) fn dbg_arm_entry(&mut self) {
+        self.debug_state.arm_entry(self.call_depth());
     }
 
     pub(crate) fn dbg_step_over(&mut self) {
