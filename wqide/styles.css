@@ -1393,8 +1393,7 @@ body {
   color: var(--globals-category);
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 .wqdb-status.paused {
   background: var(--pill-active-bg);
@@ -1508,8 +1507,7 @@ body {
   border-bottom: 1px solid var(--globals-row-border);
   color: var(--globals-category);
   font: 750 11px/1.2 var(--font-display);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 .wqdb-foldable > .wqdb-section-title {
   display: flex;
@@ -2589,16 +2587,22 @@ body {
 .playground-sidebar {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  padding: var(--space-8);
+  gap: 0;
+  padding: 0;
   overflow-y: auto;
+  isolation: isolate;
   max-height: var(
     --playground-panel-height,
     min(760px, calc(100vh - var(--header-h) - 96px))
   );
 }
 .playground-sidebar h2 {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   margin: 0;
+  padding: var(--space-8) var(--space-8) var(--space-6);
+  background: var(--surface-bg-soft);
   font-size: 18px;
   line-height: 1.2;
   color: var(--surface-text);
@@ -2607,6 +2611,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 0 var(--space-8) var(--space-8);
 }
 .playground-template-card {
   display: flex;
@@ -2840,7 +2845,6 @@ body {
   font-size: 11px;
   font-weight: 800;
   line-height: 1.3;
-  text-transform: uppercase;
 }
 .symbol-name {
   min-width: 0;
@@ -3044,7 +3048,8 @@ textarea.editor-text.repl-input,
   align-items: center;
   justify-content: space-between;
   gap: var(--space-5);
-  padding: var(--space-3) var(--space-5);
+  min-height: 34px;
+  padding: 6px 12px;
   background: var(--surface-bg-soft);
   border-bottom: 1px solid var(--surface-border-soft);
   font-size: 12px;
@@ -3053,38 +3058,47 @@ textarea.editor-text.repl-input,
 .run-output-title {
   font-family: var(--font-display);
   font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.01em;
 }
 .run-output-clear {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--btn-border);
+  border: 1px solid var(--surface-border-soft);
   border-radius: var(--radius-pill);
-  padding: 6px 11px;
-  background: var(--btn-bg);
-  color: var(--btn-text);
+  padding: 4px 9px;
+  background: var(--surface-bg);
+  color: var(--surface-text-muted);
   font-family: inherit;
   font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
   cursor: pointer;
 }
-.run-output-clear:hover {
-  border-color: var(--btn-hover-border);
+.run-output-clear:hover:not(:disabled) {
+  border-color: var(--surface-border);
+  background: var(--surface-bg-muted);
+  color: var(--surface-text);
 }
 .run-output-clear:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+.run-output-clear:disabled {
+  background: var(--surface-bg-muted);
+  color: var(--surface-text-muted);
+  cursor: default;
+  opacity: 0.55;
 }
 .run-output-body {
   box-sizing: border-box;
   display: block;
   margin: 0;
   max-width: 100%;
-  padding: 10px 12px;
+  padding: 16px 18px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.55;
   color: var(--surface-text);
   --ansi-fg-default: var(--surface-text);
   --ansi-bg-default: var(--surface-bg-output);
@@ -3095,10 +3109,23 @@ textarea.editor-text.repl-input,
   max-height: 280px;
   min-height: 180px;
   min-width: 0;
+  tab-size: 2;
   scrollbar-width: thin;
 }
 .run-output-body:empty {
-  color: var(--surface-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(
+    in srgb,
+    var(--surface-text-muted) 68%,
+    transparent
+  );
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
 }
 .run-output-body:empty::before {
   content: "No output yet.";
@@ -3259,7 +3286,6 @@ textarea.editor-text.repl-input,
   font-size: 11px;
   font-weight: 800;
   line-height: 1.2;
-  text-transform: uppercase;
 }
 .viz-status {
   width: 64px;
@@ -3450,7 +3476,6 @@ textarea.editor-text.repl-input,
   color: #496f86;
   font-size: 12px;
   font-weight: 800;
-  text-transform: uppercase;
 }
 .viz-live-switch input {
   width: 16px;
@@ -3510,7 +3535,6 @@ textarea.editor-text.repl-input,
   color: var(--surface-text);
   font-size: 12px;
   font-weight: 800;
-  text-transform: uppercase;
 }
 .viz-output {
   height: clamp(520px, calc(100vh - var(--header-h) - 205px), 760px);
@@ -3544,7 +3568,6 @@ textarea.editor-text.repl-input,
   border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   font-size: 12px;
   font-weight: 800;
-  text-transform: uppercase;
   cursor: pointer;
 }
 .viz-code-panel:not([open]) summary {
@@ -3570,7 +3593,6 @@ textarea.editor-text.repl-input,
   font-size: 11px;
   font-weight: 900;
   line-height: 1;
-  text-transform: uppercase;
 }
 .viz-code-copy[data-tone="ok"] {
   border-color: #9fd2b0;
@@ -3681,7 +3703,6 @@ textarea.editor-text.repl-input,
   font-size: 11px;
   font-weight: 800;
   line-height: 1.3;
-  text-transform: uppercase;
 }
 .viz-select-button {
   position: relative;
@@ -3895,7 +3916,6 @@ textarea.editor-text.repl-input,
   font-size: 11px;
   font-weight: 800;
   line-height: 1.3;
-  text-transform: uppercase;
 }
 .viz-limit-inputs {
   display: grid;
@@ -3915,7 +3935,6 @@ textarea.editor-text.repl-input,
   font-size: 11px;
   font-weight: 800;
   line-height: 1.2;
-  text-transform: uppercase;
 }
 .viz-lock-toggle input {
   width: 14px;
@@ -3991,7 +4010,6 @@ textarea.editor-text.repl-input,
   font-size: 10px;
   font-weight: 800;
   line-height: 1.3;
-  text-transform: uppercase;
 }
 .viz-series-field input,
 .viz-series-field .wq-editor.editor-text,
@@ -4963,11 +4981,17 @@ textarea.editor-text.repl-input,
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
+    gap: var(--space-6);
+    padding: var(--space-8);
   }
   .playground-sidebar h2 {
+    position: static;
     width: 100%;
+    padding: 0;
   }
   .playground-template-list {
+    width: 100%;
+    padding: 0;
     flex-direction: row;
     flex-wrap: wrap;
   }

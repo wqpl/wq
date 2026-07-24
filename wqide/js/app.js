@@ -602,7 +602,11 @@ No code yet.</pre>
         aria-live="polite">
         <div class="run-output-header">
           <span id="runOutputHeading" class="run-output-title">Output</span>
-          <button id="clearOutBtn" class="run-output-clear" type="button">
+          <button
+            id="clearOutBtn"
+            class="run-output-clear"
+            type="button"
+            disabled>
             Clear
           </button>
         </div>
@@ -725,7 +729,7 @@ const VIZ_HTML = html`
             </button>
             <button type="button" data-viz-layout-option="side">Side</button>
           </div>
-          <span class="viz-status" data-viz-status>ready</span>
+          <span class="viz-status" data-viz-status>Ready</span>
           <button class="btn primary" type="button" data-viz-run>
             Refresh
           </button>
@@ -983,7 +987,7 @@ const VIZ_HTML = html`
                 role="group"
                 aria-labelledby="viz-xlim-label">
                 <div class="viz-limit-pair-head">
-                  <span id="viz-xlim-label">X lim</span>
+                  <span id="viz-xlim-label">X limits</span>
                   <label class="viz-lock-toggle">
                     <input type="checkbox" data-viz-toggle="xlimLocked" />
                     <span>Lock</span>
@@ -1011,7 +1015,7 @@ const VIZ_HTML = html`
                 role="group"
                 aria-labelledby="viz-ylim-label">
                 <div class="viz-limit-pair-head">
-                  <span id="viz-ylim-label">Y lim</span>
+                  <span id="viz-ylim-label">Y limits</span>
                   <label class="viz-lock-toggle">
                     <input type="checkbox" data-viz-toggle="ylimLocked" />
                     <span>Lock</span>

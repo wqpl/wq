@@ -90,6 +90,12 @@ function syncBoxControls(instance) {
 
 const instances = new WeakMap();
 
+function syncClearOutputButton(instance, active = false) {
+  if (!instance.clearOutBtn || !instance.output) return;
+  const hasOutput = Boolean(instance.output.textContent.trim());
+  instance.clearOutBtn.disabled = active || !hasOutput;
+}
+
 function refreshLines(instance) {
   const lines = instance.ta.value.split("\n").length || 1;
   const gutterWidth = Math.max(56, String(lines).length * 9 + 22);
@@ -397,6 +403,7 @@ function jumpToSymbol(instance, span) {
 async function doEval(instance) {
   instance.output.innerHTML = "";
   instance.inputHost.innerHTML = "";
+  syncClearOutputButton(instance);
 
   // stdout/stderr
   const streamRenderer = createOutputRenderer(instance.output);
@@ -515,6 +522,7 @@ async function doEval(instance) {
     instance.output.scrollTop = instance.output.scrollHeight;
   } finally {
     instance.resetRequested = false;
+    syncClearOutputButton(instance);
     requestPanelHeightSync(instance);
   }
 }
@@ -869,10 +877,11 @@ export async function mountPlayground(root) {
     runBtn.classList.toggle("primary", !active);
     runBtn.classList.toggle("danger", active);
     runBtn.disabled = state === "stopping";
-    clearOutBtn.disabled = active;
     makePosterBtn.disabled = active;
     runBtn.dataset.evaluationState = state;
+    syncClearOutputButton(instance, active);
   });
+  syncClearOutputButton(instance);
   instance.stdinRequester = createStdinRequester({
     render: createDomStdinRenderer(inputHost),
   });
@@ -917,6 +926,7 @@ export async function mountPlayground(root) {
   clearOutBtn?.addEventListener("click", () => {
     instance.output.innerHTML = "";
     instance.inputHost.innerHTML = "";
+    syncClearOutputButton(instance);
     requestPanelHeightSync(instance);
   });
   makePosterBtn?.addEventListener("click", async () => {
@@ -1008,6 +1018,7 @@ export async function mountPlayground(root) {
     ta.value = "";
     instance.output.innerHTML = "";
     instance.inputHost.innerHTML = "";
+    syncClearOutputButton(instance);
     refreshLines(instance);
     instance.timeMode = false;
     setActive(timeBtn, false);

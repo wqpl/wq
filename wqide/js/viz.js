@@ -737,10 +737,10 @@ async function copyCode(instance) {
 function scheduleRun(instance, delay = 160) {
   clearTimeout(instance.autoTimer);
   if (!instance.state.autoRun) {
-    setStatus(instance, "ready");
+    setStatus(instance, "Ready");
     return;
   }
-  setStatus(instance, "queued");
+  setStatus(instance, "Queued");
   instance.autoTimer = setTimeout(() => {
     runViz(instance);
   }, delay);
@@ -753,7 +753,7 @@ function updateView(instance, options = {}) {
   refreshAutoWidth(instance);
   renderCode(instance);
   if (options.run === false) {
-    setStatus(instance, "ready");
+    setStatus(instance, "Ready");
   } else {
     scheduleRun(instance, options.delay);
   }
@@ -763,7 +763,7 @@ async function runViz(instance) {
   clearTimeout(instance.autoTimer);
   if (instance.isRunning || instance.evaluationController.active) {
     instance.pendingRun = true;
-    setStatus(instance, "queued");
+    setStatus(instance, "Queued");
     if (instance.evaluationController.active) {
       instance.evaluationController.stop("superseded by newer viz state");
     }
@@ -774,7 +774,7 @@ async function runViz(instance) {
   instance.pendingRun = false;
   instance.output.innerHTML = "";
   instance.inputHost.innerHTML = "";
-  setStatus(instance, "running");
+  setStatus(instance, "Running");
   const renderer = createOutputRenderer(instance.output);
   try {
     await ensureWasm();
@@ -808,12 +808,12 @@ async function runViz(instance) {
         { signal },
       ),
     );
-    setStatus(instance, "done", "ok");
+    setStatus(instance, "Done", "ok");
   } catch (err) {
     if (isAbortError(err)) {
       if (!instance.pendingRun) {
         renderer.appendText("Interrupted\n");
-        setStatus(instance, "interrupted");
+        setStatus(instance, "Interrupted");
       }
     } else {
       const bar = document.createElement("span");
@@ -825,7 +825,7 @@ async function runViz(instance) {
         alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
         "error",
       );
-      setStatus(instance, "error", "error");
+      setStatus(instance, "Error", "error");
     }
   } finally {
     instance.isRunning = false;
