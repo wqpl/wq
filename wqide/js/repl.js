@@ -52,20 +52,21 @@ let showCategory = false;
 let oneshotTime = false;
 let oneshotDebug = null;
 let oneshotWqdb = false;
-let currentTurn = null;
 let execCounter = 1;
 let ui = null;
 let autoScroll = true;
-let userScrolledUp = false;
-let scrollTimeout = null;
 let evaluationController = null;
 let wqdbController = null;
 let stdinRequester = null;
 let resetRequested = false;
 let inspectorTab = "globals";
+let inspectorOpen = false;
+let latestOutputRevealTimer = null;
 
 const HISTORY_KEY = "wqide:repl:history";
 const HISTORY_LIMIT = 200;
+const LATEST_OUTPUT_DISTANCE_PX = 64;
+const LATEST_OUTPUT_REVEAL_DELAY_MS = 220;
 
 function isTouchDevice() {
   return navigator.maxTouchPoints > 0;
@@ -155,35 +156,53 @@ function promptPrefix() {
   return "wq[" + execCounter + "] ";
 }
 
-function scrollThreadToBottom(mode = "composer") {
+function distanceFromThreadBottom() {
+  if (!ui?.term) return 0;
+  return ui.term.scrollHeight - ui.term.scrollTop - ui.term.clientHeight;
+}
+
+function hideLatestOutput() {
+  if (latestOutputRevealTimer !== null) {
+    window.clearTimeout(latestOutputRevealTimer);
+    latestOutputRevealTimer = null;
+  }
+  if (ui?.scrollLatestBtn) ui.scrollLatestBtn.hidden = true;
+}
+
+function scheduleLatestOutputReveal() {
+  if (
+    !ui?.scrollLatestBtn?.hidden ||
+    latestOutputRevealTimer !== null
+  ) {
+    return;
+  }
+  latestOutputRevealTimer = window.setTimeout(() => {
+    latestOutputRevealTimer = null;
+    const awayFromBottom =
+      distanceFromThreadBottom() >= LATEST_OUTPUT_DISTANCE_PX;
+    ui.scrollLatestBtn.hidden = !awayFromBottom;
+  }, LATEST_OUTPUT_REVEAL_DELAY_MS);
+}
+
+function scrollThreadToBottom(mode = "smooth") {
   if (!ui?.term) return;
   if (!autoScroll && !mode.startsWith("force")) return;
-  if (mode === "current-turn" && currentTurn) {
-    const turn = currentTurn.closest(".repl-turn");
-    if (turn) {
-      turn.scrollIntoView({ block: "end", behavior: "smooth" });
-      return;
-    }
-  }
-  ui.term.scrollTo({ top: ui.term.scrollHeight, behavior: "smooth" });
+  const behavior = mode === "force-instant" ? "auto" : "smooth";
+  ui.term.scrollTo({ top: ui.term.scrollHeight, behavior });
+  hideLatestOutput();
 }
 
 function observeUserScroll() {
   if (!ui?.term) return;
   ui.term.addEventListener("scroll", () => {
-    if (scrollTimeout) clearTimeout(scrollTimeout);
     const nearBottom =
-      ui.term.scrollHeight - ui.term.scrollTop - ui.term.clientHeight < 40;
-    if (!nearBottom) {
-      userScrolledUp = true;
-      autoScroll = false;
+      distanceFromThreadBottom() < LATEST_OUTPUT_DISTANCE_PX;
+    autoScroll = nearBottom;
+    if (nearBottom) {
+      hideLatestOutput();
     } else {
-      userScrolledUp = false;
-      autoScroll = true;
+      scheduleLatestOutputReveal();
     }
-    scrollTimeout = setTimeout(() => {
-      if (nearBottom) autoScroll = true;
-    }, 150);
   });
 }
 
@@ -191,7 +210,7 @@ function setupViewportHandler() {
   if (!window.visualViewport) return;
   const vv = window.visualViewport;
   const onResize = () => {
-    if (!ui?.term || !ui?.composerForm) return;
+    if (!ui?.term || !ui?.promptForm) return;
     const offset =
       vv.height < window.innerHeight ? window.innerHeight - vv.height : 0;
     if (offset > 60) {
@@ -199,7 +218,7 @@ function setupViewportHandler() {
       ui.term.style.paddingBottom = `${Math.min(offset, 280)}px`;
       scrollThreadToBottom("force-keyboard");
     } else {
-      ui.term.style.paddingBottom = "18px";
+      ui.term.style.paddingBottom = "";
     }
   };
   vv.addEventListener("resize", onResize);
@@ -251,7 +270,7 @@ function createTurn(kind, label, body, msgType = null) {
 
   line.appendChild(content);
   turn.appendChild(line);
-  ui.term.appendChild(turn);
+  ui.output.appendChild(turn);
 
   // Long-press context menu for output turns
   if (kind === "output" || kind === "system") {
@@ -267,8 +286,6 @@ function createTurn(kind, label, body, msgType = null) {
 function setupTurnContextMenu(turn, contentEl) {
   let pressTimer = null;
   let moved = false;
-  const startX = 0;
-  const startY = 0;
 
   const clear = () => {
     if (pressTimer) {
@@ -320,39 +337,18 @@ function showTurnMenu(x, y, contentEl) {
   }
   const menu = document.createElement("div");
   menu.className = "turn-context-menu";
-  menu.style.cssText = `
-    position: fixed;
-    left: ${x}px;
-    top: ${y}px;
-    background: #ffffff;
-    border: 1px solid #cfe6f6;
-    border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(19,78,110,0.16);
-    z-index: 1000;
-    padding: 6px 0;
-    min-width: 140px;
-    font-size: 14px;
-  `;
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
 
   const addItem = (label, action) => {
     const item = document.createElement("button");
     item.type = "button";
+    item.className = "turn-context-menu-item";
     item.textContent = label;
-    item.style.cssText = `
-      display: block; width: 100%; text-align: left;
-      padding: 8px 14px; border: 0; background: transparent;
-      cursor: pointer; font: inherit; color: #0b4060;
-    `;
     item.addEventListener("pointerup", () => {
       action();
       menu.remove();
       activeMenu = null;
-    });
-    item.addEventListener("mouseenter", () => {
-      item.style.background = "#f0f8ff";
-    });
-    item.addEventListener("mouseleave", () => {
-      item.style.background = "transparent";
     });
     menu.appendChild(item);
   };
@@ -367,7 +363,7 @@ function showTurnMenu(x, y, contentEl) {
       const text =
         inputTurn.querySelector(".repl-input-code")?.textContent ?? "";
       ui.codeEl.value = text;
-      autoSizeComposer();
+      syncInputPresentation();
       doEval();
     });
   }
@@ -416,7 +412,7 @@ function append(chunk, msgType = "info", options = {}) {
   }
   line.appendChild(content);
   turn.appendChild(line);
-  ui.term.appendChild(turn);
+  ui.output.appendChild(turn);
   scrollThreadToBottom();
 }
 
@@ -452,10 +448,36 @@ function ensureSession() {
   return session;
 }
 
-function autoSizeComposer() {
+function syncLivePrompt() {
+  if (!ui?.livePromptNumber) return;
+  ui.livePromptNumber.textContent = String(execCounter);
+}
+
+function syncInputPresentation() {
+  if (!ui?.codeEl || !ui?.promptForm) return;
   ui.codeEl.style.height = "0px";
-  const nextHeight = Math.min(Math.max(ui.codeEl.scrollHeight, 44), 160);
+  const nextHeight = Math.min(Math.max(ui.codeEl.scrollHeight, 22), 176);
   ui.codeEl.style.height = `${nextHeight}px`;
+
+  const source = ui.codeEl.value;
+  const incomplete =
+    source.trim().length > 0 &&
+    !source.trimStart().startsWith("\\") &&
+    !frontend.is_complete_input(source);
+  ui.promptForm.dataset.inputState = incomplete ? "continuation" : "ready";
+}
+
+function setInspectorOpen(open) {
+  inspectorOpen = Boolean(open);
+  if (!ui?.globalsPanel || !ui?.inspectorToggleBtn || !ui?.replShell) return;
+  ui.globalsPanel.hidden = !inspectorOpen;
+  ui.inspectorToggleBtn.setAttribute(
+    "aria-expanded",
+    String(inspectorOpen),
+  );
+  setActive(ui.inspectorToggleBtn, inspectorOpen);
+  ui.replShell.dataset.inspectorOpen = String(inspectorOpen);
+  if (inspectorOpen) syncGlobalsPanel();
 }
 
 function renderEmptyGlobals() {
@@ -564,6 +586,7 @@ function syncWqdbPanel(state = wqdbController?.state) {
   });
   if (state.status === "paused") {
     setInspectorTab("debugger");
+    setInspectorOpen(true);
   }
 }
 
@@ -572,19 +595,11 @@ function setButtonStatus(btn, label) {
   const idle = btn.dataset.idleLabel || btn.textContent;
   btn.dataset.idleLabel = idle;
   btn.textContent = label;
-  const idleWidth = Number(btn.dataset.idleWidth || 0);
-  btn.style.width = "auto";
-  const nextWidth = Math.ceil(btn.getBoundingClientRect().width);
-  btn.style.width = `${Math.max(idleWidth, nextWidth)}px`;
 }
 
 function resetButtonStatus(btn) {
   if (!btn) return;
   btn.textContent = btn.dataset.idleLabel || btn.textContent;
-  const idleWidth = Number(btn.dataset.idleWidth || 0);
-  if (idleWidth > 0) {
-    btn.style.width = `${idleWidth}px`;
-  }
 }
 
 async function copyCurrentOutput() {
@@ -617,9 +632,9 @@ async function copyCurrentFlow() {
     const body = turn.querySelector(".repl-line-body")?.textContent ?? "";
     return body;
   });
-  const composerText = ui.codeEl.value.trim();
-  if (composerText) {
-    parts.push(`${promptPrefix().trim()} ${composerText}`);
+  const promptText = ui.codeEl.value.trim();
+  if (promptText) {
+    parts.push(`${promptPrefix().trim()} ${promptText}`);
   }
   const text = parts.filter(Boolean).join("\n\n");
   if (!text.trim()) {
@@ -659,11 +674,12 @@ function resetSession() {
   oneshotDebug = null;
   oneshotWqdb = false;
   execCounter = 1;
-  currentTurn = null;
-  ui.term.innerHTML = "";
+  ui.output.replaceChildren();
   bindRuntimeCallbacks();
   ensureSession();
   append(`wq ${getWqVersion()} (c)tttiw (l)MIT\n`);
+  syncLivePrompt();
+  syncInputPresentation();
   syncBoxControl();
   setActive(ui.pillTime, false);
   syncDebugControls();
@@ -1045,7 +1061,7 @@ async function doEval({ recordHistory = true } = {}) {
   const evaluationNumber = execCounter;
   createTurn("input", promptPrefix().trim(), code.trim());
   execCounter++;
-  ui.evalBtn.disabled = true;
+  syncLivePrompt();
   try {
     if (
       recordHistory &&
@@ -1056,10 +1072,10 @@ async function doEval({ recordHistory = true } = {}) {
     }
     histIndex = -1;
     pendingBuffer = "";
+    ui.codeEl.value = "";
+    syncInputPresentation();
 
     if (await handleReplCommand(code)) {
-      ui.codeEl.value = "";
-      autoSizeComposer();
       return;
     }
 
@@ -1154,8 +1170,6 @@ async function doEval({ recordHistory = true } = {}) {
         append(`time elapsed: ${end - start}ms\n`, "info");
       }
     }
-    ui.codeEl.value = "";
-    autoSizeComposer();
   } catch (err) {
     if (isAbortError(err) && !resetRequested) {
       createTurn("system", "", "Interrupted\n", "info");
@@ -1179,40 +1193,33 @@ async function doEval({ recordHistory = true } = {}) {
     }
     syncDebugControls();
     syncGlobalsPanel();
-    ui.evalBtn.disabled = false;
-    currentTurn = null;
+    syncInputPresentation();
+    scrollThreadToBottom("force");
   }
 }
 
 function handleReplTabKey(e) {
   handleTabKey(e, ui.codeEl, () => {
-    autoSizeComposer();
+    syncInputPresentation();
   });
 }
 
 function positionHistorySearch() {
   if (!ui.historySearch) return;
   if (ui.historySearch.hidden) return;
-  const replRect = ui.term?.closest(".repl-flow")?.getBoundingClientRect();
+  const replRect = ui.replFlow?.getBoundingClientRect();
   const termRect = ui.term?.getBoundingClientRect();
-  const composerRect = ui.composerForm?.getBoundingClientRect();
-  if (!composerRect) return;
+  if (!replRect || !termRect) return;
 
   const inset = window.matchMedia("(max-width: 560px)").matches ? 12 : 18;
-  const leftEdge = replRect?.left ?? 0;
-  const rightEdge = replRect?.right ?? window.innerWidth;
-  const replTop = replRect?.top ?? 0;
-  const stableTop = Math.max(8, replTop + inset);
-  const preferredTop = Math.max(8, (termRect?.top ?? replTop) + inset);
-  const hasRoomBelowThreadTop = composerRect.top - preferredTop >= 140;
-  const top = hasRoomBelowThreadTop ? preferredTop : stableTop;
-  const availableHeight = Math.max(96, composerRect.top - top - 10);
+  const top = Math.max(8, termRect.top + inset);
+  const availableHeight = Math.max(96, replRect.bottom - top - inset);
   const panelHeight = Math.min(320, availableHeight);
 
-  ui.historySearch.style.left = `${Math.max(8, leftEdge + inset)}px`;
+  ui.historySearch.style.left = `${Math.max(8, replRect.left + inset)}px`;
   ui.historySearch.style.right = `${Math.max(
     8,
-    window.innerWidth - rightEdge + inset,
+    window.innerWidth - replRect.right + inset,
   )}px`;
   ui.historySearch.style.top = `${top}px`;
   ui.historySearch.style.bottom = "auto";
@@ -1230,6 +1237,7 @@ function closeHistorySearch({ focusComposer = false } = {}) {
   if (!ui.historySearch) return;
   ui.historySearch.hidden = true;
   ui.historyToggleBtn?.setAttribute("aria-expanded", "false");
+  setActive(ui.historyToggleBtn, false);
   if (focusComposer) ui.codeEl.focus();
 }
 
@@ -1253,7 +1261,7 @@ function renderHistoryMatches(input, results) {
     btn.textContent = text;
     btn.addEventListener("click", () => {
       ui.codeEl.value = text;
-      autoSizeComposer();
+      syncInputPresentation();
       closeHistorySearch();
       ui.codeEl.focus();
     });
@@ -1265,6 +1273,7 @@ function openHistorySearch() {
   if (!ui.historySearch) return;
   ui.historySearch.hidden = false;
   ui.historyToggleBtn?.setAttribute("aria-expanded", "true");
+  setActive(ui.historyToggleBtn, true);
   const input = ui.historySearchInput;
   const results = ui.historySearchResults;
   input.value = ui.codeEl.value;
@@ -1294,17 +1303,40 @@ function toggleHistorySearch() {
   }
 }
 
+function canNavigateHistory(direction) {
+  const start = ui.codeEl.selectionStart;
+  const end = ui.codeEl.selectionEnd;
+  if (start !== end) return false;
+  return direction < 0
+    ? !ui.codeEl.value.slice(0, start).includes("\n")
+    : !ui.codeEl.value.slice(end).includes("\n");
+}
+
+function clearScreen({ focusInput = false } = {}) {
+  ui.output.replaceChildren();
+  autoScroll = true;
+  hideLatestOutput();
+  syncInputPresentation();
+  if (focusInput) ui.codeEl.focus();
+}
+
 export async function mountRepl(root) {
   await ensureWasm();
   frontend = createWqFrontend();
   ui = {
+    replShell: root.querySelector(".repl-shell"),
+    replFlow: root.querySelector(".repl-flow"),
     codeEl: createWqEditor(root.querySelector("#code"), {
       multilineMode: "shift",
       frontend,
     }),
     term: root.querySelector("#term"),
-    composerForm: root.querySelector("#composerForm"),
-    evalBtn: root.querySelector("#evalBtn"),
+    output: root.querySelector("#terminalOutput"),
+    promptForm: root.querySelector("#promptForm"),
+    livePromptNumber: root.querySelector("#livePromptNumber"),
+    terminalStatus: root.querySelector("#terminalStatus"),
+    terminalMenu: root.querySelector("#terminalMenu"),
+    scrollLatestBtn: root.querySelector("#scrollLatestBtn"),
     stopBtn: root.querySelector("#stopBtn"),
     clearBtn: root.querySelector("#clearBtn"),
     resetBtn: root.querySelector("#resetBtn"),
@@ -1319,7 +1351,6 @@ export async function mountRepl(root) {
       ]),
     ),
     pillTime: root.querySelector("#pillTime"),
-    newlineBtn: root.querySelector("#newlineBtn"),
     debugToggle: root.querySelector("#debugToggle"),
     debugPanel: root.querySelector("#debugPanel"),
     debugButtons: Object.fromEntries(
@@ -1334,6 +1365,7 @@ export async function mountRepl(root) {
     historySearchResults: root.querySelector("#historySearchResults"),
     clearHistoryBtn: root.querySelector("#clearHistoryBtn"),
     globalsPanel: root.querySelector(".globals-panel"),
+    inspectorToggleBtn: root.querySelector("#inspectorToggleBtn"),
     globalsTab: root.querySelector("#globalsTab"),
     debuggerTab: root.querySelector("#debuggerTab"),
     globalsBody: root.querySelector("#globalsBody"),
@@ -1346,16 +1378,27 @@ export async function mountRepl(root) {
 
   evaluationController = createEvaluationController((state) => {
     const active = state !== "idle";
-    ui.evalBtn.disabled = active;
     ui.clearBtn.disabled = active;
     ui.stopBtn.hidden = !active;
     ui.stopBtn.disabled = state === "stopping";
-    ui.composerForm.dataset.evaluationState = state;
+    ui.promptForm.dataset.evaluationState = state;
+    ui.replFlow.dataset.evaluationState = state;
+    ui.terminalStatus.textContent =
+      state === "idle"
+        ? "ready"
+        : state === "awaiting-input"
+          ? "stdin"
+          : state === "paused"
+            ? "paused"
+            : state === "stopping"
+              ? "stopping"
+              : "running";
+    syncInputPresentation();
   });
   wqdbController = createWqdbController((state) => {
     syncWqdbPanel(state);
   });
-  const renderStdin = createDomStdinRenderer(ui.term);
+  const renderStdin = createDomStdinRenderer(ui.output);
   stdinRequester = createStdinRequester({
     render(request) {
       const view = renderStdin(request);
@@ -1369,19 +1412,6 @@ export async function mountRepl(root) {
   observeUserScroll();
   setupViewportHandler();
 
-  [ui.copyFlowBtn, ui.copyOutputBtn].forEach((btn) => {
-    if (!btn) return;
-    btn.dataset.idleLabel = btn.textContent;
-    requestAnimationFrame(() => {
-      const rect = btn.getBoundingClientRect();
-      const idleWidth = Math.ceil(rect.width);
-      const idleHeight = Math.ceil(rect.height);
-      btn.dataset.idleWidth = String(idleWidth);
-      btn.style.width = `${idleWidth}px`;
-      btn.style.height = `${idleHeight}px`;
-    });
-  });
-
   ui.resetBtn.addEventListener("click", () => resetSession());
   ui.copyFlowBtn?.addEventListener("click", () => {
     copyCurrentFlow();
@@ -1391,6 +1421,14 @@ export async function mountRepl(root) {
   });
   ui.historyToggleBtn?.addEventListener("click", () => {
     toggleHistorySearch();
+  });
+  ui.inspectorToggleBtn?.addEventListener("click", () => {
+    setInspectorOpen(!inspectorOpen);
+  });
+  ui.scrollLatestBtn?.addEventListener("click", () => {
+    autoScroll = true;
+    scrollThreadToBottom("force-instant");
+    ui.codeEl.focus();
   });
   ui.clearHistoryBtn?.addEventListener("click", () => {
     history = [];
@@ -1434,6 +1472,12 @@ export async function mountRepl(root) {
   ui.debugToggle?.addEventListener("click", () => {
     toggleRuntimePanel(ui.debugToggle, ui.debugPanel);
   });
+  ui.terminalMenu?.addEventListener("click", (event) => {
+    if (!event.target.closest(".repl-terminal-menu-panel button")) return;
+    setTimeout(() => {
+      ui.terminalMenu.open = false;
+    }, 900);
+  });
   // Close debug panel and history search on outside click
   document.addEventListener("click", (e) => {
     if (
@@ -1458,6 +1502,9 @@ export async function mountRepl(root) {
     ) {
       closeHistorySearch();
     }
+    if (ui.terminalMenu?.open && !ui.terminalMenu.contains(e.target)) {
+      ui.terminalMenu.open = false;
+    }
   });
   window.addEventListener("resize", () => {
     positionHistorySearch();
@@ -1478,20 +1525,33 @@ export async function mountRepl(root) {
   ui.stopBtn.addEventListener("click", () => {
     evaluationController.stop("stop requested");
   });
-  ui.composerForm.addEventListener("submit", (e) => {
+  ui.promptForm.addEventListener("submit", (e) => {
     e.preventDefault();
     doEval();
   });
   ui.clearBtn.addEventListener("click", () => {
-    ui.term.innerHTML = "";
-    currentTurn = null;
-    autoSizeComposer();
+    clearScreen({ focusInput: true });
   });
-  ui.codeEl.addEventListener("input", () => autoSizeComposer());
+  ui.term.addEventListener("click", (event) => {
+    if (event.target === ui.term && !window.getSelection()?.toString()) {
+      ui.codeEl.focus();
+    }
+  });
+  ui.codeEl.addEventListener("input", () => syncInputPresentation());
   ui.codeEl.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && evaluationController.active) {
+      e.preventDefault();
+      evaluationController.stop("stop requested");
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === "r") {
       e.preventDefault();
       openHistorySearch();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "l") {
+      e.preventDefault();
+      clearScreen({ focusInput: true });
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -1507,9 +1567,15 @@ export async function mountRepl(root) {
         doEval();
       } else {
         insertTextAtCursor(ui.codeEl, "\n");
-        autoSizeComposer();
+        syncInputPresentation();
       }
-    } else if (!e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === "ArrowUp") {
+    } else if (
+      !e.shiftKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      e.key === "ArrowUp" &&
+      canNavigateHistory(-1)
+    ) {
       if (history.length) {
         e.preventDefault();
         if (histIndex === -1) {
@@ -1521,13 +1587,14 @@ export async function mountRepl(root) {
         ui.codeEl.value = history[histIndex];
         ui.codeEl.selectionStart = ui.codeEl.selectionEnd =
           ui.codeEl.value.length;
-        autoSizeComposer();
+        syncInputPresentation();
       }
     } else if (
       !e.shiftKey &&
       !e.ctrlKey &&
       !e.metaKey &&
-      e.key === "ArrowDown"
+      e.key === "ArrowDown" &&
+      canNavigateHistory(1)
     ) {
       if (history.length && histIndex !== -1) {
         e.preventDefault();
@@ -1540,24 +1607,20 @@ export async function mountRepl(root) {
         }
         ui.codeEl.selectionStart = ui.codeEl.selectionEnd =
           ui.codeEl.value.length;
-        autoSizeComposer();
+        syncInputPresentation();
       }
     } else if (e.key === "Tab") {
       handleReplTabKey(e);
     }
   });
 
-  ui.newlineBtn?.addEventListener("click", () => {
-    insertTextAtCursor(ui.codeEl, "\n");
-    autoSizeComposer();
-  });
-
   root.addEventListener("wqide:deactivate", () => {
     evaluationController.stop("view closed");
   });
 
-  autoSizeComposer();
+  syncInputPresentation();
   setInspectorTab(inspectorTab);
+  setInspectorOpen(inspectorOpen);
   syncWqdbPanel();
   resetSession();
 }
@@ -1576,7 +1639,7 @@ export function applyReplRoute(root, params) {
   const input = params.get("input");
   if (!input) return;
   ui.codeEl.value = input;
-  autoSizeComposer();
+  syncInputPresentation();
   doEval({ recordHistory: false }).then(() => {
     ui.codeEl.focus();
   });

@@ -1091,168 +1091,225 @@ const VIZ_HTML = html`
 
 const REPL_HTML = html`
   <main class="wrap repl-wrap">
-    <div class="repl-shell">
-      <div class="repl repl-flow">
-        <div class="toolbar headbar repl-topbar">
-          <div class="repl-actions">
-            <div class="repl-copy-actions">
-              <button id="copyFlowBtn" class="btn repl-copy-btn" type="button">
-                Copy Flow
-              </button>
-              <button
-                id="copyOutputBtn"
-                class="btn repl-copy-btn"
-                type="button">
-                Copy Output
-              </button>
-            </div>
+    <div class="repl-shell" data-inspector-open="false">
+      <section class="repl repl-flow" aria-label="wq terminal REPL">
+        <header class="repl-terminal-bar">
+          <div class="repl-terminal-identity">
+            <span class="repl-status-dot" aria-hidden="true"></span>
+            <strong>wq repl</strong>
+            <span id="terminalStatus" class="repl-terminal-status">ready</span>
+          </div>
+          <div class="repl-terminal-actions">
             <div
               class="repl-runtime-actions"
               aria-label="REPL runtime controls">
-              <div class="pills" role="list">
-                <div class="runtime-control" data-runtime-menu>
-                  <button
-                    id="pillBox"
-                    class="pill inactive"
-                    type="button"
-                    aria-expanded="false"
-                    aria-controls="boxPanel">
-                    box
-                  </button>
-                  <div id="boxPanel" class="runtime-panel">
-                    <div class="runtime-panel-head">
-                      <span class="mini">box</span>
-                    </div>
-                    <div class="pills" role="list">
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="box">
-                        box
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="axis">
-                        axis
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="color">
-                        color
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="xray">
-                        xray
-                      </button>
-                    </div>
+              <div class="runtime-control" data-runtime-menu>
+                <button
+                  id="pillBox"
+                  class="pill inactive"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="boxPanel">
+                  box
+                </button>
+                <div id="boxPanel" class="runtime-panel">
+                  <div class="runtime-panel-head">
+                    <span class="mini">result display</span>
+                  </div>
+                  <div class="pills" role="list">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="box">
+                      box
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="axis">
+                      axis
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="color">
+                      color
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="xray">
+                      xray
+                    </button>
                   </div>
                 </div>
-                <button id="pillTime" class="pill inactive" type="button">
-                  time
+              </div>
+              <button
+                id="pillTime"
+                class="pill inactive"
+                type="button">
+                time
+              </button>
+              <div class="runtime-control debug-controls" data-runtime-menu>
+                <button
+                  id="debugToggle"
+                  class="pill inactive"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="debugPanel">
+                  debug
                 </button>
-                <div class="runtime-control debug-controls" data-runtime-menu>
-                  <button
-                    id="debugToggle"
-                    class="pill inactive"
-                    type="button"
-                    aria-expanded="false"
-                    aria-controls="debugPanel">
-                    debug
-                  </button>
-                  <div id="debugPanel" class="runtime-panel debug-panel">
-                    <div class="runtime-panel-head">
-                      <span class="mini">debug</span>
-                    </div>
-                    <div class="pills" role="list">
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="token">
-                        token
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="cst">
-                        cst
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="ast">
-                        ast
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="ast-v">
-                        ast-v
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="inst">
-                        inst
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="inst-v">
-                        inst-v
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="wqdb">
-                        wqdb
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="wqdb-v">
-                        wqdb-v
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="value">
-                        value
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="cas">
-                        cas
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="cas-v">
-                        cas-v
-                      </button>
-                    </div>
+                <div id="debugPanel" class="runtime-panel debug-panel">
+                  <div class="runtime-panel-head">
+                    <span class="mini">debug output</span>
+                  </div>
+                  <div class="pills" role="list">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="token">
+                      token
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cst">
+                      cst
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="ast">
+                      ast
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="ast-v">
+                      ast-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="inst">
+                      inst
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="inst-v">
+                      inst-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="wqdb">
+                      wqdb
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="wqdb-v">
+                      wqdb-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="value">
+                      value
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cas">
+                      cas
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cas-v">
+                      cas-v
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="repl-session-actions">
-              <button id="resetBtn" class="btn" type="button">
-                Reset Session
-              </button>
-              <button id="clearBtn" class="btn" type="button">
-                Clear Flow
-              </button>
-            </div>
+            <button
+              id="historyToggleBtn"
+              class="pill inactive"
+              type="button"
+              aria-expanded="false"
+              aria-controls="historySearch">
+              history
+            </button>
+            <button
+              id="inspectorToggleBtn"
+              class="pill inactive"
+              type="button"
+              aria-expanded="false"
+              aria-controls="runtimeInspector">
+              <span>inspector</span>
+              <span id="globalsCount" class="repl-terminal-count">0</span>
+            </button>
+            <button
+              id="stopBtn"
+              class="btn danger repl-terminal-stop"
+              type="button"
+              hidden>
+              Stop
+            </button>
+            <details id="terminalMenu" class="repl-terminal-menu">
+              <summary
+                class="pill inactive"
+                aria-label="Session actions">
+                <span aria-hidden="true">•••</span>
+              </summary>
+              <div class="repl-terminal-menu-panel">
+                <button id="copyFlowBtn" type="button">Copy session</button>
+                <button id="copyOutputBtn" type="button">Copy output</button>
+                <button id="clearBtn" type="button">Clear screen</button>
+                <button id="resetBtn" type="button">Reset session</button>
+              </div>
+            </details>
           </div>
-        </div>
+        </header>
 
-        <div id="term" class="repl-thread" aria-live="polite"></div>
+        <div class="repl-terminal-body">
+          <div
+            id="term"
+            class="repl-thread"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions">
+            <div id="terminalOutput" class="repl-output-log"></div>
+            <form id="promptForm" class="repl-live-input">
+              <div class="repl-live-input-row">
+                <label class="repl-live-prompt" for="code">
+                  <span class="repl-prompt-wq">wq</span>[<span
+                    id="livePromptNumber"
+                    class="repl-prompt-num">1</span
+                  >]
+                </label>
+                <textarea
+                  id="code"
+                  class="editor-text repl-input"
+                  aria-label="REPL code"
+                  spellcheck="false"
+                  placeholder="enter an expression or \\help"
+                  enterkeyhint="send"
+                  rows="1"></textarea>
+              </div>
+            </form>
+          </div>
 
-        <div class="repl-composer-area">
+          <button
+            id="scrollLatestBtn"
+            class="repl-scroll-latest"
+            type="button"
+            hidden>
+            Latest output <span aria-hidden="true">↓</span>
+          </button>
+
           <div
             id="historySearch"
             class="history-search"
@@ -1262,57 +1319,20 @@ const REPL_HTML = html`
             <input
               type="text"
               id="historySearchInput"
-              placeholder="Search history..."
+              placeholder="Search commands"
               autocomplete="off" />
             <button id="clearHistoryBtn" class="history-clear" type="button">
-              Clear History
+              Clear history
             </button>
             <div id="historySearchResults" class="history-search-results"></div>
           </div>
-          <form id="composerForm" class="repl-composer">
-            <div class="composer-frame">
-              <textarea
-                id="code"
-                class="editor-text repl-input"
-                aria-label="REPL code"
-                spellcheck="false"
-                placeholder="echo echo"
-                enterkeyhint="send"
-                rows="1"></textarea>
-              <span class="mini composer-hint"
-                >Enter: exec or continue | Shift-Enter: newline</span
-              >
-            </div>
-            <div class="composer-actions">
-              <button
-                id="newlineBtn"
-                class="btn mini"
-                type="button"
-                title="Insert newline">
-                Newline
-              </button>
-              <button
-                id="historyToggleBtn"
-                class="btn mini history-toggle"
-                type="button"
-                aria-expanded="false"
-                aria-controls="historySearch">
-                History
-              </button>
-              <button
-                id="evalBtn"
-                class="btn primary composer-send"
-                type="submit">
-                Exec
-              </button>
-              <button id="stopBtn" class="btn danger" type="button" hidden>
-                Stop
-              </button>
-            </div>
-          </form>
         </div>
-      </div>
-      <aside class="globals-panel" aria-label="Runtime inspector">
+      </section>
+      <aside
+        id="runtimeInspector"
+        class="globals-panel"
+        aria-label="Runtime inspector"
+        hidden>
         <div class="globals-panel-head">
           <div class="inspector-tabs" role="tablist" aria-label="Runtime data">
             <button
@@ -1335,7 +1355,6 @@ const REPL_HTML = html`
             </button>
           </div>
           <div id="globalsPanelActions" class="globals-panel-actions">
-            <span id="globalsCount" class="globals-panel-count">0</span>
             <button id="refreshGlobalsBtn" class="btn" type="button">
               Refresh
             </button>
