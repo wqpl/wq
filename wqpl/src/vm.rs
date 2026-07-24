@@ -16,7 +16,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use ahash::AHashMap;
 
 use crate::builtins::{BuiltinPreset, Builtins};
-use crate::debugger::PauseHandler;
+use crate::debug::DebugPause;
+use crate::debug::data::{ChunkId, CrashSnapshot, DebugInfo};
+use crate::debug::state::DebugState;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::session::stdio::{RuntimeIo, WqInputPoll, WqIoError};
@@ -25,11 +27,10 @@ use crate::value::cell::ValueCell;
 use crate::value::rng::RngState;
 use crate::value::{Value, WqResult};
 use crate::vm::call::ResolvedCallable;
+use crate::vm::debug::PauseHandler;
 use crate::vm::inst::Instruction;
 use crate::vm::owned_const::extract_owned_consts;
 use crate::vm::trace::TraceRecord;
-use crate::wqdb::Wqdb;
-use crate::wqdb::data::{ChunkId, CrashSnapshot, DebugInfo};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) type GlobalMap = crate::session::Bindings;
@@ -85,9 +86,11 @@ pub(crate) struct Vm {
     pub(crate) max_call_depth: usize,
 
     // Debugging
-    pub(crate) wqdb: Wqdb,
+    pub(crate) debug_state: DebugState,
     pub(crate) debug_info: DebugInfo,
     pub(crate) pause_handler: Option<Box<dyn PauseHandler>>,
+    pub(crate) pending_debug_pause: Option<DebugPause>,
+    pub(crate) next_debug_pause_id: u64,
     pub(crate) current_chunk: Option<ChunkId>,
     pub(crate) call_stack: Vec<CallFrame>,
     /// Lightweight backtrace mode: build minimal debug info for frames on error
@@ -293,9 +296,11 @@ impl Vm {
             tail_call_journal: TailCallJournal::default(),
             tail_call_depth: 0,
             max_call_depth: if cfg!(debug_assertions) { 64 } else { 1024 },
-            wqdb: Wqdb::default(),
+            debug_state: DebugState::default(),
             debug_info: DebugInfo::default(),
             pause_handler: None,
+            pending_debug_pause: None,
+            next_debug_pause_id: 0,
             current_chunk: None,
             call_stack: Vec::new(),
             bt_mode: false,
@@ -347,6 +352,7 @@ impl Vm {
         self.pending_trace_probe = None;
         self.cooperative_execution = false;
         self.pending_input_request = None;
+        self.pending_debug_pause = None;
         self.pending_host_error = None;
         // Keep debug_src_offset as set by session for current run
     }
@@ -516,7 +522,7 @@ impl Vm {
 impl Vm {
     #[inline]
     pub(crate) fn debug_mapping_enabled(&self) -> bool {
-        self.runtime_debug_info || self.wqdb.is_enabled() || self.bt_mode
+        self.runtime_debug_info || self.debug_state.is_enabled() || self.bt_mode
     }
 
     #[inline]
@@ -787,7 +793,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::debugger::DebugResume;
+    use crate::debug::DebugResume;
 
     #[test]
     fn new_keeps_constants_inline_by_default() {
@@ -830,7 +836,7 @@ mod tests {
     fn idle_pause_callback_does_not_enable_debug_artifacts() {
         let mut vm = Vm::new(Vec::new());
         vm.set_backtrace_enabled(false);
-        vm.wqdb.set_enabled(false);
+        vm.debug_state.set_enabled(false);
         vm.runtime_debug_info = false;
         assert!(!vm.debug_artifacts_enabled());
 
@@ -845,7 +851,7 @@ mod tests {
     fn callable_provenance_stays_enabled_for_bt_mapping() {
         let mut vm = Vm::new(Vec::new());
         vm.set_backtrace_enabled(false);
-        vm.wqdb.set_enabled(false);
+        vm.debug_state.set_enabled(false);
         vm.runtime_debug_info = false;
         assert!(!vm.debug_mapping_enabled());
         assert!(!vm.callable_provenance_enabled());
@@ -863,10 +869,10 @@ mod tests {
         vm.dbg_track_global_symbol("x");
         assert!(!vm.symbol_trackers_enabled());
 
-        vm.wqdb.set_enabled(true);
+        vm.debug_state.set_enabled(true);
         assert!(vm.symbol_trackers_enabled());
 
-        vm.wqdb.set_enabled(false);
+        vm.debug_state.set_enabled(false);
         assert!(!vm.symbol_trackers_enabled());
     }
 
@@ -874,7 +880,7 @@ mod tests {
     fn capture_backtrace_is_inert_when_debug_artifacts_are_disabled() {
         let mut vm = Vm::new(Vec::new());
         vm.set_backtrace_enabled(false);
-        vm.wqdb.set_enabled(false);
+        vm.debug_state.set_enabled(false);
         vm.runtime_debug_info = false;
 
         let error = vm.record_execution_failure(WqError::new(WqErrorType::Raise));
@@ -929,7 +935,7 @@ mod tests {
             .expect("crash snapshot")
             .frames()
             .iter()
-            .find(|frame| matches!(frame, crate::wqdb::data::CrashFrame::TailCallsOmitted))
+            .find(|frame| matches!(frame, crate::debug::data::CrashFrame::TailCallsOmitted))
             .expect("tail overflow marker");
 
         assert!(omitted.location().is_none());

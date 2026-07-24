@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::builtins::Builtins;
+use crate::debug::data::ChunkId;
+use crate::debug::{DebugInstruction, InstructionClass};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
-use crate::wqdb::data::ChunkId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Capture {
@@ -415,6 +416,20 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
     }
 }
 
+fn public_instruction_class(class: InstClass) -> InstructionClass {
+    match class {
+        InstClass::Load => InstructionClass::Load,
+        InstClass::Store => InstructionClass::Store,
+        InstClass::Call => InstructionClass::Call,
+        InstClass::Jump => InstructionClass::Jump,
+        InstClass::Stack => InstructionClass::Stack,
+        InstClass::Op => InstructionClass::Operator,
+        InstClass::Indexing => InstructionClass::Indexing,
+        InstClass::Construct => InstructionClass::Construct,
+        InstClass::Try => InstructionClass::Try,
+    }
+}
+
 pub struct InstPrettyDumper {
     lines: Vec<String>,
     show_builtin_names: bool,
@@ -460,6 +475,40 @@ impl InstPrettyDumper {
             None,
         );
         self.lines.into_iter().next()
+    }
+
+    pub(crate) fn describe_at(
+        instructions: &[Instruction],
+        pc: usize,
+        local_names: Option<&[String]>,
+    ) -> Option<DebugInstruction> {
+        let instruction = instructions.get(pc)?;
+        let (class, is_special) = classify(instruction);
+        let line = Self::new(true, false).render_at(instructions, pc, local_names)?;
+        let (base, annotations) =
+            line.split_once("  // ")
+                .map_or((line.as_str(), Vec::new()), |(base, annotations)| {
+                    (
+                        base,
+                        annotations
+                            .split("; ")
+                            .map(str::to_string)
+                            .collect::<Vec<_>>(),
+                    )
+                });
+        let opcode_end = base
+            .char_indices()
+            .find_map(|(index, ch)| matches!(ch, '(' | ':' | ' ').then_some(index))
+            .unwrap_or(base.len());
+
+        Some(DebugInstruction {
+            pc,
+            opcode: base[..opcode_end].to_string(),
+            operands: base[opcode_end..].to_string(),
+            annotations,
+            class: public_instruction_class(class),
+            is_special,
+        })
     }
 
     fn style_opcode_with_class(&self, opcode: &str, class: InstClass, is_special: bool) -> String {
@@ -811,6 +860,22 @@ mod tests {
         let rendered = dumper.highlight_inst(&Instruction::load_const(Value::Int(1)));
 
         assert_eq!(rendered, "LoadConst(Int(1))");
+    }
+
+    #[test]
+    fn describe_at_separates_instruction_fields() {
+        let instructions = [Instruction::LoadLocal(0)];
+        let local_names = ["value".to_string()];
+
+        let instruction = InstPrettyDumper::describe_at(&instructions, 0, Some(&local_names))
+            .expect("instruction should exist");
+
+        assert_eq!(instruction.pc, 0);
+        assert_eq!(instruction.opcode, "LoadLocal");
+        assert_eq!(instruction.operands, "(0)");
+        assert_eq!(instruction.annotations, ["value"]);
+        assert_eq!(instruction.class, InstructionClass::Load);
+        assert!(!instruction.is_special);
     }
 
     #[test]

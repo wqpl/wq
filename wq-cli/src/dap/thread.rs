@@ -9,7 +9,7 @@ use wq_dap::event::{BreakpointEventBody, Event, OutputEventBody};
 use wq_dap::r#type::{
     Breakpoint, BreakpointEventReason, OutputEventCategory, Scope, StoppedEventReason, Variable,
 };
-use wqpl::debugger::{DebugResume, Debugger, PauseEvent, PauseReason};
+use wqpl::debug::{DebugResume, Debugger, PauseEvent, PauseReason};
 use wqpl::session::stdio::{WqIoError, WqOutput};
 use wqpl::session::{EvaluationFailure, Session, SessionInterruptHandle};
 use wqpl::style::ColorMode;
@@ -262,7 +262,7 @@ fn dap_on_pause(
         return DebugResume::Continue;
     }
     for breakpoint in debugger.take_resolved_source_breakpoints() {
-        let breakpoint = adapter::build_source_breakpoint(debugger.debug_info(), &breakpoint);
+        let breakpoint = adapter::build_source_breakpoint(debugger, &breakpoint);
         let _ = event_tx.send(Event::Breakpoint(BreakpointEventBody {
             reason: BreakpointEventReason::Changed,
             breakpoint,

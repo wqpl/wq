@@ -356,6 +356,6 @@ fn pointer_addr_to_u64(addr: usize) -> u64 {
     u64::try_from(addr).unwrap_or(u64::MAX)
 }
 
-fn user_dbg_chunk(func: &Value) -> Option<crate::wqdb::data::ChunkId> {
+fn user_dbg_chunk(func: &Value) -> Option<crate::debug::data::ChunkId> {
     func.as_user_function().and_then(|shape| shape.dbg_chunk)
 }

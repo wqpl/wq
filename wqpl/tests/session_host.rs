@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use wqpl::debug::{ChunkId, CodeLoc, CrashFrame};
 use wqpl::interpret::InterpreterKind;
 use wqpl::script::ScriptSpan;
 use wqpl::session::dbglog::DebugLogFlags;
 use wqpl::session::stdio::{WqInput, WqIoError, WqOutput};
 use wqpl::session::{DirectiveFailure, EvaluationPhase, ScriptRunError, Session, SourceUnit};
 use wqpl::value::Value;
-use wqpl::wqdb::data::{ChunkId, CodeLoc, CrashFrame};
 
 #[derive(Clone)]
 struct CapturedOutput {

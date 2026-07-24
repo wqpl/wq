@@ -1,4 +1,5 @@
 use super::{index_err, not_bound_err, vm_err};
+use crate::debug::SymbolMutationKind;
 use crate::value::access::{insert_in_place, parse_pop_count, pop_in_place, remove_in_place};
 use crate::value::{Excerpt, Value, WqResult};
 use crate::vm::inst::{MutationOp, StoreTarget};
@@ -62,12 +63,12 @@ pub(super) fn index_mutate(
     Ok(())
 }
 
-fn mutation_op_label(op: &MutationOp) -> &'static str {
+fn mutation_op_label(op: &MutationOp) -> SymbolMutationKind {
     match op {
-        MutationOp::Pop => "pop",
-        MutationOp::Remove => "remove",
-        MutationOp::Insert => "insert",
-        MutationOp::InsertAt => "insert-at",
+        MutationOp::Pop => SymbolMutationKind::Pop,
+        MutationOp::Remove => SymbolMutationKind::Remove,
+        MutationOp::Insert => SymbolMutationKind::Insert,
+        MutationOp::InsertAt => SymbolMutationKind::InsertAt,
     }
 }
 
@@ -75,7 +76,7 @@ pub(super) fn mutate_target(
     vm: &mut Vm,
     pc: usize,
     target: &StoreTarget,
-    op: &'static str,
+    operation: SymbolMutationKind,
     f: impl FnOnce(&mut Value) -> WqResult<Value>,
 ) -> WqResult<Value> {
     let track = vm.symbol_trackers_enabled();
@@ -95,7 +96,7 @@ pub(super) fn mutate_target(
                     not_bound_err(format!("'{name}' has not been bound to a value"))
                 })??;
             if let Some((old, new)) = change {
-                vm.note_global_symbol_write(pc, name, op, Some(old), new);
+                vm.note_global_symbol_write(pc, name, operation, Some(old), new);
             }
             Ok(result)
         }
@@ -109,7 +110,7 @@ pub(super) fn mutate_target(
                 result
             };
             if let Some((old, new)) = change {
-                vm.note_local_symbol_write(pc, *slot, op, Some(old), new);
+                vm.note_local_symbol_write(pc, *slot, operation, Some(old), new);
             }
             Ok(result)
         }
@@ -130,7 +131,7 @@ pub(super) fn mutate_target(
                 result
             };
             if let Some((old, new)) = change {
-                vm.note_capture_symbol_write(pc, *slot, op, Some(old), new);
+                vm.note_capture_symbol_write(pc, *slot, operation, Some(old), new);
             }
             Ok(result)
         }
@@ -157,7 +158,7 @@ pub(super) fn store_var_impl(vm: &mut Vm, idx: usize, name: &str, keep: bool) ->
         vm.inline_cache[idx].slot = Some(slot);
     }
     if let Some(new) = new {
-        vm.note_global_symbol_write(idx, name, "store", old, new);
+        vm.note_global_symbol_write(idx, name, SymbolMutationKind::Store, old, new);
     }
     Ok(())
 }
@@ -187,7 +188,7 @@ pub(super) fn store_local_impl(vm: &mut Vm, idx: usize, i: u16, keep: bool) -> W
         return Err(vm_err("no local frame"));
     }
     if let Some(new) = new {
-        vm.note_local_symbol_write(idx, i, "store", old, new);
+        vm.note_local_symbol_write(idx, i, SymbolMutationKind::Store, old, new);
     }
     Ok(())
 }

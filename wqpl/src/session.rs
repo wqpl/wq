@@ -7,7 +7,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::ast::AstNode;
 use crate::builtins::BuiltinPreset;
 use crate::compile::Compiler;
-use crate::debugger::{DebugResume, Debugger, PauseEvent};
+use crate::debug::build::{
+    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
+    register_function_chunks,
+};
+use crate::debug::data::{CrashSnapshot, DebugInfo};
+use crate::debug::{
+    DebugPause, DebugPauseId, DebugResume, Debugger, PauseEvent, ResumeAction, state,
+};
 use crate::interpret::InterpreterKind;
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
@@ -23,12 +30,6 @@ use crate::token::{fmt_tokens_table, rebase_token};
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{InstPrettyDumper, Instruction};
 use crate::vm::{GlobalMap, PreparedInstructions, Vm};
-use crate::wqdb::build::{
-    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
-    register_function_chunks,
-};
-use crate::wqdb::data::{CrashSnapshot, DebugInfo};
-use crate::wqdb::{self};
 use crate::wqerror::{WqError, WqErrorType};
 
 /// Snapshot of user-defined global bindings owned by a [`Session`].
@@ -194,17 +195,17 @@ impl EvaluationFailure {
         let mut rendered = error.render_with_color_mode(color_mode);
         for (index, frame) in crash.frames().iter().enumerate() {
             rendered.push('\n');
-            rendered.push_str(&wqdb::format_crash_frame(frame, index == 0, color_mode));
+            rendered.push_str(&state::format_crash_frame(frame, index == 0, color_mode));
         }
         rendered
     }
 }
 
-fn error_primary_matches_frame(error: &WqError, frame: &crate::wqdb::data::CrashFrame) -> bool {
+fn error_primary_matches_frame(error: &WqError, frame: &crate::debug::data::CrashFrame) -> bool {
     let (Some((start, end)), Some(context)) = (error.span, error.source_ctx.as_deref()) else {
         return false;
     };
-    let crate::wqdb::data::CrashFrame::Located {
+    let crate::debug::data::CrashFrame::Located {
         source: Some(source),
         ..
     } = frame
@@ -243,6 +244,7 @@ pub type EvaluationResult<T> = Result<T, EvaluationFailure>;
 pub enum EvaluationPoll {
     Yielded { work_units: usize },
     AwaitingInput { request_id: u64, prompt: String },
+    Paused(DebugPause),
     Ready(Value),
 }
 
@@ -511,7 +513,7 @@ impl Session {
     }
 
     pub fn is_wqdb_enabled(&self) -> bool {
-        self.vm.wqdb.is_enabled()
+        self.vm.debug_state.is_enabled()
     }
 
     /// Clear compiled instructions, transient stacks, and diagnostics while
@@ -526,12 +528,12 @@ impl Session {
             .reset_with_prepared_instructions(PreparedInstructions::new(Vec::new()));
         self.vm.halt_reason = None;
         self.vm.interrupt_requested.store(false, Ordering::Release);
-        self.vm.wqdb.reset_execution_state();
+        self.vm.debug_state.reset_execution_state();
         self.vm.current_chunk = None;
         self.vm.runtime_debug_info = false;
         self.vm.debug_src_offset = 0;
         self.vm.last_crash = None;
-        self.wqdb_arm_next = self.vm.wqdb.is_enabled();
+        self.wqdb_arm_next = self.vm.debug_state.is_enabled();
         self.sample = SampleInterpreter::default();
         self.profiler = ProfilerInterpreter::default();
     }
@@ -587,12 +589,12 @@ impl Session {
     }
 
     pub fn set_wqdb(&mut self, flag: bool) {
-        self.vm.wqdb.set_enabled(flag);
-        if self.vm.wqdb.is_enabled() {
+        self.vm.debug_state.set_enabled(flag);
+        if self.vm.debug_state.is_enabled() {
             self.wqdb_arm_next = true;
         } else {
             self.wqdb_arm_next = false;
-            self.vm.wqdb.clear_mode();
+            self.vm.debug_state.clear_mode();
         }
     }
 
@@ -610,10 +612,6 @@ impl Session {
 
     pub fn clear_pause_handler(&mut self) {
         self.vm.clear_pause_handler();
-    }
-
-    pub fn set_wqdb_batch_cmds(&mut self, cmds: Vec<String>) {
-        self.vm.wqdb.replace_batch_commands(cmds);
     }
 
     pub fn builtins(&self) -> &crate::builtins::Builtins {
@@ -795,6 +793,9 @@ impl Session {
                     Ok(InterpretPoll::AwaitingInput { request_id, prompt }) => {
                         return Ok(EvaluationPoll::AwaitingInput { request_id, prompt });
                     }
+                    Ok(InterpretPoll::Paused(pause)) => {
+                        return Ok(EvaluationPoll::Paused(pause));
+                    }
                     Ok(InterpretPoll::Ready(value)) => {
                         let result = if let Some(error) = self.vm.debug_log.take_error() {
                             Err(EvaluationFailure::new(
@@ -970,6 +971,29 @@ impl Session {
         };
         self.vm
             .resume_input(request_id, response)
+            .map_err(|error| EvaluationFailure::new(error, EvaluationPhase::Execute))
+    }
+
+    pub fn resume_script_debugger(
+        &mut self,
+        evaluation: &mut ScriptEvaluation,
+        pause_id: DebugPauseId,
+        action: ResumeAction,
+    ) -> EvaluationResult<()> {
+        if evaluation.finished
+            || !self
+                .active_script_evaluation
+                .as_ref()
+                .is_some_and(|token| Arc::ptr_eq(token, &evaluation.token))
+        {
+            return Err(EvaluationFailure::new(
+                WqError::new(WqErrorType::Vm)
+                    .msg("script evaluation is not active for this session"),
+                EvaluationPhase::Execute,
+            ));
+        }
+        self.vm
+            .resume_debug_pause(pause_id, action)
             .map_err(|error| EvaluationFailure::new(error, EvaluationPhase::Execute))
     }
 
@@ -1290,7 +1314,9 @@ impl Session {
                     Some(&self.vm.debug_log),
                 );
             }
-            self.vm.wqdb.resolve_source_breakpoints(&self.vm.debug_info);
+            self.vm
+                .debug_state
+                .resolve_source_breakpoints(&self.vm.debug_info);
         }
         // Drop AST and parser before execution to release Arc refs to
         // literal constants that would otherwise inflate strong counts
@@ -1365,7 +1391,7 @@ impl Session {
 
     /// Enter wqdb at the start of the next evaluation when it is enabled.
     pub fn arm_wqdb_next(&mut self) {
-        if self.vm.wqdb.is_enabled() {
+        if self.vm.debug_state.is_enabled() {
             self.wqdb_arm_next = true;
         }
     }
@@ -1432,7 +1458,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::debugger::{DebugResume, PauseReason};
+    use crate::debug::{
+        DebugNotification, PauseReason, ResumeAction, SymbolMutationKind, TrackResult,
+    };
     use crate::session::stdio::{WqInput, WqOutput};
 
     struct CaptureOutput(Arc<Mutex<String>>);
@@ -1980,12 +2008,95 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("test program should not request input")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
 
         assert_eq!(actual, expected);
         assert!(yields > 10, "expected repeated cooperative yields");
+    }
+
+    #[test]
+    fn cooperative_debugger_pause_is_stable_until_resumed() {
+        let mut session = Session::new();
+        session.set_wqdb(true);
+        let mut evaluation = session
+            .start_script_evaluation("debug-pause.wq", "answer:40+2")
+            .expect("start cooperative evaluation");
+
+        let pause = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 2)
+                .expect("poll cooperative evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("debugger test should not request input")
+                }
+                EvaluationPoll::Paused(pause) => break pause,
+                EvaluationPoll::Ready(_) => panic!("debugger should pause before execution"),
+            }
+        };
+        assert_eq!(pause.event().reason, PauseReason::Entry);
+
+        let repeated = session
+            .poll_script_evaluation(&mut evaluation, 2)
+            .expect("poll pending debugger pause");
+        assert_eq!(repeated, EvaluationPoll::Paused(pause.clone()));
+        assert!(!session.bindings().contains_key("answer"));
+
+        session
+            .resume_script_debugger(&mut evaluation, pause.id(), ResumeAction::Continue)
+            .expect("resume debugger");
+        let duplicate = session
+            .resume_script_debugger(&mut evaluation, pause.id(), ResumeAction::Continue)
+            .expect_err("debugger pause should resume exactly once");
+        assert!(
+            duplicate
+                .to_string()
+                .contains("debugger pause is not pending")
+        );
+
+        let value = loop {
+            match session
+                .poll_script_evaluation(&mut evaluation, 2)
+                .expect("finish cooperative evaluation")
+            {
+                EvaluationPoll::Yielded { .. } => {}
+                EvaluationPoll::AwaitingInput { .. } => {
+                    panic!("debugger test should not request input")
+                }
+                EvaluationPoll::Paused(_) => panic!("continue should not pause again"),
+                EvaluationPoll::Ready(value) => break value,
+            }
+        };
+        assert_eq!(value, Value::Int(42));
+        assert_eq!(session.bindings().get("answer"), Some(&Value::Int(42)));
+    }
+
+    #[test]
+    fn symbol_tracking_produces_typed_mutation_notifications() {
+        let mut session = Session::new();
+        session.set_pause_handler(|_, debugger| {
+            assert!(matches!(
+                debugger.track_global_symbol("answer"),
+                TrackResult::Added(_)
+            ));
+            ResumeAction::Continue
+        });
+        session.set_wqdb(true);
+        session
+            .eval_string("answer:40+2")
+            .expect("tracked assignment should evaluate");
+
+        let notifications = session.debugger().take_notifications();
+        let [DebugNotification::SymbolChanged(mutation)] = notifications.as_slice() else {
+            panic!("expected one structured symbol mutation");
+        };
+        assert_eq!(mutation.operation, SymbolMutationKind::Store);
+        assert_eq!(mutation.old_value, None);
+        assert_eq!(mutation.new_value, Value::Int(42));
     }
 
     #[test]
@@ -2062,6 +2173,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { request_id, prompt } => {
                     break (request_id, prompt);
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(_) => panic!("input should suspend before completion"),
             }
         };
@@ -2096,6 +2208,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("resumed input should not request another line")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2124,6 +2237,7 @@ mod tests {
                     EvaluationPoll::AwaitingInput { .. } => {
                         panic!("test program should not request input")
                     }
+                    EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                     EvaluationPoll::Ready(value) => break value,
                 }
             };
@@ -2157,6 +2271,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("map callback should not request input")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2196,6 +2311,7 @@ mod tests {
                         .expect("resume map callback input");
                     response_index += 1;
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2235,6 +2351,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("composed callback should use the synchronous input adapter")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2291,6 +2408,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("linear callbacks should not request input")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2323,6 +2441,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("nested context callbacks should not request input")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2355,6 +2474,7 @@ mod tests {
                     Ok(EvaluationPoll::AwaitingInput { .. }) => {
                         panic!("failing callback should not request input")
                     }
+                    Ok(EvaluationPoll::Paused(_)) => panic!("debugger should be disabled"),
                     Ok(EvaluationPoll::Ready(_)) => panic!("callback should fail"),
                     Err(failure) => break failure,
                 }
@@ -2382,6 +2502,7 @@ mod tests {
                     assert_eq!(prompt, "value> ");
                     break request_id;
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(_) => panic!("callback input should suspend"),
             }
         };
@@ -2402,6 +2523,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("failed callback input should not remain pending")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2444,6 +2566,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("cliargs parser should not request input")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2479,6 +2602,7 @@ mod tests {
                 EvaluationPoll::AwaitingInput { .. } => {
                     panic!("plot callback should not request input")
                 }
+                EvaluationPoll::Paused(_) => panic!("debugger should be disabled"),
                 EvaluationPoll::Ready(value) => break value,
             }
         };
@@ -2511,7 +2635,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .get_chunk(crate::wqdb::data::ChunkId(0))
+                .get_chunk(crate::debug::data::ChunkId(0))
                 .is_none()
         );
     }
@@ -2599,7 +2723,7 @@ mod tests {
                 let pc = (0..meta.len)
                     .find(|pc| meta.line_table.is_stmt(*pc))
                     .unwrap_or(0);
-                debugger.set_breakpoint(crate::wqdb::data::CodeLoc { chunk, pc });
+                debugger.set_breakpoint(crate::debug::data::CodeLoc { chunk, pc });
             }
             DebugResume::Continue
         });
@@ -2621,7 +2745,7 @@ mod tests {
         session.set_pause_handler(move |_, debugger| {
             let stop = captured_pauses.fetch_add(1, Ordering::SeqCst) + 1;
             if stop == 1 {
-                debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+                debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
                 DebugResume::StepIn
             } else {
                 DebugResume::Continue
@@ -2651,7 +2775,7 @@ mod tests {
                     .expect("line stops lock")
                     .push(source.line_col(span.start).0);
             }
-            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Line);
+            debugger.set_step_granularity(crate::debug::model::StepGranularity::Line);
             DebugResume::StepIn
         });
         session.set_wqdb(true);
@@ -2675,10 +2799,13 @@ mod tests {
         let captured_targets = Arc::clone(&targets);
         let mut session = Session::new();
         session.set_pause_handler(move |event, debugger| {
-            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
             let loc = event.location;
             let name = debugger.function_name(loc.chunk);
-            let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
+            let instruction = debugger
+                .instruction_at(loc.pc)
+                .map(|instruction| format!("{}{}", instruction.opcode, instruction.operands))
+                .unwrap_or_default();
             match captured_phase.load(Ordering::SeqCst) {
                 0 if name == "g" && instruction.starts_with("Postfix(1)") => {
                     captured_phase.store(1, Ordering::SeqCst);
@@ -2737,10 +2864,13 @@ mod tests {
         let captured_target = Arc::clone(&target);
         let mut session = Session::new();
         session.set_pause_handler(move |event, debugger| {
-            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
             let loc = event.location;
             let name = debugger.function_name(loc.chunk);
-            let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
+            let instruction = debugger
+                .instruction_at(loc.pc)
+                .map(|instruction| format!("{}{}", instruction.opcode, instruction.operands))
+                .unwrap_or_default();
             if captured_phase.load(Ordering::SeqCst) == 0 {
                 if name == "g" && instruction.starts_with("TailPostfix(1)") {
                     captured_phase.store(1, Ordering::SeqCst);
@@ -2781,10 +2911,13 @@ mod tests {
         let captured_target = Arc::clone(&target);
         let mut session = Session::new();
         session.set_pause_handler(move |event, debugger| {
-            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
             let loc = event.location;
             let name = debugger.function_name(loc.chunk);
-            let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
+            let instruction = debugger
+                .instruction_at(loc.pc)
+                .map(|instruction| format!("{}{}", instruction.opcode, instruction.operands))
+                .unwrap_or_default();
             if captured_phase.load(Ordering::SeqCst) == 0 {
                 if name == "f" && instruction.starts_with("TailPostfix(1)") {
                     let tail_call = captured_tail_calls.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2834,7 +2967,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .get_chunk(crate::wqdb::data::ChunkId(0))
+                .get_chunk(crate::debug::data::ChunkId(0))
                 .is_none(),
             "idle pause callback should not create debug chunks when bt and wqdb are off"
         );
@@ -2862,7 +2995,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .get_chunk(crate::wqdb::data::ChunkId(0))
+                .get_chunk(crate::debug::data::ChunkId(0))
                 .is_some(),
             "@p should still request debug artifacts for the pause callback"
         );

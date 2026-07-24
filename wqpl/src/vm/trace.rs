@@ -1,4 +1,4 @@
-use crate::wqdb::data::Span;
+use crate::debug::data::Span;
 
 /// One probe captured while a `@d` expression is being evaluated.
 ///

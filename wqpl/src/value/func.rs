@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::debug::data::{ChunkId, DebugChunkSpec, DebugPcSpans, DebugProvenance, DebugStmtSpans};
 use crate::value::cell::{self, ValueCell};
 use crate::value::{Value, eval_binary, eval_unary};
 use crate::vm::inst::{DebugStmtMark, Instruction};
-use crate::wqdb::data::{ChunkId, DebugChunkSpec, DebugPcSpans, DebugProvenance, DebugStmtSpans};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {

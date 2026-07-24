@@ -5,20 +5,21 @@ use num_bigint::BigInt;
 use smallvec::SmallVec;
 
 use crate::ast::{BinaryOperator, binary_op_display, unary_op_display};
-use crate::debugger::{PauseEvent, PauseReason};
+use crate::debug::build::{
+    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
+};
+use crate::debug::data::ChunkId;
+use crate::debug::{DebugPause, SymbolMutationKind};
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
 use crate::range::{make_range, make_range_from_next, range_alloc_len};
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
 use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_bool_op, eval_unary};
+use crate::vm::debug::DebugBoundary;
 use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
-use crate::wqdb::build::{
-    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
-};
-use crate::wqdb::data::{ChunkId, CodeLoc};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 mod call;
@@ -43,6 +44,7 @@ pub(crate) enum InterpretPoll {
     Ready(Value),
     Yielded { work_units: usize },
     AwaitingInput { request_id: u64, prompt: String },
+    Paused(DebugPause),
 }
 
 struct InterpretControl {
@@ -91,6 +93,9 @@ impl Interpreter for VanillaInterpreter {
             InterpretPoll::AwaitingInput { .. } => {
                 unreachable!("synchronous interpreter requested cooperative input")
             }
+            InterpretPoll::Paused(_) => {
+                unreachable!("synchronous interpreter suspended for debugger")
+            }
         }
     }
 }
@@ -121,6 +126,9 @@ impl VanillaInterpreter {
             InterpretPoll::AwaitingInput { .. } => {
                 unreachable!("nested interpreter requested cooperative input")
             }
+            InterpretPoll::Paused(_) => {
+                unreachable!("nested interpreter suspended for debugger")
+            }
         }
     }
 
@@ -137,7 +145,9 @@ impl VanillaInterpreter {
                     return Ok(InterpretPoll::Ready(value));
                 }
                 Ok(
-                    poll @ (InterpretPoll::Yielded { .. } | InterpretPoll::AwaitingInput { .. }),
+                    poll @ (InterpretPoll::Yielded { .. }
+                    | InterpretPoll::AwaitingInput { .. }
+                    | InterpretPoll::Paused(_)),
                 ) => {
                     return Ok(poll);
                 }
@@ -223,7 +233,6 @@ impl VanillaInterpreter {
                 if Self::finish_try_boundary(vm) {
                     continue;
                 }
-                let mut paused_before_instruction = false;
                 // Record a probe for the previously executed interesting
                 // instruction.  We record *here* (one iteration late) so that
                 // call instructions which `continue 'exec` after a cache hit
@@ -233,24 +242,16 @@ impl VanillaInterpreter {
                 {
                     record_trace_probe(vm, prev);
                 }
-                if vm.wqdb.is_enabled() {
-                    let chunk = vm.expect_current_chunk();
-                    let here = CodeLoc { chunk, pc: vm.pc };
-                    let depth = vm.call_depth();
-                    if let Some(reason) =
-                        vm.wqdb
-                            .pause_reason_at(&vm.debug_info, here, depth, Some(&vm.debug_log))
-                    {
-                        vm.dispatch_pause(PauseEvent {
-                            location: here,
-                            reason,
-                        });
-                        vm.poll_interrupt();
-                        if vm.is_halted() {
-                            break;
-                        }
-                        paused_before_instruction = true;
+                let explicit_pause = matches!(instructions.get(vm.pc), Some(Instruction::Pause));
+                match vm.debugger_pause_before_instruction(explicit_pause) {
+                    DebugBoundary::Continue => {}
+                    DebugBoundary::Suspended(pause) => {
+                        return Ok(InterpretPoll::Paused(pause));
                     }
+                }
+                vm.poll_interrupt();
+                if vm.is_halted() {
+                    break;
                 }
                 let idx = vm.pc;
                 vm.pc += 1;
@@ -480,7 +481,13 @@ impl VanillaInterpreter {
                                 old
                             };
                         if let Some(new) = new {
-                            vm.note_capture_symbol_write(idx, *i, "store", old, new);
+                            vm.note_capture_symbol_write(
+                                idx,
+                                *i,
+                                SymbolMutationKind::Store,
+                                old,
+                                new,
+                            );
                         }
                     }
 
@@ -765,7 +772,7 @@ impl VanillaInterpreter {
                                 vm.note_global_symbol_write(
                                     pc,
                                     name,
-                                    "index-assign",
+                                    SymbolMutationKind::IndexAssign,
                                     Some(old),
                                     new,
                                 );
@@ -801,7 +808,7 @@ impl VanillaInterpreter {
                                 vm.note_global_symbol_write(
                                     pc,
                                     name,
-                                    "index-assign",
+                                    SymbolMutationKind::IndexAssign,
                                     Some(old),
                                     new,
                                 );
@@ -838,7 +845,13 @@ impl VanillaInterpreter {
                             return Err(invalid_index_assign_err(&idx, format!("'{name}'")));
                         }
                         if let Some((old, new)) = change {
-                            vm.note_global_symbol_write(pc, name, "index-assign", Some(old), new);
+                            vm.note_global_symbol_write(
+                                pc,
+                                name,
+                                SymbolMutationKind::IndexAssign,
+                                Some(old),
+                                new,
+                            );
                         }
                     }
                     Instruction::IndexManyAssignVarDrop(name, argc) => {
@@ -869,7 +882,13 @@ impl VanillaInterpreter {
                             ));
                         }
                         if let Some((old, new)) = change {
-                            vm.note_global_symbol_write(pc, name, "index-assign", Some(old), new);
+                            vm.note_global_symbol_write(
+                                pc,
+                                name,
+                                SymbolMutationKind::IndexAssign,
+                                Some(old),
+                                new,
+                            );
                         }
                     }
                     Instruction::IndexAssignLocal(slot) => {
@@ -910,7 +929,7 @@ impl VanillaInterpreter {
                                 vm.note_local_symbol_write(
                                     pc,
                                     slot_num,
-                                    "index-assign",
+                                    SymbolMutationKind::IndexAssign,
                                     Some(old),
                                     new,
                                 );
@@ -960,7 +979,7 @@ impl VanillaInterpreter {
                                 vm.note_local_symbol_write(
                                     pc,
                                     slot_num,
-                                    "index-assign",
+                                    SymbolMutationKind::IndexAssign,
                                     Some(old),
                                     new,
                                 );
@@ -1004,7 +1023,7 @@ impl VanillaInterpreter {
                                 vm.note_capture_symbol_write(
                                     pc,
                                     slot_num,
-                                    "index-assign",
+                                    SymbolMutationKind::IndexAssign,
                                     Some(old),
                                     new,
                                 );
@@ -1045,7 +1064,7 @@ impl VanillaInterpreter {
                                 vm.note_capture_symbol_write(
                                     pc,
                                     slot_num,
-                                    "index-assign",
+                                    SymbolMutationKind::IndexAssign,
                                     Some(old),
                                     new,
                                 );
@@ -1087,7 +1106,7 @@ impl VanillaInterpreter {
                             vm.note_local_symbol_write(
                                 pc,
                                 slot_num,
-                                "index-assign",
+                                SymbolMutationKind::IndexAssign,
                                 Some(old),
                                 new,
                             );
@@ -1124,7 +1143,7 @@ impl VanillaInterpreter {
                             vm.note_local_symbol_write(
                                 pc,
                                 slot_num,
-                                "index-assign",
+                                SymbolMutationKind::IndexAssign,
                                 Some(old),
                                 new,
                             );
@@ -1163,7 +1182,7 @@ impl VanillaInterpreter {
                             vm.note_capture_symbol_write(
                                 pc,
                                 slot_num,
-                                "index-assign",
+                                SymbolMutationKind::IndexAssign,
                                 Some(old),
                                 new,
                             );
@@ -1205,7 +1224,7 @@ impl VanillaInterpreter {
                             vm.note_capture_symbol_write(
                                 pc,
                                 slot_num,
-                                "index-assign",
+                                SymbolMutationKind::IndexAssign,
                                 Some(old),
                                 new,
                             );
@@ -1501,22 +1520,7 @@ impl VanillaInterpreter {
                         vm.debug_log
                             .emit_line(render_trace_line(vm, idx, value, &records));
                     }
-                    Instruction::Pause => {
-                        let loc = CodeLoc {
-                            chunk: vm.expect_current_chunk(),
-                            pc: idx,
-                        };
-                        let Some(id) = vm.wqdb.explicit_pause_id(loc) else {
-                            continue;
-                        };
-                        if paused_before_instruction {
-                            continue;
-                        }
-                        vm.dispatch_pause(PauseEvent {
-                            location: loc,
-                            reason: PauseReason::ExplicitPause { id },
-                        });
-                    }
+                    Instruction::Pause => {}
                 }
             }
 
@@ -2006,13 +2010,13 @@ mod tests {
     use super::{domain_requirement, named_arg_index_err};
     use crate::ast::{BinaryOperator, BoolOperator};
     use crate::builtins::BuiltinFnArgs;
+    use crate::debug::data::ChunkId;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
     use crate::value::func::FunctionData;
     use crate::value::{Value, WqResult, eval_binary};
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
     use crate::vm::{PreparedInstructions, Slot, Vm};
-    use crate::wqdb::data::ChunkId;
     use crate::wqerror::Requirement;
 
     #[test]
@@ -2596,7 +2600,7 @@ mod tests {
         for pc in 0..len {
             meta.line_table.set_exact_span(
                 pc,
-                crate::wqdb::data::Span {
+                crate::debug::data::Span {
                     file_id,
                     start: 0,
                     end: 4,
@@ -2792,6 +2796,7 @@ mod call_safety {
                 InterpretPoll::AwaitingInput { .. } => {
                     panic!("test program should not request input")
                 }
+                InterpretPoll::Paused(_) => panic!("debugger should be disabled"),
                 InterpretPoll::Ready(value) => break value,
             }
         };
@@ -2833,6 +2838,7 @@ mod call_safety {
                 InterpretPoll::AwaitingInput { .. } => {
                     panic!("test program should not request input")
                 }
+                InterpretPoll::Paused(_) => panic!("debugger should be disabled"),
                 InterpretPoll::Ready(value) => break value,
             }
         };

@@ -1,11 +1,16 @@
-use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+pub(crate) mod build;
+pub(crate) mod data;
+pub(crate) mod model;
+pub(crate) mod state;
 
-use crate::session::stdio::WqIoError;
-use crate::style::ColorMode;
+pub use data::{
+    ChunkId, ChunkMeta, CodeLoc, CrashFrame, CrashId, CrashSnapshot, DebugInfo, DebugLocalsFrame,
+    LineTable, ResolvedCodeLoc, SourceFile, SourceLocation, Span,
+};
+pub use model::{SourceBreakpoint, StepGranularity, SymbolTrackTarget, SymbolTracker};
+
 use crate::value::Value;
 use crate::vm::Vm;
-use crate::wqdb::data::{ChunkId, CodeLoc, CrashFrame, DebugInfo, DebugLocalsFrame};
-use crate::wqdb::model::{SourceBreakpoint, StepGranularity, StopHook};
 
 /// Constrained access to the state needed by debugger frontends.
 pub struct Debugger<'vm> {
@@ -31,7 +36,7 @@ pub enum PauseReason {
 
 /// How execution should proceed after a debugger stop.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum DebugResume {
+pub enum ResumeAction {
     #[default]
     Continue,
     StepIn,
@@ -39,19 +44,156 @@ pub enum DebugResume {
     StepOut,
 }
 
-/// Type-erased storage for a stateful, session-owned pause handler.
-pub(crate) trait PauseHandler: 'static {
-    fn on_pause(&mut self, event: PauseEvent, debugger: &mut Debugger<'_>) -> DebugResume;
+pub type DebugResume = ResumeAction;
+
+/// Broad VM instruction category for frontend-specific presentation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstructionClass {
+    Load,
+    Store,
+    Call,
+    Jump,
+    Stack,
+    Operator,
+    Indexing,
+    Construct,
+    Try,
 }
 
-impl<F> PauseHandler for F
-where
-    F: for<'vm> FnMut(PauseEvent, &mut Debugger<'vm>) -> DebugResume + 'static,
-{
-    fn on_pause(&mut self, event: PauseEvent, debugger: &mut Debugger<'_>) -> DebugResume {
-        self(event, debugger)
+/// Renderer-independent description of one VM instruction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DebugInstruction {
+    pub pc: usize,
+    pub opcode: String,
+    /// Exact plain-text operand suffix, including delimiters.
+    pub operands: String,
+    pub annotations: Vec<String>,
+    pub class: InstructionClass,
+    pub is_special: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DebugPauseId(u64);
+
+impl DebugPauseId {
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    pub const fn from_u64(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub(crate) fn new(id: u64) -> Self {
+        Self(id)
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DebugPause {
+    id: DebugPauseId,
+    event: PauseEvent,
+}
+
+impl DebugPause {
+    pub fn id(&self) -> DebugPauseId {
+        self.id
+    }
+
+    pub fn event(&self) -> PauseEvent {
+        self.event
+    }
+
+    pub(crate) fn new(id: DebugPauseId, event: PauseEvent) -> Self {
+        Self { id, event }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SymbolMutationKind {
+    Store,
+    IndexAssign,
+    Pop,
+    Remove,
+    Insert,
+    InsertAt,
+}
+
+impl SymbolMutationKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Store => "store",
+            Self::IndexAssign => "index-assign",
+            Self::Pop => "pop",
+            Self::Remove => "remove",
+            Self::Insert => "insert",
+            Self::InsertAt => "insert-at",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolMutation {
+    pub tracker_id: usize,
+    pub target: SymbolTrackTarget,
+    pub operation: SymbolMutationKind,
+    pub location: CodeLoc,
+    pub old_value: Option<Value>,
+    pub new_value: Value,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DebugNotification {
+    SymbolChanged(SymbolMutation),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrackResult {
+    Added(SymbolTracker),
+    Existing(SymbolTracker),
+}
+
+impl TrackResult {
+    pub fn tracker(&self) -> &SymbolTracker {
+        match self {
+            Self::Added(tracker) | Self::Existing(tracker) => tracker,
+        }
+    }
+
+    pub fn was_added(&self) -> bool {
+        matches!(self, Self::Added(_))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DebugError {
+    NoCurrentLocation,
+    LocalNamesUnavailable,
+    LocalNotFound { name: String },
+    LocalSlotOutOfRange { slot: usize },
+}
+
+impl std::fmt::Display for DebugError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoCurrentLocation => f.write_str("no current debug location"),
+            Self::LocalNamesUnavailable => {
+                f.write_str("current function has no local variable names")
+            }
+            Self::LocalNotFound { name } => {
+                write!(
+                    f,
+                    "local variable '{name}' was not found in the current function"
+                )
+            }
+            Self::LocalSlotOutOfRange { slot } => {
+                write!(f, "local slot {slot} is out of range")
+            }
+        }
+    }
+}
+
+impl std::error::Error for DebugError {}
 
 impl<'vm> Debugger<'vm> {
     pub(crate) fn new(vm: &'vm mut Vm) -> Self {
@@ -66,16 +208,27 @@ impl<'vm> Debugger<'vm> {
         self.vm.debug_info()
     }
 
+    pub fn resolve_location(&self, location: CodeLoc) -> Option<ResolvedCodeLoc> {
+        self.vm.debug_info().resolve_location(location)
+    }
+
+    pub fn function_names(&self) -> Vec<String> {
+        self.vm
+            .debug_info()
+            .function_names()
+            .map(str::to_string)
+            .collect()
+    }
+
+    pub fn local_names(&self, chunk: ChunkId) -> Option<&[String]> {
+        self.vm
+            .debug_info()
+            .get_chunk(chunk)
+            .and_then(|metadata| metadata.local_names.as_deref())
+    }
+
     pub fn function_name(&self, chunk: ChunkId) -> String {
         self.vm.func_name_for_chunk(chunk)
-    }
-
-    pub fn write_stderr_line(&self, text: &str) -> Result<(), WqIoError> {
-        self.vm.write_stderr_line(text)
-    }
-
-    pub fn color_mode(&self) -> ColorMode {
-        self.vm.stderr_color_mode()
     }
 
     pub fn step_granularity(&self) -> StepGranularity {
@@ -93,7 +246,7 @@ impl<'vm> Debugger<'vm> {
     /// Set a one-shot breakpoint that is cleared at the next debugger stop.
     pub fn set_temporary_breakpoint(&mut self, location: CodeLoc) {
         self.vm
-            .wqdb
+            .debug_state
             .add_temp_break(location, Some(&self.vm.debug_log));
     }
 
@@ -111,13 +264,13 @@ impl<'vm> Debugger<'vm> {
         lines: &[usize],
     ) -> Vec<SourceBreakpoint> {
         self.vm
-            .wqdb
+            .debug_state
             .replace_source_breakpoints(&self.vm.debug_info, source_path, lines)
     }
 
     /// Take source breakpoints which became resolvable since the last call.
     pub fn take_resolved_source_breakpoints(&mut self) -> Vec<SourceBreakpoint> {
-        self.vm.wqdb.take_resolved_source_breakpoints()
+        self.vm.debug_state.take_resolved_source_breakpoints()
     }
 
     pub fn toggle_breakpoint_at(&mut self, location: CodeLoc) -> bool {
@@ -152,36 +305,32 @@ impl<'vm> Debugger<'vm> {
         self.vm.dbg_frame_locals(frame)
     }
 
-    pub fn instruction_at(&self, pc: usize) -> Option<String> {
+    pub fn instruction_at(&self, pc: usize) -> Option<DebugInstruction> {
         self.vm.dbg_ins_at(pc)
     }
 
-    pub fn instruction_at_with_color_mode(
-        &self,
-        pc: usize,
-        color_mode: ColorMode,
-    ) -> Option<String> {
-        self.vm.dbg_ins_at_with_color_mode(pc, color_mode)
-    }
-
-    pub fn track_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+    pub fn track_symbol(&mut self, name: &str) -> Result<TrackResult, DebugError> {
         self.vm.dbg_track_symbol(name)
     }
 
-    pub fn track_global_symbol(&mut self, name: &str) -> Option<String> {
+    pub fn track_global_symbol(&mut self, name: &str) -> TrackResult {
         self.vm.dbg_track_global_symbol(name)
     }
 
-    pub fn track_local_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+    pub fn track_local_symbol(&mut self, name: &str) -> Result<TrackResult, DebugError> {
         self.vm.dbg_track_local_symbol(name)
     }
 
-    pub fn track_capture_slot(&mut self, slot: u16) -> Option<String> {
+    pub fn track_capture_slot(&mut self, slot: u16) -> Result<TrackResult, DebugError> {
         self.vm.dbg_track_capture_slot(slot)
     }
 
-    pub fn symbol_trackers(&self) -> Vec<(usize, bool, String)> {
+    pub fn symbol_trackers(&self) -> Vec<SymbolTracker> {
         self.vm.dbg_symbol_trackers()
+    }
+
+    pub fn take_notifications(&mut self) -> Vec<DebugNotification> {
+        self.vm.debug_state.take_notifications()
     }
 
     pub fn remove_symbol_tracker(&mut self, id: usize) -> bool {
@@ -192,73 +341,8 @@ impl<'vm> Debugger<'vm> {
         self.vm.dbg_clear_symbol_trackers();
     }
 
-    pub fn take_batch_commands(&mut self) -> Vec<String> {
-        self.vm.wqdb.take_batch_commands()
-    }
-
-    pub fn stop_hook_commands(&self) -> Vec<(usize, String)> {
-        self.vm.wqdb.stop_hook_commands()
-    }
-
-    pub fn stop_hooks(&self) -> Vec<StopHook> {
-        self.vm.wqdb.stop_hooks().to_vec()
-    }
-
-    pub fn add_stop_hook(&mut self, command: String) -> StopHook {
-        self.vm.wqdb.add_stop_hook(command).clone()
-    }
-
-    pub fn remove_stop_hook(&mut self, id: usize) -> bool {
-        self.vm.wqdb.remove_stop_hook(id)
-    }
-
-    pub fn clear_stop_hooks(&mut self) {
-        self.vm.wqdb.clear_stop_hooks();
-    }
-
     pub fn apply_resume(&mut self, action: DebugResume) {
         self.vm.apply_debug_resume(action);
-    }
-}
-
-impl Vm {
-    pub(crate) fn set_pause_handler<F>(&mut self, handler: F)
-    where
-        F: for<'vm> FnMut(PauseEvent, &mut Debugger<'vm>) -> DebugResume + 'static,
-    {
-        self.pause_handler = Some(Box::new(handler));
-    }
-
-    pub(crate) fn clear_pause_handler(&mut self) {
-        self.pause_handler = None;
-    }
-
-    pub(crate) fn dispatch_pause(&mut self, event: PauseEvent) {
-        self.wqdb.note_pause(event.location);
-        let Some(mut handler) = self.pause_handler.take() else {
-            self.apply_debug_resume(DebugResume::Continue);
-            return;
-        };
-
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let mut debugger = Debugger::new(self);
-            handler.on_pause(event, &mut debugger)
-        }));
-        self.pause_handler = Some(handler);
-
-        match result {
-            Ok(action) => self.apply_debug_resume(action),
-            Err(payload) => resume_unwind(payload),
-        }
-    }
-
-    pub(crate) fn apply_debug_resume(&mut self, action: DebugResume) {
-        match action {
-            DebugResume::Continue => self.dbg_continue(),
-            DebugResume::StepIn => self.dbg_step_in(),
-            DebugResume::StepOver => self.dbg_step_over(),
-            DebugResume::StepOut => self.dbg_step_out(),
-        }
     }
 }
 
@@ -324,11 +408,11 @@ mod tests {
             pc: 7,
         };
         let mut vm = Vm::new(Vec::new());
-        vm.wqdb.set_enabled(true);
+        vm.debug_state.set_enabled(true);
         Debugger::new(&mut vm).set_temporary_breakpoint(location);
 
         assert_eq!(
-            vm.wqdb
+            vm.debug_state
                 .pause_reason_at(&DebugInfo::default(), location, 1, None),
             Some(PauseReason::TemporaryBreakpoint)
         );

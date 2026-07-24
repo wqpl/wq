@@ -1,34 +1,83 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::cell::RefCell;
+use std::io::{IsTerminal as _, Write as _};
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
-use wqpl::debugger::{DebugResume, Debugger};
+use wqpl::debug::{
+    CodeLoc, DebugInfo, DebugInstruction, DebugLocalsFrame, DebugNotification, DebugResume,
+    Debugger, InstructionClass, Span, StepGranularity, SymbolMutation, SymbolTrackTarget,
+    TrackResult,
+};
 use wqpl::session::stdio::WqIoError;
 use wqpl::session::{EvaluationFailure, Session};
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
-use wqpl::wqdb::data::{CodeLoc, DebugInfo, DebugLocalsFrame, Span};
-use wqpl::wqdb::model::StepGranularity;
-use wqpl::wqdb::{format_crash_frame, format_span_snippet};
 
 use crate::repl::InteractiveOutputSpacing;
 use crate::repl::input::{RustylineInput, WqInputMode};
 
 pub(crate) mod editor;
+mod render;
 
-/// Enter wqdb shell after a crash for inspection.
-/// Print a short notice, then reuse the interactive shell.
-pub fn enter_wqdb_after_err(
-    session: &mut Session,
-    failure: &EvaluationFailure,
-    editor: &RustylineInput,
-) {
-    let Some(mut debugger) = session.postmortem_debugger(failure) else {
-        return;
-    };
-    {
-        let mut host = WqdbHost::new(&mut debugger, editor);
+use render::{format_crash_frame, format_span_snippet};
+
+#[derive(Clone)]
+pub struct WqdbShell {
+    editor: RustylineInput,
+    state: Rc<RefCell<WqdbShellState>>,
+}
+
+#[derive(Default)]
+struct WqdbShellState {
+    batch_commands: Vec<String>,
+    stop_hooks: Vec<CliStopHook>,
+    next_stop_hook_id: usize,
+}
+
+#[derive(Clone)]
+struct CliStopHook {
+    id: usize,
+    enabled: bool,
+    command: String,
+}
+
+impl WqdbShell {
+    pub fn new(editor: RustylineInput, batch_commands: Vec<String>) -> Self {
+        Self {
+            editor,
+            state: Rc::new(RefCell::new(WqdbShellState {
+                batch_commands,
+                next_stop_hook_id: 1,
+                ..WqdbShellState::default()
+            })),
+        }
+    }
+
+    pub fn on_pause(&self, debugger: &mut Debugger<'_>) -> DebugResume {
+        let mut host = WqdbHost::new(debugger, &self.editor, &self.state);
+        wqdb_shell_inner(&mut host)
+    }
+
+    pub fn flush_notifications(&self, session: &mut Session) {
+        let mut debugger = session.debugger();
+        let mut host = WqdbHost::new(&mut debugger, &self.editor, &self.state);
+        for notification in host.take_notifications() {
+            match notification {
+                DebugNotification::SymbolChanged(mutation) => {
+                    print_symbol_mutation(&host, &mutation);
+                }
+            }
+        }
+    }
+
+    /// Enter wqdb after a crash and reuse this shell's command state.
+    pub fn enter_after_error(&self, session: &mut Session, failure: &EvaluationFailure) {
+        let Some(mut debugger) = session.postmortem_debugger(failure) else {
+            return;
+        };
+        let mut host = WqdbHost::new(&mut debugger, &self.editor, &self.state);
         host.write_line(format!(
             "{}: {}",
             wqdb_title("wqdb", host.color_mode()),
@@ -44,14 +93,20 @@ pub fn enter_wqdb_after_err(
 struct WqdbHost<'debugger, 'vm> {
     debugger: &'debugger mut Debugger<'vm>,
     editor: &'debugger RustylineInput,
+    state: &'debugger RefCell<WqdbShellState>,
     output_error: RefCell<Option<WqIoError>>,
 }
 
 impl<'debugger, 'vm> WqdbHost<'debugger, 'vm> {
-    fn new(debugger: &'debugger mut Debugger<'vm>, editor: &'debugger RustylineInput) -> Self {
+    fn new(
+        debugger: &'debugger mut Debugger<'vm>,
+        editor: &'debugger RustylineInput,
+        state: &'debugger RefCell<WqdbShellState>,
+    ) -> Self {
         Self {
             debugger,
             editor,
+            state,
             output_error: RefCell::new(None),
         }
     }
@@ -60,13 +115,60 @@ impl<'debugger, 'vm> WqdbHost<'debugger, 'vm> {
         if self.output_error.borrow().is_some() {
             return;
         }
-        if let Err(error) = self.debugger.write_stderr_line(text.as_ref()) {
-            self.output_error.replace(Some(error));
+        let mut stderr = std::io::stderr().lock();
+        if let Err(error) = writeln!(stderr, "{}", text.as_ref()) {
+            self.output_error
+                .replace(Some(WqIoError::Other(error.to_string())));
         }
+    }
+
+    fn color_mode(&self) -> ColorMode {
+        ColorMode::Auto.resolve(std::io::stderr().is_terminal())
     }
 
     fn output_failed(&self) -> bool {
         self.output_error.borrow().is_some()
+    }
+
+    fn take_batch_commands(&self) -> Vec<String> {
+        std::mem::take(&mut self.state.borrow_mut().batch_commands)
+    }
+
+    fn stop_hook_commands(&self) -> Vec<(usize, String)> {
+        self.state
+            .borrow()
+            .stop_hooks
+            .iter()
+            .filter(|hook| hook.enabled)
+            .map(|hook| (hook.id, hook.command.clone()))
+            .collect()
+    }
+
+    fn stop_hooks(&self) -> Vec<CliStopHook> {
+        self.state.borrow().stop_hooks.clone()
+    }
+
+    fn add_stop_hook(&self, command: String) -> CliStopHook {
+        let mut state = self.state.borrow_mut();
+        let hook = CliStopHook {
+            id: state.next_stop_hook_id,
+            enabled: true,
+            command,
+        };
+        state.next_stop_hook_id += 1;
+        state.stop_hooks.push(hook.clone());
+        hook
+    }
+
+    fn remove_stop_hook(&self, id: usize) -> bool {
+        let mut state = self.state.borrow_mut();
+        let old_len = state.stop_hooks.len();
+        state.stop_hooks.retain(|hook| hook.id != id);
+        state.stop_hooks.len() != old_len
+    }
+
+    fn clear_stop_hooks(&self) {
+        self.state.borrow_mut().stop_hooks.clear();
     }
 }
 
@@ -393,6 +495,34 @@ fn wqdb_color(text: &str, color: AnsiColor, color_mode: ColorMode) -> String {
 
 fn wqdb_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
     paint(text, style, color_mode)
+}
+
+fn render_debug_instruction(instruction: &DebugInstruction, color_mode: ColorMode) -> String {
+    let color = match instruction.class {
+        InstructionClass::Load => AnsiColor::Red,
+        InstructionClass::Store => AnsiColor::Green,
+        InstructionClass::Call => AnsiColor::Blue,
+        InstructionClass::Jump => AnsiColor::Yellow,
+        InstructionClass::Stack => AnsiColor::BrightBlack,
+        InstructionClass::Operator => AnsiColor::Magenta,
+        InstructionClass::Indexing => AnsiColor::Purple,
+        InstructionClass::Construct => AnsiColor::BrightRed,
+        InstructionClass::Try => AnsiColor::BrightYellow,
+    };
+    let mut opcode_style = TextStyle::new().fg(color);
+    if instruction.is_special {
+        opcode_style = opcode_style.bold().italic();
+    }
+    let mut rendered = wqdb_paint_with_color_mode(&instruction.opcode, opcode_style, color_mode);
+    rendered.push_str(&instruction.operands);
+    if !instruction.annotations.is_empty() {
+        rendered.push_str("  ");
+        rendered.push_str(&wqdb_dim(
+            &format!("// {}", instruction.annotations.join("; ")),
+            color_mode,
+        ));
+    }
+    rendered
 }
 
 fn styled_track_command(scope: &str, arg: &str, color_mode: ColorMode) -> String {
@@ -821,12 +951,14 @@ fn set_step_granularity(host: &mut WqdbHost<'_, '_>, arg: Option<&str>) {
     print_stop_controls(host, granularity);
 }
 
-pub fn wqdb_shell(debugger: &mut Debugger<'_>, editor: &RustylineInput) -> DebugResume {
-    let mut host = WqdbHost::new(debugger, editor);
-    wqdb_shell_inner(&mut host)
-}
-
 fn wqdb_shell_inner(host: &mut WqdbHost<'_, '_>) -> DebugResume {
+    for notification in host.take_notifications() {
+        match notification {
+            DebugNotification::SymbolChanged(mutation) => {
+                print_symbol_mutation(host, &mutation);
+            }
+        }
+    }
     let cmds = host.take_batch_commands();
     if !cmds.is_empty() {
         let action = exec_wqdb_cmds(host, &cmds);
@@ -960,23 +1092,34 @@ fn track_symbol(
     let Some(target_arg) = target_arg else {
         return Err("usage: track [global|local|capture] <name-or-slot>".to_string());
     };
-    let msg = if let Some(name_arg) = name_arg {
+    let result = if let Some(name_arg) = name_arg {
         match TrackScope::parse(target_arg) {
             Some(TrackScope::Global) => host.track_global_symbol(name_arg),
-            Some(TrackScope::Local) => host.track_local_symbol(name_arg)?,
+            Some(TrackScope::Local) => host
+                .track_local_symbol(name_arg)
+                .map_err(|error| error.to_string())?,
             Some(TrackScope::Capture) => {
                 let slot = name_arg
                     .parse::<u16>()
                     .map_err(|_| "usage: track capture <slot>".to_string())?;
                 host.track_capture_slot(slot)
+                    .map_err(|error| error.to_string())?
             }
             None => return Err("usage: track [global|local|capture] <name-or-slot>".to_string()),
         }
     } else {
-        host.track_symbol(target_arg)?
+        host.track_symbol(target_arg)
+            .map_err(|error| error.to_string())?
     };
-    if let Some(msg) = msg {
-        wqdb_println!(host, msg);
+    if let TrackResult::Added(tracker) = result {
+        wqdb_println!(
+            host,
+            format!(
+                "tracking #{} {}",
+                tracker.id,
+                format_symbol_track_target(host, &tracker.target)
+            )
+        );
     }
     Ok(())
 }
@@ -1009,17 +1152,74 @@ fn print_symbol_trackers(host: &WqdbHost<'_, '_>) {
     }
     wqdb_println!(host, format!("{:<4}  {:<3}  target", "id", "en"));
     wqdb_println!(host, format!("{:-<4}  {:-<3}  {:-<20}", "", "", ""));
-    for (id, enabled, target) in trackers {
+    for tracker in trackers {
         wqdb_println!(
             host,
             format!(
                 "{:<4}  {:<3}  {}",
-                id,
-                if enabled { "y" } else { "n" },
-                target
+                tracker.id,
+                if tracker.enabled { "y" } else { "n" },
+                format_symbol_track_target(host, &tracker.target)
             )
         );
     }
+}
+
+fn format_symbol_track_target(host: &WqdbHost<'_, '_>, target: &SymbolTrackTarget) -> String {
+    match target {
+        SymbolTrackTarget::Global { name } => format!("global {name}"),
+        SymbolTrackTarget::Local { chunk, slot, name } => {
+            format!("local {name} ({} slot {slot})", host.function_name(*chunk))
+        }
+        SymbolTrackTarget::Capture { chunk, slot, name } => match name {
+            Some(name) => {
+                format!(
+                    "capture {name} ({} slot {slot})",
+                    host.function_name(*chunk)
+                )
+            }
+            None => format!("capture slot {slot} ({})", host.function_name(*chunk)),
+        },
+    }
+}
+
+fn print_symbol_mutation(host: &WqdbHost<'_, '_>, mutation: &SymbolMutation) {
+    let target = format_symbol_track_target(host, &mutation.target);
+    let location = host
+        .debug_info()
+        .resolve_location(mutation.location)
+        .and_then(|resolved| {
+            resolved.source.map(|source| {
+                format!(
+                    "{}:{}:{} in {}",
+                    source.path, source.line, source.column, resolved.function
+                )
+            })
+        })
+        .unwrap_or_else(|| {
+            format!(
+                "pc {} in {}",
+                mutation.location.pc,
+                host.function_name(mutation.location.chunk)
+            )
+        });
+    let old = mutation.old_value.as_ref().map_or_else(
+        || "<unbound>".to_string(),
+        |value| format!("{} ({})", value.excerpt(), value.debug_kind()),
+    );
+    let new = format!(
+        "{} ({})",
+        mutation.new_value.excerpt(),
+        mutation.new_value.debug_kind()
+    );
+    wqdb_println!(
+        host,
+        format!(
+            "[wqdb:track #{}] {target} {} at {location}: {old} -> {new}",
+            mutation.tracker_id,
+            mutation.operation.as_str()
+        )
+    );
 }
 
 fn stop_hook_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Result<(), String> {
@@ -1542,7 +1742,9 @@ fn render_stop_card_with_color_mode(host: &WqdbHost<'_, '_>, color_mode: ColorMo
             di,
             loc,
             name,
-            host.instruction_at_with_color_mode(loc.pc, color_mode)
+            host.instruction_at(loc.pc)
+                .as_ref()
+                .map(|instruction| render_debug_instruction(instruction, color_mode))
                 .as_deref(),
             color_mode,
         ),
@@ -1551,8 +1753,8 @@ fn render_stop_card_with_color_mode(host: &WqdbHost<'_, '_>, color_mode: ColorMo
             let end = loc.pc.saturating_add(3).min(meta.len.saturating_sub(1));
             let instructions = (start..=end)
                 .filter_map(|pc| {
-                    host.instruction_at_with_color_mode(pc, color_mode)
-                        .map(|instruction| (pc, instruction))
+                    host.instruction_at(pc)
+                        .map(|instruction| (pc, render_debug_instruction(&instruction, color_mode)))
                 })
                 .collect::<Vec<_>>();
             format_inst_stop_card_with_color_mode(
@@ -1685,7 +1887,8 @@ fn peek_instructions(host: &mut WqdbHost<'_, '_>, n: usize) {
     let end = (loc.pc + n).min(len.saturating_sub(1));
     for pc in start..=end {
         let text = host
-            .instruction_at_with_color_mode(pc, host.color_mode())
+            .instruction_at(pc)
+            .map(|instruction| render_debug_instruction(&instruction, host.color_mode()))
             .unwrap_or_else(|| "<unavailable>".to_string());
         let prefix = if pc == loc.pc {
             wqdb_paint_with_color_mode(
@@ -1830,7 +2033,7 @@ mod tests {
     fn stale_locations_render_without_panicking() {
         let di = DebugInfo::default();
         let loc = CodeLoc {
-            chunk: wqpl::wqdb::data::ChunkId(u32::MAX),
+            chunk: wqpl::debug::ChunkId(u32::MAX),
             pc: 7,
         };
 

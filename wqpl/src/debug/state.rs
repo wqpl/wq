@@ -1,22 +1,19 @@
-pub(crate) mod build;
-pub mod data;
-pub mod model;
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+#[cfg(test)]
 use unicode_width::UnicodeWidthChar as _;
 
-use crate::debugger::PauseReason;
+use crate::debug::data::{CodeLoc, CrashFrame, DebugInfo, Span};
+use crate::debug::model::{
+    Breakpoint, BreakpointKind, SourceBreakpoint, StepGranularity, StepMode, SymbolTrackTarget,
+    SymbolTracker,
+};
+use crate::debug::{DebugNotification, PauseReason};
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
-use crate::wqdb::data::{CodeLoc, CrashFrame, DebugInfo, Span};
-use crate::wqdb::model::{
-    Breakpoint, BreakpointKind, SourceBreakpoint, StepGranularity, StepMode, StopHook,
-    SymbolTrackTarget, SymbolTracker,
-};
 
-pub(crate) struct Wqdb {
+pub(crate) struct DebugState {
     enabled: bool,
     breaks: HashMap<CodeLoc, Breakpoint>,
     source_breakpoints: HashMap<String, Vec<SourceBreakpoint>>,
@@ -30,12 +27,10 @@ pub(crate) struct Wqdb {
     current_pause: Option<CodeLoc>,
     symbol_trackers: Vec<SymbolTracker>,
     next_symbol_tracker_id: usize,
-    stop_hooks: Vec<StopHook>,
-    next_stop_hook_id: usize,
-    batch_cmds: Vec<String>,
+    notifications: Vec<DebugNotification>,
 }
 
-impl Default for Wqdb {
+impl Default for DebugState {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -51,14 +46,12 @@ impl Default for Wqdb {
             current_pause: None,
             symbol_trackers: Vec::new(),
             next_symbol_tracker_id: 1,
-            stop_hooks: Vec::new(),
-            next_stop_hook_id: 1,
-            batch_cmds: Vec::new(),
+            notifications: Vec::new(),
         }
     }
 }
 
-impl Wqdb {
+impl DebugState {
     pub(crate) fn is_enabled(&self) -> bool {
         self.enabled
     }
@@ -67,20 +60,10 @@ impl Wqdb {
         self.enabled = enabled;
     }
 
-    pub(crate) fn replace_batch_commands(&mut self, commands: Vec<String>) {
-        self.batch_cmds = commands;
-    }
-
-    pub(crate) fn take_batch_commands(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.batch_cmds)
-    }
-
     pub(crate) fn reset_execution_state(&mut self) {
         let enabled = self.enabled;
-        let batch_cmds = std::mem::take(&mut self.batch_cmds);
         *self = Self {
             enabled,
-            batch_cmds,
             ..Self::default()
         };
     }
@@ -444,37 +427,12 @@ impl Wqdb {
         self.symbol_trackers.clear();
     }
 
-    pub(crate) fn add_stop_hook(&mut self, command: String) -> &StopHook {
-        let id = self.next_stop_hook_id;
-        self.next_stop_hook_id += 1;
-        self.stop_hooks.push(StopHook {
-            id,
-            enabled: true,
-            command,
-        });
-        self.stop_hooks.last().expect("stop hook was just inserted")
+    pub(crate) fn push_notification(&mut self, notification: DebugNotification) {
+        self.notifications.push(notification);
     }
 
-    pub(crate) fn stop_hooks(&self) -> &[StopHook] {
-        &self.stop_hooks
-    }
-
-    pub(crate) fn stop_hook_commands(&self) -> Vec<(usize, String)> {
-        self.stop_hooks
-            .iter()
-            .filter(|hook| hook.enabled)
-            .map(|hook| (hook.id, hook.command.clone()))
-            .collect()
-    }
-
-    pub(crate) fn remove_stop_hook(&mut self, id: usize) -> bool {
-        let old_len = self.stop_hooks.len();
-        self.stop_hooks.retain(|hook| hook.id != id);
-        self.stop_hooks.len() != old_len
-    }
-
-    pub(crate) fn clear_stop_hooks(&mut self) {
-        self.stop_hooks.clear();
+    pub(crate) fn take_notifications(&mut self) -> Vec<DebugNotification> {
+        std::mem::take(&mut self.notifications)
     }
 }
 
@@ -493,8 +451,9 @@ fn resolve_source_line(
     })
 }
 
-pub fn format_span_snippet(
-    sf: &crate::wqdb::data::SourceFile,
+#[cfg(test)]
+fn format_span_snippet(
+    sf: &crate::debug::data::SourceFile,
     start_byte: usize,
     end_byte: usize,
     color_mode: ColorMode,
@@ -553,6 +512,7 @@ pub fn format_span_snippet(
     out
 }
 
+#[cfg(test)]
 fn terminal_text_width(text: &str, start_column: usize) -> usize {
     const TAB_STOP: usize = 8;
     let mut column = start_column;
@@ -808,9 +768,9 @@ pub fn format_crash_frame(frame: &CrashFrame, is_current: bool, color_mode: Colo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wqdb::build::apply_stmt_debug_exact_offs;
-    use crate::wqdb::data::{ChunkId, LineTable, Span};
-    use crate::wqdb::model::StepGranularity;
+    use crate::debug::build::apply_stmt_debug_exact_offs;
+    use crate::debug::data::{ChunkId, LineTable, Span};
+    use crate::debug::model::StepGranularity;
 
     fn granularity_debug_info() -> (DebugInfo, ChunkId) {
         let mut di = DebugInfo::default();
@@ -854,15 +814,15 @@ mod tests {
 
     #[test]
     fn expression_granularity_is_the_compatible_default() {
-        assert_eq!(Wqdb::default().granularity(), StepGranularity::Expr);
+        assert_eq!(DebugState::default().granularity(), StepGranularity::Expr);
     }
 
     #[test]
     fn line_granularity_coalesces_expressions_on_the_same_line() {
         let (di, chunk) = granularity_debug_info();
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         wqdb.set_granularity(StepGranularity::Line);
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
@@ -881,9 +841,9 @@ mod tests {
     #[test]
     fn line_step_in_stops_in_a_deeper_frame_on_the_same_source_line() {
         let (di, chunk) = granularity_debug_info();
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         wqdb.set_granularity(StepGranularity::Line);
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
@@ -898,9 +858,9 @@ mod tests {
     #[test]
     fn expression_granularity_stops_at_each_expression_and_on_revisit() {
         let (di, chunk) = granularity_debug_info();
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
         wqdb.req_in(0);
@@ -922,9 +882,9 @@ mod tests {
     #[test]
     fn instruction_granularity_stops_at_every_instruction() {
         let (di, chunk) = granularity_debug_info();
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         wqdb.set_granularity(StepGranularity::Inst);
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
@@ -939,9 +899,9 @@ mod tests {
     #[test]
     fn step_over_applies_depth_to_instruction_granularity() {
         let (di, chunk) = granularity_debug_info();
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         wqdb.set_granularity(StepGranularity::Inst);
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
@@ -1017,7 +977,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_aligns_with_source() {
-        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "abc\n");
+        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "abc\n");
 
         let rendered = format_span_snippet(&source, 1, 2, ColorMode::Never);
 
@@ -1026,7 +986,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_counts_unicode_columns() {
-        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "αβγ\n");
+        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "αβγ\n");
 
         let rendered = format_span_snippet(&source, 2, 4, ColorMode::Never);
 
@@ -1035,7 +995,7 @@ mod tests {
 
     #[test]
     fn span_snippet_clamps_malformed_unicode_offsets() {
-        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "aéz\n");
+        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "aéz\n");
 
         let rendered = format_span_snippet(&source, 2, 2, ColorMode::Never);
 
@@ -1044,7 +1004,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_uses_terminal_width() {
-        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "界a\n");
+        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "界a\n");
 
         let rendered = format_span_snippet(&source, 3, 4, ColorMode::Never);
 
@@ -1053,7 +1013,7 @@ mod tests {
 
     #[test]
     fn span_snippet_clamps_multiline_span_to_the_first_displayed_line() {
-        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "a:1\nb:2\n");
+        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "a:1\nb:2\n");
 
         let rendered = format_span_snippet(&source, 0, 7, ColorMode::Never);
 
@@ -1062,7 +1022,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_expands_tabs_from_the_source_column() {
-        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "  \ta:1\n");
+        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "  \ta:1\n");
 
         let rendered = format_span_snippet(&source, 3, 6, ColorMode::Never);
 
@@ -1071,7 +1031,7 @@ mod tests {
 
     #[test]
     fn source_file_reports_display_columns_for_debugger_cards() {
-        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "α界\tz\n");
+        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "α界\tz\n");
 
         assert_eq!(source.display_line_col(6), (1, 9));
     }
@@ -1147,9 +1107,9 @@ mod tests {
         );
 
         let loc = CodeLoc { chunk, pc: 1 };
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
 
         assert!(wqdb.explicit_pause_id(loc).is_some());
@@ -1171,9 +1131,9 @@ mod tests {
             chunk: ChunkId(2),
             pc: 3,
         };
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         wqdb.ensure_breakpoint(location, BreakpointKind::Persistent);
         assert!(!wqdb.toggle_breakpoint_at(location));
@@ -1191,9 +1151,9 @@ mod tests {
             chunk: ChunkId(2),
             pc: 3,
         };
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         assert!(wqdb.explicit_pause_id(location).is_some());
         wqdb.add_temp_break(location, None);
@@ -1205,15 +1165,14 @@ mod tests {
     }
 
     #[test]
-    fn reset_execution_state_preserves_only_host_configuration() {
+    fn reset_execution_state_preserves_enabled_state() {
         let loc = CodeLoc {
             chunk: ChunkId(7),
             pc: 11,
         };
-        let mut wqdb = Wqdb {
+        let mut wqdb = DebugState {
             enabled: true,
-            batch_cmds: vec!["where".to_string(), "continue".to_string()],
-            ..Wqdb::default()
+            ..DebugState::default()
         };
         wqdb.ensure_breakpoint(loc, BreakpointKind::Persistent);
         wqdb.add_temp_break(loc, None);
@@ -1223,12 +1182,10 @@ mod tests {
         wqdb.ensure_symbol_tracker(SymbolTrackTarget::Global {
             name: "value".to_string(),
         });
-        wqdb.add_stop_hook("echo value".to_string());
 
         wqdb.reset_execution_state();
 
         assert!(wqdb.enabled);
-        assert_eq!(wqdb.batch_cmds, ["where", "continue"]);
         assert!(wqdb.breaks.is_empty());
         assert!(wqdb.temps.is_empty());
         assert_eq!(wqdb.mode, StepMode::None);
@@ -1238,8 +1195,6 @@ mod tests {
         assert_eq!(wqdb.current_pause, None);
         assert!(wqdb.symbol_trackers.is_empty());
         assert_eq!(wqdb.next_symbol_tracker_id, 1);
-        assert!(wqdb.stop_hooks.is_empty());
-        assert_eq!(wqdb.next_stop_hook_id, 1);
         assert_eq!(wqdb.next_break_id, 1);
     }
 }

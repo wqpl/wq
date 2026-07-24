@@ -7,7 +7,10 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
 use wqpl::builtins::BuiltinPreset;
-use wqpl::debugger::{DebugResume, Debugger, PauseEvent};
+use wqpl::debug::{
+    CrashFrame, DebugInstruction, DebugNotification, DebugPause, PauseReason, ResumeAction,
+    SourceBreakpoint, SymbolMutation, SymbolTrackTarget,
+};
 use wqpl::display::{BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info};
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::format::{FormatConfig, Formatter};
@@ -27,7 +30,6 @@ use wqpl::session::{
 use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::Value;
-use wqpl::wqdb::data::CrashFrame;
 use wqpl::wqerror::WqError;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -75,7 +77,62 @@ export interface RenderedValue {
 export type EvaluationSlice =
     | { status: "yielded"; work_units: number }
     | { status: "awaiting_input"; request_id: string; prompt: string }
+    | { status: "paused"; pause: DebugPause }
     | { status: "ready"; value: RenderedValue };
+
+export interface DebugPause {
+    id: string;
+    reason: "entry" | "step" | "breakpoint" | "temporary_breakpoint" | "explicit_pause";
+    breakpoint_id: number | null;
+    chunk: number;
+    pc: number;
+}
+
+export interface DebuggerValue {
+    name: string | null;
+    slot: number | null;
+    display: string;
+    kind: string;
+}
+
+export interface DebuggerInstruction {
+    pc: number;
+    opcode: string;
+    operands: string;
+    annotations: string[];
+    class: string;
+    is_special: boolean;
+}
+
+export interface DebuggerStackFrame extends WqStackFrame {
+    frame: number;
+    chunk: number | null;
+    pc: number | null;
+}
+
+export interface DebuggerSourceBreakpoint {
+    id: number;
+    source_path: string;
+    requested_line: number;
+    chunk: number | null;
+    pc: number | null;
+}
+
+export interface DebuggerSymbolMutation {
+    kind: "symbol_changed";
+    tracker_id: number;
+    target: {
+        scope: "global" | "local" | "capture";
+        name: string | null;
+        chunk: number | null;
+        slot: number | null;
+    };
+    operation: string;
+    chunk: number;
+    pc: number;
+    old_value: DebuggerValue | null;
+    new_value: DebuggerValue;
+}
 
 export interface GlobalBinding {
     name: string;
@@ -353,7 +410,6 @@ impl WasmWqSession {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmWqSession {
         let mut session = Session::new();
-        session.set_pause_handler(wasm_wqdb_pause_handler);
         session.set_color_mode(ColorMode::Always);
         WasmWqSession {
             box_config: Cell::new(BoxPrintConfig::default()),
@@ -397,6 +453,12 @@ impl WasmWqSession {
     #[wasm_bindgen(unchecked_return_type = "RenderedValue")]
     pub fn eval_wq(&self, src: &str) -> Result<JsValue, JsValue> {
         self.ensure_session_idle()?;
+        if self.try_session()?.is_wqdb_enabled() {
+            return Err(api_error_js(
+                "debugger-requires-cooperative-evaluation",
+                "interactive debugging requires start_eval_wq and run_eval_wq_slice",
+            ));
+        }
         let (result, color_mode) = {
             let mut session = self.try_session_mut()?;
             let color_mode = session.stderr_color_mode();
@@ -467,6 +529,7 @@ impl WasmWqSession {
             Ok(SessionEvaluationPoll::AwaitingInput { request_id, prompt }) => {
                 Ok(evaluation_awaiting_input_to_js(request_id, &prompt).into())
             }
+            Ok(SessionEvaluationPoll::Paused(pause)) => Ok(evaluation_paused_to_js(&pause).into()),
             Ok(SessionEvaluationPoll::Ready(value)) => {
                 evaluation.take();
                 let rendered = render_value(&value, self.box_config.get());
@@ -542,6 +605,136 @@ impl WasmWqSession {
             (result, color_mode)
         };
         result.map_err(|failure| evaluation_failure_js(&failure, color_mode))
+    }
+
+    pub fn resume_eval_wq_debugger(&self, pause_id: &str, action: &str) -> Result<(), JsValue> {
+        let pause_id = pause_id.parse::<u64>().map_err(|_| {
+            api_error_js(
+                "invalid-debugger-pause",
+                "debugger pause identifier must be an unsigned decimal integer",
+            )
+        })?;
+        let action = match action {
+            "continue" => ResumeAction::Continue,
+            "step_in" => ResumeAction::StepIn,
+            "step_over" => ResumeAction::StepOver,
+            "step_out" => ResumeAction::StepOut,
+            _ => {
+                return Err(api_error_js(
+                    "invalid-debugger-resume",
+                    "debugger resume action must be 'continue', 'step_in', 'step_over', or 'step_out'",
+                ));
+            }
+        };
+
+        let mut evaluation = self
+            .evaluation
+            .try_borrow_mut()
+            .map_err(|_| reentrant_session_error_js())?;
+        let active = evaluation
+            .as_mut()
+            .ok_or_else(no_active_evaluation_error_js)?;
+        let (result, color_mode) = {
+            let mut session = self.try_session_mut()?;
+            let color_mode = session.stderr_color_mode();
+            let result = session.resume_script_debugger(
+                active,
+                wqpl::debug::DebugPauseId::from_u64(pause_id),
+                action,
+            );
+            (result, color_mode)
+        };
+        result.map_err(|failure| evaluation_failure_js(&failure, color_mode))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerStackFrame[]")]
+    pub fn debugger_stack(&self) -> Result<Array, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let debugger = session.debugger();
+        let result = Array::new();
+        for (frame_index, frame) in debugger.backtrace().iter().enumerate() {
+            result.push(&debugger_stack_frame_to_js(frame_index, frame));
+        }
+        Ok(result)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerValue[]")]
+    pub fn debugger_globals(&self) -> Result<Array, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let debugger = session.debugger();
+        let result = Array::new();
+        for (name, value) in debugger.globals() {
+            result.push(&debugger_value_to_js(Some(&name), None, &value));
+        }
+        Ok(result)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerValue[]")]
+    pub fn debugger_locals(&self, frame_index: usize) -> Result<Array, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let debugger = session.debugger();
+        let Some(frame) = debugger.frame_locals(frame_index) else {
+            return Err(api_error_js(
+                "debugger-frame-unavailable",
+                "debugger frame does not have captured locals",
+            ));
+        };
+        let names = debugger.local_names(frame.loc.chunk);
+        let result = Array::new();
+        for (slot, value) in frame.locals {
+            let name = names
+                .and_then(|names| names.get(slot))
+                .filter(|name| !name.is_empty())
+                .map(String::as_str);
+            result.push(&debugger_value_to_js(name, Some(slot), &value));
+        }
+        Ok(result)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerInstruction | null")]
+    pub fn debugger_instruction(&self, pc: usize) -> Result<JsValue, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let debugger = session.debugger();
+        Ok(debugger
+            .instruction_at(pc)
+            .map_or(JsValue::NULL, |instruction| {
+                debugger_instruction_to_js(&instruction).into()
+            }))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerSourceBreakpoint[]")]
+    pub fn set_debugger_source_breakpoints(
+        &self,
+        source_path: &str,
+        lines: Vec<u32>,
+    ) -> Result<Array, JsValue> {
+        let lines = lines
+            .into_iter()
+            .map(|line| line as usize)
+            .collect::<Vec<_>>();
+        let mut session = self.try_session_mut()?;
+        let mut debugger = session.debugger();
+        let breakpoints = debugger.set_source_breakpoints(source_path, &lines);
+        let result = Array::new();
+        for breakpoint in breakpoints {
+            result.push(&debugger_source_breakpoint_to_js(&breakpoint));
+        }
+        Ok(result)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "DebuggerSymbolMutation[]")]
+    pub fn take_debugger_notifications(&self) -> Result<Array, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let mut debugger = session.debugger();
+        let result = Array::new();
+        for notification in debugger.take_notifications() {
+            match notification {
+                DebugNotification::SymbolChanged(mutation) => {
+                    result.push(&debugger_symbol_mutation_to_js(&mutation));
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// Configure ANSI styling for runtime output and diagnostics.
@@ -985,6 +1178,203 @@ fn evaluation_awaiting_input_to_js(request_id: u64, prompt: &str) -> Object {
     object
 }
 
+fn evaluation_paused_to_js(pause: &DebugPause) -> Object {
+    let event = pause.event();
+    let (reason, breakpoint_id) = match event.reason {
+        PauseReason::Entry => ("entry", None),
+        PauseReason::Step => ("step", None),
+        PauseReason::Breakpoint { id } => ("breakpoint", Some(id)),
+        PauseReason::TemporaryBreakpoint => ("temporary_breakpoint", None),
+        PauseReason::ExplicitPause { id } => ("explicit_pause", Some(id)),
+    };
+    let pause_data = Object::new();
+    set_js_property(
+        &pause_data,
+        "id",
+        &JsValue::from_str(&pause.id().get().to_string()),
+    );
+    set_js_property(&pause_data, "reason", &JsValue::from_str(reason));
+    set_js_property(
+        &pause_data,
+        "breakpoint_id",
+        &optional_usize_js(breakpoint_id),
+    );
+    set_js_property(
+        &pause_data,
+        "chunk",
+        &usize_js(event.location.chunk.0 as usize),
+    );
+    set_js_property(&pause_data, "pc", &usize_js(event.location.pc));
+
+    let result = Object::new();
+    set_js_property(&result, "status", &JsValue::from_str("paused"));
+    set_js_property(&result, "pause", &pause_data.into());
+    result
+}
+
+fn debugger_value_to_js(name: Option<&str>, slot: Option<usize>, value: &Value) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "name", &optional_string_js(name));
+    set_js_property(&object, "slot", &optional_usize_js(slot));
+    set_js_property(&object, "display", &JsValue::from_str(&value.to_string()));
+    set_js_property(
+        &object,
+        "kind",
+        &JsValue::from_str(&value.debug_kind().to_string()),
+    );
+    object
+}
+
+fn debugger_instruction_to_js(instruction: &DebugInstruction) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "pc", &usize_js(instruction.pc));
+    set_js_property(&object, "opcode", &JsValue::from_str(&instruction.opcode));
+    set_js_property(
+        &object,
+        "operands",
+        &JsValue::from_str(&instruction.operands),
+    );
+    set_js_property(
+        &object,
+        "annotations",
+        &strings_to_array(instruction.annotations.iter().map(String::as_str)).into(),
+    );
+    let class = match instruction.class {
+        wqpl::debug::InstructionClass::Load => "load",
+        wqpl::debug::InstructionClass::Store => "store",
+        wqpl::debug::InstructionClass::Call => "call",
+        wqpl::debug::InstructionClass::Jump => "jump",
+        wqpl::debug::InstructionClass::Stack => "stack",
+        wqpl::debug::InstructionClass::Operator => "operator",
+        wqpl::debug::InstructionClass::Indexing => "indexing",
+        wqpl::debug::InstructionClass::Construct => "construct",
+        wqpl::debug::InstructionClass::Try => "try",
+    };
+    set_js_property(&object, "class", &JsValue::from_str(class));
+    set_js_property(
+        &object,
+        "is_special",
+        &JsValue::from_bool(instruction.is_special),
+    );
+    object
+}
+
+fn debugger_stack_frame_to_js(frame_index: usize, frame: &CrashFrame) -> Object {
+    let data = crash_frame_data(frame);
+    let object = Object::new();
+    set_js_property(&object, "frame", &usize_js(frame_index));
+    set_js_property(&object, "function", &JsValue::from_str(&data.function));
+    set_js_property(&object, "path", &optional_string_js(data.path.as_deref()));
+    set_js_property(&object, "line", &optional_usize_js(data.line));
+    set_js_property(&object, "column", &optional_usize_js(data.column));
+    set_js_property(&object, "byte", &optional_usize_js(data.byte));
+    let location = frame.location();
+    set_js_property(
+        &object,
+        "chunk",
+        &optional_usize_js(location.map(|location| location.chunk.0 as usize)),
+    );
+    set_js_property(
+        &object,
+        "pc",
+        &optional_usize_js(location.map(|location| location.pc)),
+    );
+    object
+}
+
+fn debugger_source_breakpoint_to_js(breakpoint: &SourceBreakpoint) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "id", &usize_js(breakpoint.id));
+    set_js_property(
+        &object,
+        "source_path",
+        &JsValue::from_str(&breakpoint.source_path),
+    );
+    set_js_property(
+        &object,
+        "requested_line",
+        &usize_js(breakpoint.requested_line),
+    );
+    set_js_property(
+        &object,
+        "chunk",
+        &optional_usize_js(
+            breakpoint
+                .location
+                .map(|location| location.chunk.0 as usize),
+        ),
+    );
+    set_js_property(
+        &object,
+        "pc",
+        &optional_usize_js(breakpoint.location.map(|location| location.pc)),
+    );
+    object
+}
+
+fn debugger_symbol_mutation_to_js(mutation: &SymbolMutation) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "kind", &JsValue::from_str("symbol_changed"));
+    set_js_property(&object, "tracker_id", &usize_js(mutation.tracker_id));
+    set_js_property(
+        &object,
+        "operation",
+        &JsValue::from_str(mutation.operation.as_str()),
+    );
+    set_js_property(
+        &object,
+        "chunk",
+        &usize_js(mutation.location.chunk.0 as usize),
+    );
+    set_js_property(&object, "pc", &usize_js(mutation.location.pc));
+    set_js_property(
+        &object,
+        "old_value",
+        &mutation.old_value.as_ref().map_or(JsValue::NULL, |value| {
+            debugger_value_to_js(None, None, value).into()
+        }),
+    );
+    set_js_property(
+        &object,
+        "new_value",
+        &debugger_value_to_js(None, None, &mutation.new_value).into(),
+    );
+    set_js_property(
+        &object,
+        "target",
+        &debugger_symbol_target_to_js(&mutation.target).into(),
+    );
+    object
+}
+
+fn debugger_symbol_target_to_js(target: &SymbolTrackTarget) -> Object {
+    let object = Object::new();
+    let (scope, name, chunk, slot) = match target {
+        SymbolTrackTarget::Global { name } => ("global", Some(name.as_str()), None, None),
+        SymbolTrackTarget::Local {
+            chunk, slot, name, ..
+        } => (
+            "local",
+            Some(name.as_str()),
+            Some(chunk.0 as usize),
+            Some(usize::from(*slot)),
+        ),
+        SymbolTrackTarget::Capture {
+            chunk, slot, name, ..
+        } => (
+            "capture",
+            name.as_deref(),
+            Some(chunk.0 as usize),
+            Some(usize::from(*slot)),
+        ),
+    };
+    set_js_property(&object, "scope", &JsValue::from_str(scope));
+    set_js_property(&object, "name", &optional_string_js(name));
+    set_js_property(&object, "chunk", &optional_usize_js(chunk));
+    set_js_property(&object, "slot", &optional_usize_js(slot));
+    object
+}
+
 fn evaluation_ready_to_js(value: &RenderedValueData) -> Object {
     let object = Object::new();
     set_js_property(&object, "status", &JsValue::from_str("ready"));
@@ -1088,22 +1478,6 @@ fn diagnostic_to_js(diagnostic: &DiagnosticData) -> Object {
         .map_or(JsValue::NULL, |cause| diagnostic_to_js(cause).into());
     set_js_property(&object, "cause", &cause);
     object
-}
-
-fn wasm_wqdb_pause_handler(event: PauseEvent, debugger: &mut Debugger<'_>) -> DebugResume {
-    let loc = event.location;
-    let name = debugger.function_name(loc.chunk);
-    let _ = debugger.write_stderr_line(
-        "wqdb: paused; interactive browser debugger shell is not available, continuing",
-    );
-    let _ = debugger.write_stderr_line(&wqpl::wqdb::format_frame(
-        debugger.debug_info(),
-        loc,
-        &name,
-        true,
-        debugger.color_mode(),
-    ));
-    DebugResume::Continue
 }
 
 /// Version string for splash and title
@@ -2068,25 +2442,52 @@ mod tests {
     }
 
     #[test]
-    fn wqdb_mode_reports_pause_and_continues() {
-        let captured = Arc::new(Mutex::new(String::new()));
+    fn wqdb_mode_yields_a_stable_pause_until_resumed() {
         let session = WasmWqSession::new();
-        session
-            .session
-            .borrow_mut()
-            .set_stderr(Box::new(CapturedOutput {
-                out: Arc::clone(&captured),
-            }));
         session.set_wqdb_mode(true).expect("session should be idle");
-        let result = eval_rendered_value(&session, "1").expect("wqdb mode eval should continue");
+        let mut core = session.session.borrow_mut();
+        let mut evaluation = core
+            .start_script_evaluation("<wasm>", "1")
+            .expect("cooperative evaluation should start");
+        let first_pause = match core
+            .poll_script_evaluation(&mut evaluation, 10)
+            .expect("cooperative evaluation should pause")
+        {
+            SessionEvaluationPoll::Paused(pause) => pause,
+            other => panic!("expected debugger pause, got {other:?}"),
+        };
+        let repeated_pause = match core
+            .poll_script_evaluation(&mut evaluation, 10)
+            .expect("paused evaluation should remain pollable")
+        {
+            SessionEvaluationPoll::Paused(pause) => pause,
+            other => panic!("expected repeated debugger pause, got {other:?}"),
+        };
+        assert_eq!(repeated_pause, first_pause);
 
-        assert_eq!(result.display, "1");
-        let stderr = captured
-            .lock()
-            .expect("stderr capture lock should not be poisoned")
-            .clone();
-        assert!(stderr.contains("wqdb: paused"));
-        assert!(stderr.contains("interactive browser debugger shell is not available"));
+        core.resume_script_debugger(&mut evaluation, first_pause.id(), ResumeAction::Continue)
+            .expect("pending debugger pause should resume");
+        let value = loop {
+            match core
+                .poll_script_evaluation(&mut evaluation, 10)
+                .expect("resumed evaluation should complete")
+            {
+                SessionEvaluationPoll::Ready(value) => break value,
+                SessionEvaluationPoll::Yielded { .. } => {}
+                SessionEvaluationPoll::Paused(pause) => {
+                    core.resume_script_debugger(
+                        &mut evaluation,
+                        pause.id(),
+                        ResumeAction::Continue,
+                    )
+                    .expect("later debugger pause should resume");
+                }
+                SessionEvaluationPoll::AwaitingInput { .. } => {
+                    panic!("script should not request input")
+                }
+            }
+        };
+        assert_eq!(value, Value::Int(1));
     }
 
     #[test]

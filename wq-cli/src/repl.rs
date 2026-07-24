@@ -32,7 +32,7 @@ use crate::msg::{
 };
 use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::{RuntimeInput, RustylineInput, WqGlobalHint};
-use crate::wqdb::{enter_wqdb_after_err, wqdb_shell};
+use crate::wqdb::WqdbShell;
 use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag};
 
 fn repl_color(text: &str, color: AnsiColor) -> String {
@@ -212,8 +212,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
         session_interrupt,
     )));
     let interrupts = CliInterrupts::install().expect("REPL Ctrl-C handler should initialize");
-    let debugger_editor = editor.clone();
-    session.set_pause_handler(move |_event, debugger| wqdb_shell(debugger, &debugger_editor));
+    let debugger_shell = WqdbShell::new(editor.clone(), rtflags.wqdb_cmds.clone());
+    let pause_shell = debugger_shell.clone();
+    session.set_pause_handler(move |_event, debugger| pause_shell.on_pause(debugger));
     let mut time_mode = false;
     let mut box_config = rtflags.box_print;
     let mut show_category = true;
@@ -698,6 +699,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         false,
                     );
                     drop(interrupt_guard);
+                    debugger_shell.flush_notifications(&mut session);
                     if report_interrupted_turn(&mut session) {
                         sync_global_hints(&session, &editor);
                         continue;
@@ -753,6 +755,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                 let interrupt_guard = interrupts.arm(session.interrupt_handle());
                 let attempt = session.eval_source(SourceUnit::named(&source_label, src_eval));
                 drop(interrupt_guard);
+                debugger_shell.flush_notifications(&mut session);
                 let elapsed_t = start_t.elapsed();
 
                 // reset one-time cmds and wqdb
@@ -803,7 +806,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             MsgType::Error,
                         );
                         if wqdb_active_for_eval && error.crash().is_some() {
-                            enter_wqdb_after_err(&mut session, &error, &editor);
+                            debugger_shell.enter_after_error(&mut session, &error);
                         }
                         if time_mode || oneshot_time {
                             system_msg_out(format!("time elapsed: {elapsed_t:?}"), MsgType::Info);

@@ -1,26 +1,152 @@
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Arc;
 
-use crate::session::dbglog::DebugLogFlags;
-use crate::style::ColorMode;
-use crate::value::func::{
-    CallableExpr, ClosureData, FunctionData, LiftedCallableData, UserFunctionShape,
-};
-use crate::value::{Excerpt, Value};
-use crate::vm::Vm;
-use crate::vm::inst::{InstPrettyDumper, Instruction};
-use crate::wqdb::build::{
+use crate::debug::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
-use crate::wqdb::data::{
+use crate::debug::data::{
     ChunkId, CodeLoc, CrashFrame, CrashId, CrashSnapshot, DebugChunkSpec, DebugInfo,
     DebugLocalsFrame, DebugProvenance,
 };
-use crate::wqdb::model::{BreakpointKind, StepGranularity, SymbolTrackTarget};
-use crate::wqerror::WqError;
+use crate::debug::model::{BreakpointKind, StepGranularity, SymbolTrackTarget};
+use crate::debug::{
+    DebugError, DebugInstruction, DebugNotification, DebugPause, DebugPauseId, DebugResume,
+    Debugger, PauseEvent, PauseReason, ResumeAction, SymbolMutation, SymbolMutationKind,
+    TrackResult,
+};
+use crate::session::dbglog::DebugLogFlags;
+use crate::value::Value;
+use crate::value::func::{
+    CallableExpr, ClosureData, FunctionData, LiftedCallableData, UserFunctionShape,
+};
+use crate::vm::Vm;
+use crate::vm::inst::{InstPrettyDumper, Instruction};
+use crate::wqerror::{WqError, WqErrorType};
 
 type CapturedCrash = (Vec<CrashFrame>, Vec<Option<Arc<[Instruction]>>>);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DebugBoundary {
+    Continue,
+    Suspended(DebugPause),
+}
+
+/// Type-erased storage for a stateful, session-owned pause handler.
+pub(crate) trait PauseHandler: 'static {
+    fn on_pause(&mut self, event: PauseEvent, debugger: &mut Debugger<'_>) -> ResumeAction;
+}
+
+impl<F> PauseHandler for F
+where
+    F: for<'vm> FnMut(PauseEvent, &mut Debugger<'vm>) -> ResumeAction + 'static,
+{
+    fn on_pause(&mut self, event: PauseEvent, debugger: &mut Debugger<'_>) -> ResumeAction {
+        self(event, debugger)
+    }
+}
+
 impl Vm {
+    pub(crate) fn set_pause_handler<F>(&mut self, handler: F)
+    where
+        F: for<'vm> FnMut(PauseEvent, &mut Debugger<'vm>) -> DebugResume + 'static,
+    {
+        self.pause_handler = Some(Box::new(handler));
+    }
+
+    pub(crate) fn clear_pause_handler(&mut self) {
+        self.pause_handler = None;
+    }
+
+    pub(crate) fn dispatch_pause(&mut self, event: PauseEvent) {
+        self.debug_state.note_pause(event.location);
+        let Some(mut handler) = self.pause_handler.take() else {
+            self.apply_debug_resume(DebugResume::Continue);
+            return;
+        };
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let mut debugger = Debugger::new(self);
+            handler.on_pause(event, &mut debugger)
+        }));
+        self.pause_handler = Some(handler);
+
+        match result {
+            Ok(action) => self.apply_debug_resume(action),
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+
+    pub(crate) fn apply_debug_resume(&mut self, action: DebugResume) {
+        match action {
+            DebugResume::Continue => self.dbg_continue(),
+            DebugResume::StepIn => self.dbg_step_in(),
+            DebugResume::StepOver => self.dbg_step_over(),
+            DebugResume::StepOut => self.dbg_step_out(),
+        }
+    }
+
+    pub(crate) fn debugger_pause_before_instruction(
+        &mut self,
+        explicit_pause: bool,
+    ) -> DebugBoundary {
+        if let Some(pause) = self.pending_debug_pause.clone() {
+            return DebugBoundary::Suspended(pause);
+        }
+
+        let Some(chunk) = self.current_chunk else {
+            return DebugBoundary::Continue;
+        };
+        let location = CodeLoc { chunk, pc: self.pc };
+        let reason = self.debug_state.pause_reason_at(
+            &self.debug_info,
+            location,
+            self.call_depth(),
+            Some(&self.debug_log),
+        );
+        let reason = reason.or_else(|| {
+            explicit_pause
+                .then(|| self.debug_state.explicit_pause_id(location))
+                .flatten()
+                .map(|id| PauseReason::ExplicitPause { id })
+        });
+        let Some(reason) = reason else {
+            return DebugBoundary::Continue;
+        };
+        let event = PauseEvent { location, reason };
+
+        if self.cooperative_execution {
+            self.debug_state.note_pause(location);
+            let id = DebugPauseId::new(self.next_debug_pause_id);
+            self.next_debug_pause_id = self.next_debug_pause_id.saturating_add(1);
+            let pause = DebugPause::new(id, event);
+            self.pending_debug_pause = Some(pause.clone());
+            DebugBoundary::Suspended(pause)
+        } else {
+            self.dispatch_pause(event);
+            DebugBoundary::Continue
+        }
+    }
+
+    pub(crate) fn resume_debug_pause(
+        &mut self,
+        pause_id: DebugPauseId,
+        action: ResumeAction,
+    ) -> Result<(), WqError> {
+        let Some(pause) = self.pending_debug_pause.as_ref() else {
+            return Err(WqError::new(WqErrorType::Vm).msg("debugger pause is not pending"));
+        };
+        if pause.id() != pause_id {
+            return Err(WqError::new(WqErrorType::Vm).msg(format!(
+                "debugger pause {} does not match pending pause {}",
+                pause_id.get(),
+                pause.id().get()
+            )));
+        }
+        self.pending_debug_pause = None;
+        self.apply_debug_resume(action);
+        Ok(())
+    }
+
     pub(crate) fn set_backtrace_enabled(&mut self, flag: bool) {
         self.bt_mode = flag;
     }
@@ -550,7 +676,7 @@ impl Vm {
         {
             return Some(location);
         }
-        if let Some(loc) = self.wqdb.pause_loc() {
+        if let Some(loc) = self.debug_state.pause_loc() {
             return Some(loc);
         }
         Some(CodeLoc {
@@ -574,7 +700,7 @@ impl Vm {
         &self.debug_info
     }
 
-    pub(crate) fn dbg_track_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+    pub(crate) fn dbg_track_symbol(&mut self, name: &str) -> Result<TrackResult, DebugError> {
         let Some(current_chunk) = self.loc().map(|location| location.chunk) else {
             return Ok(self.dbg_track_global_symbol(name));
         };
@@ -584,54 +710,66 @@ impl Vm {
         {
             let target = SymbolTrackTarget::Local {
                 chunk: current_chunk,
-                slot: u16::try_from(slot).map_err(|_| "local slot out of range".to_string())?,
+                slot: u16::try_from(slot).map_err(|_| DebugError::LocalSlotOutOfRange { slot })?,
                 name: name.to_string(),
             };
-            let label = self.format_symbol_track_target(&target);
-            let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
-            return Ok(added.then(|| format!("tracking #{} {label}", tracker.id)));
+            let (tracker, added) = self.debug_state.ensure_symbol_tracker(target);
+            return Ok(if added {
+                TrackResult::Added(tracker.clone())
+            } else {
+                TrackResult::Existing(tracker.clone())
+            });
         }
 
         Ok(self.dbg_track_global_symbol(name))
     }
 
-    pub(crate) fn dbg_track_global_symbol(&mut self, name: &str) -> Option<String> {
+    pub(crate) fn dbg_track_global_symbol(&mut self, name: &str) -> TrackResult {
         let target = SymbolTrackTarget::Global {
             name: name.to_string(),
         };
-        let label = self.format_symbol_track_target(&target);
-        let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
-        added.then(|| format!("tracking #{} {label}", tracker.id))
+        let (tracker, added) = self.debug_state.ensure_symbol_tracker(target);
+        if added {
+            TrackResult::Added(tracker.clone())
+        } else {
+            TrackResult::Existing(tracker.clone())
+        }
     }
 
-    pub(crate) fn dbg_track_local_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+    pub(crate) fn dbg_track_local_symbol(&mut self, name: &str) -> Result<TrackResult, DebugError> {
         let current_chunk = self
             .loc()
             .map(|location| location.chunk)
-            .ok_or_else(|| "no current debug location".to_string())?;
+            .ok_or(DebugError::NoCurrentLocation)?;
         let meta = self.debug_info.expect_chunk(current_chunk);
         let names = meta
             .local_names
             .as_ref()
-            .ok_or_else(|| "current function has no local variable names".to_string())?;
+            .ok_or(DebugError::LocalNamesUnavailable)?;
         let slot = names
             .iter()
             .position(|candidate| candidate == name)
-            .ok_or_else(|| {
-                format!("local variable '{name}' was not found in the current function")
+            .ok_or_else(|| DebugError::LocalNotFound {
+                name: name.to_string(),
             })?;
         let target = SymbolTrackTarget::Local {
             chunk: current_chunk,
-            slot: u16::try_from(slot).map_err(|_| "local slot out of range".to_string())?,
+            slot: u16::try_from(slot).map_err(|_| DebugError::LocalSlotOutOfRange { slot })?,
             name: name.to_string(),
         };
-        let label = self.format_symbol_track_target(&target);
-        let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
-        Ok(added.then(|| format!("tracking #{} {label}", tracker.id)))
+        let (tracker, added) = self.debug_state.ensure_symbol_tracker(target);
+        Ok(if added {
+            TrackResult::Added(tracker.clone())
+        } else {
+            TrackResult::Existing(tracker.clone())
+        })
     }
 
-    pub(crate) fn dbg_track_capture_slot(&mut self, slot: u16) -> Option<String> {
-        let current_chunk = self.loc()?.chunk;
+    pub(crate) fn dbg_track_capture_slot(&mut self, slot: u16) -> Result<TrackResult, DebugError> {
+        let current_chunk = self
+            .loc()
+            .map(|location| location.chunk)
+            .ok_or(DebugError::NoCurrentLocation)?;
         let target = SymbolTrackTarget::Capture {
             chunk: current_chunk,
             slot,
@@ -642,43 +780,36 @@ impl Vm {
                 .and_then(|names| names.get(usize::from(slot)))
                 .cloned(),
         };
-        let label = self.format_symbol_track_target(&target);
-        let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
-        added.then(|| format!("tracking #{} {label}", tracker.id))
+        let (tracker, added) = self.debug_state.ensure_symbol_tracker(target);
+        Ok(if added {
+            TrackResult::Added(tracker.clone())
+        } else {
+            TrackResult::Existing(tracker.clone())
+        })
     }
 
-    pub(crate) fn dbg_symbol_trackers(&self) -> Vec<(usize, bool, String)> {
-        self.wqdb
-            .symbol_trackers()
-            .iter()
-            .map(|tracker| {
-                (
-                    tracker.id,
-                    tracker.enabled,
-                    self.format_symbol_track_target(&tracker.target),
-                )
-            })
-            .collect()
+    pub(crate) fn dbg_symbol_trackers(&self) -> Vec<crate::debug::model::SymbolTracker> {
+        self.debug_state.symbol_trackers().to_vec()
     }
 
     pub(crate) fn dbg_remove_symbol_tracker(&mut self, id: usize) -> bool {
-        self.wqdb.remove_symbol_tracker(id)
+        self.debug_state.remove_symbol_tracker(id)
     }
 
     pub(crate) fn dbg_clear_symbol_trackers(&mut self) {
-        self.wqdb.clear_symbol_trackers();
+        self.debug_state.clear_symbol_trackers();
     }
 
     #[inline]
     pub(crate) fn symbol_trackers_enabled(&self) -> bool {
-        self.wqdb.is_enabled() && self.wqdb.has_symbol_trackers()
+        self.debug_state.is_enabled() && self.debug_state.has_symbol_trackers()
     }
 
     pub(crate) fn note_global_symbol_write(
         &mut self,
         pc: usize,
         name: &str,
-        op: &'static str,
+        operation: SymbolMutationKind,
         old: Option<Value>,
         new: Value,
     ) {
@@ -687,7 +818,7 @@ impl Vm {
             SymbolTrackTarget::Global {
                 name: name.to_string(),
             },
-            op,
+            operation,
             old,
             new,
         );
@@ -697,7 +828,7 @@ impl Vm {
         &mut self,
         pc: usize,
         slot: u16,
-        op: &'static str,
+        operation: SymbolMutationKind,
         old: Option<Value>,
         new: Value,
     ) {
@@ -712,14 +843,14 @@ impl Vm {
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("loc[{slot}]")),
         };
-        self.note_symbol_write(pc, target, op, old, new);
+        self.note_symbol_write(pc, target, operation, old, new);
     }
 
     pub(crate) fn note_capture_symbol_write(
         &mut self,
         pc: usize,
         slot: u16,
-        op: &'static str,
+        operation: SymbolMutationKind,
         old: Option<Value>,
         new: Value,
     ) {
@@ -736,14 +867,14 @@ impl Vm {
                 .and_then(|names| names.get(usize::from(slot)))
                 .cloned(),
         };
-        self.note_symbol_write(pc, target, op, old, new);
+        self.note_symbol_write(pc, target, operation, old, new);
     }
 
     fn note_symbol_write(
         &mut self,
         pc: usize,
         target: SymbolTrackTarget,
-        op: &'static str,
+        operation: SymbolMutationKind,
         old: Option<Value>,
         new: Value,
     ) {
@@ -752,7 +883,7 @@ impl Vm {
         }
 
         let trackers: Vec<_> = self
-            .wqdb
+            .debug_state
             .symbol_trackers()
             .iter()
             .filter(|tracker| tracker.enabled && tracker.target.matches_event(&target))
@@ -765,73 +896,30 @@ impl Vm {
         let Some(chunk) = self.current_chunk else {
             return;
         };
-        let loc = CodeLoc { chunk, pc };
-        let location = self.format_symbol_track_loc(loc);
-        let old_text = Self::format_symbol_track_value(old.as_ref());
-        let new_text = Self::format_symbol_track_value(Some(&new));
+        let location = CodeLoc { chunk, pc };
         for tracker in trackers {
-            self.debug_log.emit_line(format!(
-                "[wqdb:track #{}] {} {op} at {location}: {old_text} -> {new_text}",
-                tracker.id,
-                self.format_symbol_track_target(&tracker.target),
-            ));
-        }
-    }
-
-    fn format_symbol_track_value(value: Option<&Value>) -> String {
-        match value {
-            Some(value) => format!("{} ({})", value.excerpt(), value.debug_kind()),
-            None => "<unbound>".to_string(),
-        }
-    }
-
-    fn format_symbol_track_loc(&self, loc: CodeLoc) -> String {
-        let meta = self.debug_info.expect_chunk(loc.chunk);
-        let span = meta.line_table.context_span_at(loc.pc);
-        if span.file_id != u32::MAX
-            && let Some(sf) = self.debug_info.file(span.file_id)
-        {
-            let (line, col) = sf.line_col(span.start);
-            return format!("{}:{line}:{col} in {}", sf.path(), meta.name);
-        }
-        format!("pc {} in {}", loc.pc, meta.name)
-    }
-
-    fn format_symbol_track_target(&self, target: &SymbolTrackTarget) -> String {
-        match target {
-            SymbolTrackTarget::Global { name } => format!("global {name}"),
-            SymbolTrackTarget::Local { chunk, slot, name } => {
-                let chunk_name = self
-                    .debug_info
-                    .get_chunk(*chunk)
-                    .map(|meta| meta.name.as_ref())
-                    .unwrap_or("?");
-                format!("local {name} ({chunk_name} slot {slot})")
-            }
-            SymbolTrackTarget::Capture { chunk, slot, name } => {
-                let chunk_name = self
-                    .debug_info
-                    .get_chunk(*chunk)
-                    .map(|meta| meta.name.as_ref())
-                    .unwrap_or("?");
-                match name {
-                    Some(name) => format!("capture {name} ({chunk_name} slot {slot})"),
-                    None => format!("capture slot {slot} ({chunk_name})"),
-                }
-            }
+            self.debug_state
+                .push_notification(DebugNotification::SymbolChanged(SymbolMutation {
+                    tracker_id: tracker.id,
+                    target: tracker.target,
+                    operation,
+                    location,
+                    old_value: old.clone(),
+                    new_value: new.clone(),
+                }));
         }
     }
 
     pub(crate) fn dbg_continue(&mut self) {
-        self.wqdb.clear_mode();
+        self.debug_state.clear_mode();
     }
 
     pub(crate) fn dbg_step_granularity(&self) -> StepGranularity {
-        self.wqdb.granularity()
+        self.debug_state.granularity()
     }
 
     pub(crate) fn dbg_set_step_granularity(&mut self, granularity: StepGranularity) {
-        self.wqdb.set_granularity(granularity);
+        self.debug_state.set_granularity(granularity);
     }
 
     pub(crate) fn dbg_step_in(&mut self) {
@@ -839,7 +927,7 @@ impl Vm {
             self.debug_log
                 .emit_line(format!("[wqdb]: dbg_step_in called at PC {}", self.pc));
         }
-        self.wqdb.req_in(self.call_depth());
+        self.debug_state.req_in(self.call_depth());
         if self.debug_log.enabled(DebugLogFlags::WQDB) {
             self.debug_log
                 .emit_line("[wqdb]: step-in mode on, will pause at next statement");
@@ -847,37 +935,37 @@ impl Vm {
     }
 
     pub(crate) fn dbg_step_over(&mut self) {
-        self.wqdb.req_over(self.call_depth());
+        self.debug_state.req_over(self.call_depth());
     }
 
     pub(crate) fn dbg_step_out(&mut self) {
-        self.wqdb.req_out(self.call_depth());
+        self.debug_state.req_out(self.call_depth());
     }
 
     pub(crate) fn dbg_set_break(&mut self, loc: CodeLoc) -> usize {
-        self.wqdb
+        self.debug_state
             .ensure_breakpoint(loc, BreakpointKind::Persistent)
             .id
     }
 
     pub(crate) fn dbg_clear_break(&mut self, loc: CodeLoc) {
-        self.wqdb.clear_breakpoint(loc);
+        self.debug_state.clear_breakpoint(loc);
     }
 
     pub(crate) fn dbg_toggle_break_loc(&mut self, loc: CodeLoc) -> bool {
-        self.wqdb.toggle_breakpoint_at(loc)
+        self.debug_state.toggle_breakpoint_at(loc)
     }
 
     pub(crate) fn dbg_toggle_break_id(&mut self, id: usize) -> Option<bool> {
-        self.wqdb.toggle_breakpoint_by_id(id)
+        self.debug_state.toggle_breakpoint_by_id(id)
     }
 
     pub(crate) fn dbg_toggle_break_all(&mut self) -> bool {
-        self.wqdb.toggle_all_breakpoints()
+        self.debug_state.toggle_all_breakpoints()
     }
 
     pub(crate) fn dbg_breakpoints(&self) -> Vec<(usize, bool, CodeLoc)> {
-        self.wqdb.breakpoints()
+        self.debug_state.breakpoints()
     }
 
     pub(crate) fn crash_frames(&self) -> Vec<CrashFrame> {
@@ -1037,15 +1125,7 @@ impl Vm {
         })
     }
 
-    pub(crate) fn dbg_ins_at(&self, pc: usize) -> Option<String> {
-        self.dbg_ins_at_with_color_mode(pc, ColorMode::Never)
-    }
-
-    pub(crate) fn dbg_ins_at_with_color_mode(
-        &self,
-        pc: usize,
-        color_mode: ColorMode,
-    ) -> Option<String> {
+    pub(crate) fn dbg_ins_at(&self, pc: usize) -> Option<DebugInstruction> {
         let location = self.loc();
         let local_names = location
             .and_then(|location| self.debug_info.get_chunk(location.chunk))
@@ -1055,10 +1135,6 @@ impl Vm {
             .as_ref()
             .and_then(|crash| crash.instructions(0))
             .unwrap_or(&self.instructions);
-        InstPrettyDumper::new(true, color_mode.should_colorize()).render_at(
-            instructions,
-            pc,
-            local_names,
-        )
+        InstPrettyDumper::describe_at(instructions, pc, local_names)
     }
 }

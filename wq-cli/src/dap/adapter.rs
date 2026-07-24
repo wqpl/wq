@@ -1,10 +1,8 @@
 use wq_dap::r#type::{
     Breakpoint, Scope, ScopePresentationhint, Source, StackFrame, Thread, Variable,
 };
-use wqpl::debugger::Debugger;
+use wqpl::debug::{CrashFrame, Debugger, SourceBreakpoint};
 use wqpl::value::Excerpt;
-use wqpl::wqdb::data::{CrashFrame, DebugInfo};
-use wqpl::wqdb::model::SourceBreakpoint;
 
 pub(crate) struct StackTracePage {
     pub(crate) frames: Vec<StackFrame>,
@@ -20,12 +18,12 @@ pub(crate) fn set_breakpoints(
     debugger
         .set_source_breakpoints(source_path, lines)
         .iter()
-        .map(|breakpoint| build_source_breakpoint(debugger.debug_info(), breakpoint))
+        .map(|breakpoint| build_source_breakpoint(debugger, breakpoint))
         .collect()
 }
 
 pub(crate) fn build_source_breakpoint(
-    debug_info: &DebugInfo,
+    debugger: &Debugger<'_>,
     breakpoint: &SourceBreakpoint,
 ) -> Breakpoint {
     let source = Some(Source {
@@ -46,7 +44,7 @@ pub(crate) fn build_source_breakpoint(
         };
     };
 
-    let (line, column) = debug_info
+    let (line, column) = debugger
         .resolve_location(location)
         .and_then(|resolved| resolved.source)
         .map(|source| (Some(source.line as i64), Some(source.column as i64)))
@@ -67,11 +65,10 @@ pub(crate) fn build_stack_trace(
     levels: Option<usize>,
 ) -> StackTracePage {
     let frames = debugger.backtrace();
-    let di = debugger.debug_info();
     let frames = frames
         .iter()
         .enumerate()
-        .map(|(id, frame)| crash_frame_to_stack_frame(di, frame, id))
+        .map(|(id, frame)| crash_frame_to_stack_frame(debugger, frame, id))
         .collect();
     paginate_stack_frames(frames, start_frame, levels)
 }
@@ -96,12 +93,17 @@ fn paginate_stack_frames(
     }
 }
 
-fn crash_frame_to_stack_frame(di: &DebugInfo, frame: &CrashFrame, id: usize) -> StackFrame {
+fn crash_frame_to_stack_frame(
+    debugger: &Debugger<'_>,
+    frame: &CrashFrame,
+    id: usize,
+) -> StackFrame {
     let source = match frame {
         CrashFrame::Located {
             location, source, ..
         } => source.clone().or_else(|| {
-            di.resolve_location(*location)
+            debugger
+                .resolve_location(*location)
                 .and_then(|resolved| resolved.source)
         }),
         CrashFrame::TailCallsOmitted => None,
@@ -189,10 +191,7 @@ pub(crate) fn build_variables(
             .collect()
     } else if let Some(frame_id) = decode_locals_ref(variables_reference) {
         if let Some(frame) = debugger.frame_locals(frame_id) {
-            let local_names = debugger
-                .debug_info()
-                .get_chunk(frame.loc.chunk)
-                .and_then(|meta| meta.local_names.as_deref());
+            let local_names = debugger.local_names(frame.loc.chunk);
             frame
                 .locals
                 .iter()
@@ -248,14 +247,16 @@ fn decode_locals_ref(variables_reference: usize) -> Option<usize> {
 mod tests {
     use std::sync::Arc;
 
-    use wqpl::wqdb::data::{ChunkId, CodeLoc};
+    use wqpl::debug::{ChunkId, CodeLoc};
+    use wqpl::session::Session;
 
     use super::*;
 
     #[test]
     fn tail_call_marker_is_a_source_less_stack_frame() {
-        let frame =
-            crash_frame_to_stack_frame(&DebugInfo::default(), &CrashFrame::TailCallsOmitted, 2);
+        let mut session = Session::new();
+        let debugger = session.debugger();
+        let frame = crash_frame_to_stack_frame(&debugger, &CrashFrame::TailCallsOmitted, 2);
 
         assert_eq!(frame.id, 2);
         assert_eq!(frame.name, "(... tail calls omitted ...)");
@@ -266,6 +267,8 @@ mod tests {
 
     #[test]
     fn stack_frame_tolerates_missing_debug_metadata() {
+        let mut session = Session::new();
+        let debugger = session.debugger();
         let crash_frame = CrashFrame::Located {
             function: Arc::from("f"),
             location: CodeLoc {
@@ -276,7 +279,7 @@ mod tests {
             locals: None,
         };
 
-        let frame = crash_frame_to_stack_frame(&DebugInfo::default(), &crash_frame, 0);
+        let frame = crash_frame_to_stack_frame(&debugger, &crash_frame, 0);
 
         assert_eq!(frame.name, "f");
         assert!(frame.source.is_none());

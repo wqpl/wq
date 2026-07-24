@@ -1,4 +1,4 @@
-use crate::wqdb::data::{ChunkId, CodeLoc};
+use crate::debug::data::{ChunkId, CodeLoc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BreakpointKind {
@@ -116,11 +116,4 @@ pub struct SymbolTracker {
     pub id: usize,
     pub enabled: bool,
     pub target: SymbolTrackTarget,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StopHook {
-    pub id: usize,
-    pub enabled: bool,
-    pub command: String,
 }

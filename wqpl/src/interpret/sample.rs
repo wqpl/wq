@@ -96,7 +96,9 @@ impl SampleInterpreter {
         });
         if matches!(
             result,
-            Ok(InterpretPoll::Yielded { .. } | InterpretPoll::AwaitingInput { .. })
+            Ok(InterpretPoll::Yielded { .. }
+                | InterpretPoll::AwaitingInput { .. }
+                | InterpretPoll::Paused(_))
         ) {
             return result;
         }
