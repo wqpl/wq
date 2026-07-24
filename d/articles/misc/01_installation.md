@@ -28,7 +28,7 @@ wq -h
 You can also clone the repository and build wq yourself:
 
 ```sh
-git clone https://codeberg.org/wqpl/wq
+git clone https://github.com/wqpl/wq
 cd wq
 cargo build -p wq-cli --profile R
 ```

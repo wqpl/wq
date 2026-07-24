@@ -26,7 +26,7 @@
       }
     ],
     "links": {
-      "repository": "https://codeberg.org/wqpl"
+      "repository": "https://github.com/wqpl/wq/tree/main/wq-ts"
     }
   },
   "bindings": {

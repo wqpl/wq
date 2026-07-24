@@ -16,13 +16,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://codeberg.org/wqpl/wq.git",
+    "url": "git+https://github.com/wqpl/wq.git",
     "directory": "wqide"
   },
   "license": "ISC",
   "type": "module",
   "bugs": {
-    "url": "https://codeberg.org/wqpl/wq/issues"
+    "url": "https://github.com/wqpl/wq/issues"
   },
   "homepage": "https://wq-pl.com",
   "devDependencies": {

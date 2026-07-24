@@ -2,7 +2,7 @@
 
 - Patches welcome
 
-https://codeberg.org/wqpl
+https://github.com/wqpl
 
 ## Issues
 

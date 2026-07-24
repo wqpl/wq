@@ -1343,7 +1343,7 @@ const MORE_HTML = html`
           <ul>
             <li>
               <a
-                href="https://codeberg.org/wqpl/wq/src/branch/main/wqide"
+                href="https://github.com/wqpl/wq/tree/main/wqide"
                 target="_blank"
                 rel="noopener"
                 >wqide</a
@@ -1351,7 +1351,7 @@ const MORE_HTML = html`
             </li>
             <li>
               <a
-                href="https://codeberg.org/wqpl/wq"
+                href="https://github.com/wqpl/wq"
                 target="_blank"
                 rel="noopener"
                 >wq</a
