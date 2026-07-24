@@ -8,14 +8,15 @@ mod presentation;
 mod table;
 
 #[cfg(test)]
+pub(super) use presentation::styled_command;
+#[cfg(test)]
 pub(super) use presentation::{
     ansi_visible_width, compact_instruction, format_expr_stop_card, format_inst_stop_card,
     format_line_stop_card, resolved_stop_span, unavailable_stop_card,
 };
 pub(super) use presentation::{
     bold, color, dim, format_loc_hint, header, help_row, prompt, render_debug_instruction,
-    render_stop_card, stop_controls, styled_command, styled_flag, styled_required_arg,
-    styled_separator, styled_stop_hook_command, styled_subcommand, styled_track_command, title,
+    render_stop_card, stop_controls, styled_flag, styled_subcommand, title,
 };
 pub(super) use table::{enabled_marker, render_table};
 

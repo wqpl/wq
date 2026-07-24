@@ -1,52 +1,50 @@
-use crate::wqdb::command::{ParsedStopHook, Usage, usage_error};
+use crate::wqdb::command::{ParsedCommand, ParsedLine, StopHookCommand, parse_line};
 use crate::wqdb::host::Host;
 use crate::wqdb::render::{enabled_marker, render_table};
 
-pub(super) fn execute(host: &mut Host<'_, '_>, command: ParsedStopHook<'_>) -> Result<(), String> {
+pub(super) fn execute(host: &mut Host<'_, '_>, command: StopHookCommand<'_>) -> Result<(), String> {
     match command {
-        ParsedStopHook::Add { command } => add(host, command),
-        ParsedStopHook::List => {
+        StopHookCommand::Add { command } => add(host, command),
+        StopHookCommand::List => {
             print(host);
             Ok(())
         }
-        ParsedStopHook::Delete { target } => delete(host, target),
-        ParsedStopHook::Clear => {
+        StopHookCommand::Delete { id } => {
+            delete(host, id);
+            Ok(())
+        }
+        StopHookCommand::Clear => {
             host.clear_stop_hooks();
             wqdb_println!(host, "cleared stop hooks");
             Ok(())
         }
-        ParsedStopHook::Invalid => Err(usage_error(Usage::StopHook)),
     }
 }
 
-fn add(host: &mut Host<'_, '_>, command: Option<&str>) -> Result<(), String> {
-    let command = command.ok_or_else(|| usage_error(Usage::StopHookAdd))?;
-    if command.is_empty() {
-        return Err(usage_error(Usage::StopHookAdd));
-    }
+fn add(host: &mut Host<'_, '_>, command: &str) -> Result<(), String> {
+    validate_command(command).map_err(|error| format!("invalid stop-hook command: {error}"))?;
     let hook = host.add_stop_hook(command.to_string());
     wqdb_println!(host, format!("stop hook #{} added", hook.id));
     Ok(())
 }
 
-fn delete(host: &mut Host<'_, '_>, target: Option<&str>) -> Result<(), String> {
-    let Some(target) = target else {
-        return Err(usage_error(Usage::StopHookDelete));
-    };
-    if target == "all" {
-        host.clear_stop_hooks();
-        wqdb_println!(host, "cleared stop hooks");
-        return Ok(());
+fn validate_command(command: &str) -> Result<(), String> {
+    match parse_line(command) {
+        Ok(ParsedLine::Empty) => Err("command is empty".to_string()),
+        Ok(ParsedLine::Command(ParsedCommand::StopHook(StopHookCommand::Add { command }))) => {
+            validate_command(command)
+        }
+        Ok(ParsedLine::Command(_)) => Ok(()),
+        Err(error) => Err(error.to_string()),
     }
-    let id = target
-        .parse::<usize>()
-        .map_err(|_| usage_error(Usage::StopHookDelete))?;
+}
+
+fn delete(host: &mut Host<'_, '_>, id: usize) {
     if host.remove_stop_hook(id) {
         wqdb_println!(host, format!("removed stop hook {id}"));
     } else {
         wqdb_println!(host, format!("stop hook {id} not found"));
     }
-    Ok(())
 }
 
 fn print(host: &Host<'_, '_>) {
@@ -69,4 +67,25 @@ fn print(host: &Host<'_, '_>) {
         host,
         render_table(&["id", "en", "command"], &rows, &[4, 3, 20])
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_command;
+
+    #[test]
+    fn stop_hook_commands_are_validated_recursively() {
+        assert_eq!(validate_command("track list"), Ok(()));
+        assert_eq!(
+            validate_command("stop-hook add c ignored"),
+            Err("unexpected argument 'ignored'; usage: continue".to_string())
+        );
+        assert_eq!(
+            validate_command("stop-hook add stop-hook add -o c"),
+            Err(
+                "syntax 'stop-hook add -o <command>' is no longer supported; use 'stop-hook add <command...>'"
+                    .to_string()
+            )
+        );
+    }
 }

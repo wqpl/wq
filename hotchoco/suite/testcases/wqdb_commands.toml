@@ -1,0 +1,23 @@
+name = "wqdb_commands"
+source_glob = "hotchoco/wqdb_commands/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "exec"
+flags = [
+  "-w",
+  "-o",
+  "c ignored",
+  "-o",
+  "p nope",
+  "-o",
+  "track value",
+  "-o",
+  "stop-hook add -o c",
+  "-o",
+  "stop-hook add c ignored",
+  "-o",
+  "c",
+  "-p",
+]
+capture = "stdout+stderr"

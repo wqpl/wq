@@ -1,36 +1,42 @@
 use wqpl::value::Excerpt;
 use wqpl::wqdb::{SymbolMutation, SymbolTrackTarget, TrackResult};
 
-use crate::wqdb::command::{Command, TrackScope, Usage, usage_error};
+use crate::wqdb::command::{TrackCommand, TrackTarget};
 use crate::wqdb::host::Host;
 use crate::wqdb::render::{enabled_marker, render_table};
 
-pub(super) fn track_symbol(
-    host: &mut Host<'_, '_>,
-    target_arg: Option<&str>,
-    name_arg: Option<&str>,
-) -> Result<(), String> {
-    let Some(target_arg) = target_arg else {
-        return Err(usage_error(Usage::Command(Command::Track)));
-    };
-    let result = if let Some(name_arg) = name_arg {
-        match TrackScope::parse(target_arg) {
-            Some(TrackScope::Global) => host.track_global_symbol(name_arg),
-            Some(TrackScope::Local) => host
-                .track_local_symbol(name_arg)
-                .map_err(|error| error.to_string())?,
-            Some(TrackScope::Capture) => {
-                let slot = name_arg
-                    .parse::<u16>()
-                    .map_err(|_| usage_error(Usage::TrackCapture))?;
-                host.track_capture_slot(slot)
-                    .map_err(|error| error.to_string())?
-            }
-            None => return Err(usage_error(Usage::Command(Command::Track))),
+pub(super) fn execute(host: &mut Host<'_, '_>, command: TrackCommand<'_>) -> Result<(), String> {
+    match command {
+        TrackCommand::Add(target) => add(host, target),
+        TrackCommand::List => {
+            print_symbol_trackers(host);
+            Ok(())
         }
-    } else {
-        host.track_symbol(target_arg)
-            .map_err(|error| error.to_string())?
+        TrackCommand::Delete { id } => {
+            if host.remove_symbol_tracker(id) {
+                wqdb_println!(host, format!("removed symbol tracker {id}"));
+            } else {
+                wqdb_println!(host, format!("symbol tracker {id} not found"));
+            }
+            Ok(())
+        }
+        TrackCommand::Clear => {
+            host.clear_symbol_trackers();
+            wqdb_println!(host, "cleared symbol trackers");
+            Ok(())
+        }
+    }
+}
+
+fn add(host: &mut Host<'_, '_>, target: TrackTarget<'_>) -> Result<(), String> {
+    let result = match target {
+        TrackTarget::Global(name) => host.track_global_symbol(name),
+        TrackTarget::Local(name) => host
+            .track_local_symbol(name)
+            .map_err(|error| error.to_string())?,
+        TrackTarget::Capture(slot) => host
+            .track_capture_slot(slot)
+            .map_err(|error| error.to_string())?,
     };
     if let TrackResult::Added(tracker) = result {
         wqdb_println!(
@@ -45,27 +51,7 @@ pub(super) fn track_symbol(
     Ok(())
 }
 
-pub(super) fn untrack_symbol(host: &mut Host<'_, '_>, arg: Option<&str>) -> Result<(), String> {
-    let Some(arg) = arg else {
-        return Err(usage_error(Usage::Command(Command::Untrack)));
-    };
-    if arg == "all" {
-        host.clear_symbol_trackers();
-        wqdb_println!(host, "cleared symbol trackers");
-        return Ok(());
-    }
-    let id = arg
-        .parse::<usize>()
-        .map_err(|_| usage_error(Usage::Command(Command::Untrack)))?;
-    if host.remove_symbol_tracker(id) {
-        wqdb_println!(host, format!("removed symbol tracker {id}"));
-    } else {
-        wqdb_println!(host, format!("symbol tracker {id} not found"));
-    }
-    Ok(())
-}
-
-pub(super) fn print_symbol_trackers(host: &Host<'_, '_>) {
+fn print_symbol_trackers(host: &Host<'_, '_>) {
     let trackers = host.symbol_trackers();
     if trackers.is_empty() {
         wqdb_println!(host, "no symbol trackers");

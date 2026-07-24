@@ -7,9 +7,9 @@ name = "exec"
 flags = [
   "-w",
   "-o",
-  "stop-hook add -o gb",
+  "stop-hook add gb",
   "-o",
-  "stop-hook add -o c",
+  "stop-hook add c",
   "-o",
   "b 4",
   "-o",

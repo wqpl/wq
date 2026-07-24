@@ -117,38 +117,6 @@ pub(in crate::wqdb) fn render_debug_instruction(
     rendered
 }
 
-pub(in crate::wqdb) fn styled_track_command(
-    scope: &str,
-    arg: &str,
-    color_mode: ColorMode,
-) -> String {
-    format!(
-        "{} {} {}",
-        styled_command("track", color_mode),
-        styled_subcommand(scope, color_mode),
-        styled_required_arg(arg, color_mode)
-    )
-}
-
-pub(in crate::wqdb) fn styled_stop_hook_command(
-    action: &str,
-    suffix: Option<String>,
-    color_mode: ColorMode,
-) -> String {
-    match suffix {
-        Some(suffix) => format!(
-            "{} {} {suffix}",
-            styled_command("stop-hook", color_mode),
-            styled_subcommand(action, color_mode)
-        ),
-        None => format!(
-            "{} {}",
-            styled_command("stop-hook", color_mode),
-            styled_subcommand(action, color_mode)
-        ),
-    }
-}
-
 pub(in crate::wqdb) fn help_row(
     spec: &CommandSpec,
     usage_width: usize,

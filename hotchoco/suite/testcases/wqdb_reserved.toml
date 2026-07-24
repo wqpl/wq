@@ -4,5 +4,5 @@ exclude_marker = "//exclude"
 
 [[modes]]
 name = "exec"
-flags = ["-w", "-o", "track global", "-o", "c", "-p"]
+flags = ["-w", "-o", "track add global global", "-o", "c", "-p"]
 capture = "stdout+stderr"

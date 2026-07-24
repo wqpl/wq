@@ -1270,8 +1270,11 @@ mod tests {
 
         let (_, function_candidates) = h.complete("bf w", 4, &ctx).expect("function completion");
         let (_, hook_candidates) = h
-            .complete("stop-hook add -o gr", "stop-hook add -o gr".len(), &ctx)
+            .complete("stop-hook add gr", "stop-hook add gr".len(), &ctx)
             .expect("hook completion");
+        let (_, nested_candidates) = h
+            .complete("stop-hook add track a", "stop-hook add track a".len(), &ctx)
+            .expect("nested command completion");
 
         assert_eq!(function_candidates.len(), 1);
         assert_eq!(function_candidates[0].replacement, "worker");
@@ -1280,6 +1283,11 @@ mod tests {
             hook_candidates
                 .iter()
                 .any(|candidate| candidate.replacement == "granularity")
+        );
+        assert!(
+            nested_candidates
+                .iter()
+                .any(|candidate| candidate.replacement == "add")
         );
     }
 
@@ -1299,16 +1307,16 @@ mod tests {
     }
 
     #[test]
-    fn wqdb_mode_highlights_command_subcommand_flag_and_number() {
+    fn wqdb_mode_highlights_nested_command_and_number() {
         let mut h = WqReplHighlighter::new();
         h.set_input_mode(WqInputMode::Wqdb);
-        let src = "stop-hook add -o b 12";
+        let src = "stop-hook add b 12";
 
         let out = h.colorize_input(src);
 
         assert!(out.contains(&format!("{WQDB_COMMAND_COLOR}stop-hook")));
         assert!(out.contains(&format!("{WQDB_SUBCOMMAND_COLOR}add")));
-        assert!(out.contains(&format!("{WQDB_FLAG_COLOR}-o")));
+        assert!(out.contains(&format!("{WQDB_COMMAND_COLOR}b")));
         assert!(out.contains(&format!("{WQDB_NUMBER_COLOR}12")));
         assert_eq!(strip_ansi(&out), src);
     }

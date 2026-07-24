@@ -210,34 +210,69 @@ mod tests {
 
     #[test]
     fn cursor_target_handles_leading_and_repeated_whitespace() {
-        let input = "  stop-hook   add  -o   gr";
+        let input = "  stop-hook   add   gr";
         let target = cursor_target(input, input.len());
 
         assert_eq!(
             target,
             CursorTarget::Argument {
                 command: "stop-hook",
-                start: 24,
+                start: 20,
                 prefix: "gr",
-                previous_args: vec!["add", "-o"],
+                previous_args: vec!["add"],
             }
         );
     }
 
     #[test]
     fn token_spans_use_command_context_for_subcommands() {
-        let spans = token_spans("stop-hook add -o g 12");
+        let spans = token_spans("stop-hook add g 12");
 
         assert_eq!(
             spans.iter().map(|span| span.kind).collect::<Vec<_>>(),
             vec![
                 TokenKind::Command,
                 TokenKind::Subcommand,
-                TokenKind::Flag,
                 TokenKind::Command,
                 TokenKind::Number,
             ]
         );
-        assert_eq!(&"stop-hook add -o g 12"[spans[3].start..spans[3].end], "g");
+        assert_eq!(&"stop-hook add g 12"[spans[2].start..spans[2].end], "g");
+    }
+
+    #[test]
+    fn token_spans_follow_nested_stop_hook_command_context() {
+        let spans = token_spans("stop-hook add track add local total");
+
+        assert_eq!(
+            spans.iter().map(|span| span.kind).collect::<Vec<_>>(),
+            vec![
+                TokenKind::Command,
+                TokenKind::Subcommand,
+                TokenKind::Command,
+                TokenKind::Subcommand,
+                TokenKind::Subcommand,
+                TokenKind::Argument,
+            ]
+        );
+    }
+
+    #[test]
+    fn argument_candidates_follow_the_track_command_tree() {
+        assert_eq!(
+            argument_candidates("track", &[], "")
+                .iter()
+                .map(|candidate| candidate.value)
+                .collect::<Vec<_>>(),
+            vec!["add", "list", "delete", "clear"]
+        );
+        assert_eq!(
+            argument_candidates("track", &["add"], "l"),
+            vec![ArgumentCandidate {
+                value: "local",
+                description: "track a local name",
+                kind: "scope",
+            }]
+        );
     }
 }

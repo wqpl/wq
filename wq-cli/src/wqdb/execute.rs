@@ -3,35 +3,22 @@
 mod stop_hooks;
 mod tracking;
 
-pub(in crate::wqdb) use tracking::print_symbol_mutation;
-use tracking::{print_symbol_trackers, track_symbol, untrack_symbol};
+use tracking::execute as execute_tracking;
+pub(super) use tracking::print_symbol_mutation;
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
-#[cfg(test)]
-use wqpl::wqdb::Span;
 use wqpl::wqdb::{CodeLoc, DebugInfo, DebugLocalsFrame, DebugResume, StepGranularity};
 
 use super::command::{
-    COMMANDS as WQDB_COMMANDS, Command, GRANULARITIES, ParsedCommand, ParsedLine, Usage,
-    command_usage_plain, parse_line, usage_error,
+    COMMANDS as WQDB_COMMANDS, CommandForm, GRANULARITIES, ParsedCommand, ParsedLine,
+    STOP_HOOK_ACTIONS, TRACK_ACTIONS, TRACK_SCOPES, Usage, command_usage_plain, parse_line,
 };
 use super::host::Host as WqdbHost;
-#[cfg(test)]
-use super::render::{
-    ansi_visible_width as ansi_visible_len, compact_instruction,
-    format_expr_stop_card as format_expr_stop_card_with_color_mode,
-    format_inst_stop_card as format_inst_stop_card_with_color_mode,
-    format_line_stop_card as format_line_stop_card_with_color_mode,
-    prompt as wqdb_prompt_with_color_mode, resolved_stop_span,
-    unavailable_stop_card as unavailable_stop_card_with_color_mode,
-};
 use super::render::{
     bold as wqdb_bold, dim as wqdb_dim, enabled_marker, format_crash_frame, format_loc_hint,
     header as wqdb_header, help_row as wqdb_help_row, render_debug_instruction,
-    render_stop_card as render_stop_card_with_color_mode, render_table, stop_controls,
-    styled_command as styled_command_with_color_mode, styled_flag, styled_required_arg,
-    styled_separator, styled_stop_hook_command, styled_subcommand, styled_track_command,
-    title as wqdb_title,
+    render_stop_card as render_stop_card_with_color_mode, render_table, stop_controls, styled_flag,
+    styled_subcommand, title as wqdb_title,
 };
 
 const CURRENT_LOCATION_UNAVAILABLE: &str = "current location unavailable";
@@ -71,61 +58,13 @@ fn print_wqdb_help(host: &WqdbHost<'_, '_>) {
         );
     }
     wqdb_println!(host, "");
-    wqdb_println!(host, wqdb_bold("track scopes", color_mode));
-    let track_name = format!(
-        "{} {}",
-        styled_command_with_color_mode("track", color_mode),
-        styled_required_arg("name", color_mode)
-    );
-    wqdb_println!(
+    print_command_forms(
         host,
-        format!(
-            "  {} {}",
-            track_name,
-            wqdb_dim(
-                "resolves a current local by name, or a global if no local matches",
-                color_mode,
-            )
-        )
-    );
-    wqdb_println!(
-        host,
-        format!(
-            "  {} {} {} {} {}",
-            styled_track_command("global", "name", color_mode),
-            styled_separator(color_mode),
-            styled_track_command("local", "name", color_mode),
-            styled_separator(color_mode),
-            styled_track_command("capture", "slot", color_mode)
-        )
+        "symbol trackers",
+        TRACK_SCOPES.iter().chain(TRACK_ACTIONS.iter().skip(1)),
     );
     wqdb_println!(host, "");
-    wqdb_println!(host, wqdb_bold("stop hooks", color_mode));
-    wqdb_println!(
-        host,
-        format!(
-            "  {} {} {} {} {} {} {}",
-            styled_stop_hook_command(
-                "add",
-                Some(format!(
-                    "{} {}",
-                    styled_flag("-o", color_mode),
-                    styled_required_arg("cmd", color_mode)
-                )),
-                color_mode,
-            ),
-            styled_separator(color_mode),
-            styled_stop_hook_command("list", None, color_mode),
-            styled_separator(color_mode),
-            styled_stop_hook_command(
-                "delete",
-                Some(styled_required_arg("id|all", color_mode)),
-                color_mode,
-            ),
-            styled_separator(color_mode),
-            styled_stop_hook_command("clear", None, color_mode)
-        )
-    );
+    print_command_forms(host, "stop hooks", STOP_HOOK_ACTIONS.iter());
     wqdb_println!(host, "");
     wqdb_println!(host, wqdb_bold("batch commands", color_mode));
     wqdb_println!(
@@ -141,17 +80,28 @@ fn print_wqdb_help(host: &WqdbHost<'_, '_>) {
         host,
         format!(
             "  Use {} for commands that should run every time execution stops.",
-            styled_stop_hook_command(
-                "add",
-                Some(format!(
-                    "{} {}",
-                    styled_flag("-o", color_mode),
-                    styled_required_arg("cmd", color_mode)
-                )),
-                color_mode,
-            )
+            wqdb_bold(&Usage::StopHookAdd.to_string(), color_mode)
         )
     );
+}
+
+fn print_command_forms<'a>(
+    host: &WqdbHost<'_, '_>,
+    title: &str,
+    forms: impl Iterator<Item = &'a CommandForm>,
+) {
+    let color_mode = host.color_mode();
+    wqdb_println!(host, wqdb_bold(title, color_mode));
+    for form in forms {
+        wqdb_println!(
+            host,
+            format!(
+                "  {}  {}",
+                wqdb_bold(&form.usage.to_string(), color_mode),
+                wqdb_dim(form.candidate.description, color_mode)
+            )
+        );
+    }
 }
 
 pub(in crate::wqdb) fn exec_single_wqdb_cmd(
@@ -159,15 +109,12 @@ pub(in crate::wqdb) fn exec_single_wqdb_cmd(
     cmd: &str,
 ) -> Option<DebugResume> {
     let command = match parse_line(cmd) {
-        ParsedLine::Empty => return None,
-        ParsedLine::Unknown(name) => {
-            wqdb_println!(
-                host,
-                format!("unknown wqdb command '{name}', type 'h' for help")
-            );
+        Ok(ParsedLine::Empty) => return None,
+        Ok(ParsedLine::Command(command)) => command,
+        Err(error) => {
+            wqdb_println!(host, error.to_string());
             return None;
         }
-        ParsedLine::Command(command) => command,
     };
     match command {
         ParsedCommand::Continue => Some(DebugResume::Continue),
@@ -190,18 +137,8 @@ pub(in crate::wqdb) fn exec_single_wqdb_cmd(
             }
             None
         }
-        ParsedCommand::Track { target, name } => {
-            if let Err(error) = track_symbol(host, target, name) {
-                wqdb_println!(host, error);
-            }
-            None
-        }
-        ParsedCommand::Tracks => {
-            print_symbol_trackers(host);
-            None
-        }
-        ParsedCommand::Untrack(arg) => {
-            if let Err(error) = untrack_symbol(host, arg) {
+        ParsedCommand::Track(command) => {
+            if let Err(error) = execute_tracking(host, command) {
                 wqdb_println!(host, error);
             }
             None
@@ -254,56 +191,52 @@ pub(in crate::wqdb) fn exec_single_wqdb_cmd(
             None
         }
         ParsedCommand::ResetBreakpoints(arg) => {
-            if let Some(arg) = arg {
-                if let Ok(id) = arg.parse::<usize>() {
-                    if let Some(new_state) = host.toggle_breakpoint_by_id(id) {
+            if let Some(id) = arg {
+                if let Some(new_state) = host.toggle_breakpoint_by_id(id) {
+                    wqdb_println!(
+                        host,
+                        format!(
+                            "breakpoint {id} -> {}",
+                            if new_state { "enabled" } else { "disabled" }
+                        )
+                    );
+                } else {
+                    let Some(file_id) = host
+                        .location()
+                        .and_then(|here| host.debug_info().get_chunk(here.chunk))
+                        .map(|metadata| metadata.file_id)
+                    else {
                         wqdb_println!(
                             host,
                             format!(
-                                "breakpoint {id} -> {}",
-                                if new_state { "enabled" } else { "disabled" }
+                                "breakpoint {id} not found; current location unavailable for line lookup"
                             )
                         );
+                        return None;
+                    };
+                    let locs = host.debug_info().resolve_line(file_id, id);
+                    if locs.is_empty() {
+                        wqdb_println!(
+                            host,
+                            format!("no statement at line {id}, nor a valid breakpoint id")
+                        );
                     } else {
-                        let Some(file_id) = host
-                            .location()
-                            .and_then(|here| host.debug_info().get_chunk(here.chunk))
-                            .map(|metadata| metadata.file_id)
-                        else {
-                            wqdb_println!(
-                                host,
-                                format!(
-                                    "breakpoint {id} not found; current location unavailable for line lookup"
-                                )
-                            );
-                            return None;
-                        };
-                        let locs = host.debug_info().resolve_line(file_id, id);
-                        if locs.is_empty() {
-                            wqdb_println!(
-                                host,
-                                format!("no statement at line {id}, nor a valid breakpoint id")
-                            );
-                        } else {
-                            let mut enabled_count = 0;
-                            let mut disabled_count = 0;
-                            for l in locs {
-                                if host.toggle_breakpoint_at(l) {
-                                    enabled_count += 1;
-                                } else {
-                                    disabled_count += 1;
-                                }
+                        let mut enabled_count = 0;
+                        let mut disabled_count = 0;
+                        for l in locs {
+                            if host.toggle_breakpoint_at(l) {
+                                enabled_count += 1;
+                            } else {
+                                disabled_count += 1;
                             }
-                            wqdb_println!(
-                                host,
-                                format!(
-                                    "toggled {enabled_count} on, {disabled_count} off at line {id}"
-                                )
-                            );
                         }
+                        wqdb_println!(
+                            host,
+                            format!(
+                                "toggled {enabled_count} on, {disabled_count} off at line {id}"
+                            )
+                        );
                     }
-                } else {
-                    wqdb_println!(host, "invalid breakpoint id or line number");
                 }
             } else {
                 let new_state = host.toggle_all_breakpoints();
@@ -355,16 +288,12 @@ pub(in crate::wqdb) fn exec_single_wqdb_cmd(
     }
 }
 
-fn set_step_granularity(host: &mut WqdbHost<'_, '_>, arg: Option<&str>) {
-    let Some(arg) = arg else {
+fn set_step_granularity(host: &mut WqdbHost<'_, '_>, granularity: Option<StepGranularity>) {
+    let Some(granularity) = granularity else {
         wqdb_println!(
             host,
             format!("stepping granularity: {}", host.step_granularity().as_str())
         );
-        return;
-    };
-    let Some(granularity) = StepGranularity::parse(arg) else {
-        wqdb_println!(host, usage_error(Usage::Command(Command::Granularity)));
         return;
     };
     host.set_step_granularity(granularity);
@@ -397,13 +326,7 @@ pub(in crate::wqdb) fn exec_stop_hooks(host: &mut WqdbHost<'_, '_>) -> Option<De
     exec_wqdb_cmds(host, &cmds)
 }
 
-fn set_breakpoint_at_pc(host: &mut WqdbHost<'_, '_>, pc_arg: Option<&str>) -> Result<(), String> {
-    let Some(pc_arg) = pc_arg else {
-        return Err(usage_error(Usage::Command(Command::BreakPc)));
-    };
-    let Ok(pc) = pc_arg.parse::<usize>() else {
-        return Err(usage_error(Usage::Command(Command::BreakPc)));
-    };
+fn set_breakpoint_at_pc(host: &mut WqdbHost<'_, '_>, pc: usize) -> Result<(), String> {
     let Some(loc) = host.location() else {
         return Err(CURRENT_LOCATION_UNAVAILABLE.to_string());
     };
@@ -426,19 +349,9 @@ fn set_breakpoint_at_pc(host: &mut WqdbHost<'_, '_>, pc_arg: Option<&str>) -> Re
 
 fn set_breakpoint_at_function(
     host: &mut WqdbHost<'_, '_>,
-    name_arg: Option<&str>,
-    pc_arg: Option<&str>,
+    fname: &str,
+    pc_opt: Option<usize>,
 ) -> Result<(), String> {
-    let Some(fname) = name_arg else {
-        return Err(usage_error(Usage::Command(Command::BreakFunction)));
-    };
-    let pc_opt = match pc_arg {
-        Some(arg) => Some(
-            arg.parse::<usize>()
-                .map_err(|_| usage_error(Usage::Command(Command::BreakFunction)))?,
-        ),
-        None => None,
-    };
     let Some(chunk) = host.debug_info().function_chunk(fname) else {
         return Err(format!("function '{fname}' not found"));
     };
@@ -634,7 +547,18 @@ fn peek_instructions(host: &mut WqdbHost<'_, '_>, n: usize) {
 
 #[cfg(test)]
 mod tests {
+    use wqpl::wqdb::Span;
+
     use super::*;
+    use crate::wqdb::render::{
+        ansi_visible_width as ansi_visible_len, compact_instruction,
+        format_expr_stop_card as format_expr_stop_card_with_color_mode,
+        format_inst_stop_card as format_inst_stop_card_with_color_mode,
+        format_line_stop_card as format_line_stop_card_with_color_mode,
+        prompt as wqdb_prompt_with_color_mode, resolved_stop_span,
+        styled_command as styled_command_with_color_mode,
+        unavailable_stop_card as unavailable_stop_card_with_color_mode,
+    };
 
     fn stop_card_debug_info() -> (DebugInfo, CodeLoc) {
         let mut di = DebugInfo::default();
