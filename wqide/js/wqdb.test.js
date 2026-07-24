@@ -234,6 +234,21 @@ test("wqdb controls share a clear disabled treatment", async () => {
   );
 });
 
+test("wqdb centers its ready placeholder", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("./wqdb.js", import.meta.url), "utf8"),
+    readFile(new URL("../styles.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(
+    source,
+    /body\.classList\.toggle\("is-empty", !state\.pause\);/,
+  );
+  assert.match(
+    styles,
+    /\.wqdb-panel-body\.is-empty\s*\{[^}]*align-items:\s*center;[^}]*justify-content:\s*center;/s,
+  );
+});
+
 test("wqdb source uses highlighting with a background-only current line", async () => {
   const [source, styles] = await Promise.all([
     readFile(new URL("./wqdb.js", import.meta.url), "utf8"),

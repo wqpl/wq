@@ -500,6 +500,7 @@ export function renderWqdbPanel(
   { highlightWq = null } = {},
 ) {
   if (!body) return;
+  body.classList.toggle("is-empty", !state.pause);
   if (!state.pause) {
     const empty = element("div", "globals-panel-empty");
     empty.append(

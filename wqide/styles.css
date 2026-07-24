@@ -1372,6 +1372,10 @@ body {
   flex-direction: column;
   gap: 8px;
 }
+.wqdb-panel-body.is-empty {
+  align-items: center;
+  justify-content: center;
+}
 .wqdb-summary,
 .wqdb-section {
   flex: 0 0 auto;
@@ -3784,6 +3788,56 @@ textarea.editor-text.repl-input,
 .viz-select-menu button:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
+}
+.viz-palette-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.viz-palette-preview {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.viz-palette-preview i {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--viz-palette-color);
+}
+.viz-palette-preview i:nth-child(1) {
+  --viz-palette-color: var(--viz-palette-1);
+}
+.viz-palette-preview i:nth-child(2) {
+  --viz-palette-color: var(--viz-palette-2);
+}
+.viz-palette-preview i:nth-child(3) {
+  --viz-palette-color: var(--viz-palette-3);
+}
+.viz-palette-preview i:nth-child(4) {
+  --viz-palette-color: var(--viz-palette-4);
+}
+.viz-palette-classic {
+  --viz-palette-1: #b03030;
+  --viz-palette-2: #304880;
+  --viz-palette-3: #308030;
+  --viz-palette-4: #803080;
+}
+.viz-palette-bright {
+  --viz-palette-1: #e06060;
+  --viz-palette-2: #6090e0;
+  --viz-palette-3: #60c060;
+  --viz-palette-4: #c060c0;
+}
+.viz-palette-ink {
+  --viz-palette-1: #208080;
+  --viz-palette-2: #a08000;
+  --viz-palette-3: #c0c0c0;
+  --viz-palette-4: #308030;
 }
 .viz-switch {
   display: flex;

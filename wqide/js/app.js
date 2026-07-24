@@ -924,14 +924,50 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>classic</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="classic">
-                    classic
+                  <button
+                    class="viz-palette-option"
+                    type="button"
+                    role="option"
+                    data-viz-option="classic">
+                    <span>classic</span>
+                    <span
+                      class="viz-palette-preview viz-palette-classic"
+                      aria-hidden="true">
+                      <i></i>
+                      <i></i>
+                      <i></i>
+                      <i></i>
+                    </span>
                   </button>
-                  <button type="button" role="option" data-viz-option="bright">
-                    bright
+                  <button
+                    class="viz-palette-option"
+                    type="button"
+                    role="option"
+                    data-viz-option="bright">
+                    <span>bright</span>
+                    <span
+                      class="viz-palette-preview viz-palette-bright"
+                      aria-hidden="true">
+                      <i></i>
+                      <i></i>
+                      <i></i>
+                      <i></i>
+                    </span>
                   </button>
-                  <button type="button" role="option" data-viz-option="ink">
-                    ink
+                  <button
+                    class="viz-palette-option"
+                    type="button"
+                    role="option"
+                    data-viz-option="ink">
+                    <span>ink</span>
+                    <span
+                      class="viz-palette-preview viz-palette-ink"
+                      aria-hidden="true">
+                      <i></i>
+                      <i></i>
+                      <i></i>
+                      <i></i>
+                    </span>
                   </button>
                   <button type="button" role="option" data-viz-option="off">
                     off
@@ -2373,6 +2409,7 @@ async function mountPlayground(route) {
 async function mountViz(route) {
   const root = getView("viz", VIZ_HTML);
   const mod = await import("./viz.js");
+  showView(root);
   if (!root.dataset.booted) {
     if (mod.mountViz) {
       await mod.mountViz(root);
@@ -2382,7 +2419,6 @@ async function mountViz(route) {
   await mod.activateViz?.(root);
   mod.applyVizRoute?.(root, route.params);
   document.title = "wqide - Viz";
-  showView(root);
 }
 
 async function mountRepl(route) {
