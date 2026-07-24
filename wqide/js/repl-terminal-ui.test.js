@@ -23,7 +23,23 @@ test("terminal chrome keeps established pills and utilities outside the prompt",
   assert.match(appSource, /id="historyToggleBtn"[\s\S]*class="pill inactive"/);
   assert.doesNotMatch(appSource, /class="repl-terminal-action(?:\s|")/);
   assert.match(appSource, /id="scrollLatestBtn"/);
-  assert.match(styles, /--terminal-bg:\s*#0b1119;/);
+  assert.match(
+    appSource,
+    /class="repl-terminal-menu-ellipsis" aria-hidden="true"\s*>…<\/span/,
+  );
+  assert.doesNotMatch(appSource, /aria-hidden="true">•••<\/span>/);
+  assert.match(
+    styles,
+    /:root\s*\{[\s\S]*--terminal-bg:\s*#fbfdff;[\s\S]*--terminal-text:\s*#183747;[\s\S]*\}/,
+  );
+  assert.match(
+    styles,
+    /:root\[data-theme="midnight"\]\s*\{[\s\S]*--terminal-bg:\s*#080d16;[\s\S]*--terminal-text:\s*#e7eef6;[\s\S]*\}/,
+  );
+  assert.match(
+    styles,
+    /\.repl-terminal-menu-ellipsis\s*\{[^}]*font-weight:\s*500;/,
+  );
   assert.match(styles, /\.repl-status-dot/);
   assert.match(
     styles,

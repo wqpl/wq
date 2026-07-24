@@ -1262,7 +1262,9 @@ const REPL_HTML = html`
               <summary
                 class="pill inactive"
                 aria-label="Session actions">
-                <span aria-hidden="true">•••</span>
+                <span class="repl-terminal-menu-ellipsis" aria-hidden="true"
+                  >…</span
+                >
               </summary>
               <div class="repl-terminal-menu-panel">
                 <button id="copyFlowBtn" type="button">Copy session</button>
