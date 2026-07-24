@@ -1,24 +1,14 @@
-use super::{WQDB_COMMANDS, WqdbCommand, WqdbCommandSpec};
+pub(crate) use super::command::{ArgumentCandidate, DynamicArgumentKind};
+use super::command::{
+    COMMANDS, CommandSpec, argument_candidates as command_argument_candidates, command_spec,
+    dynamic_argument_kind as command_dynamic_argument_kind,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CommandEntry {
     pub(crate) name: &'static str,
     pub(crate) usage: String,
     pub(crate) summary: &'static str,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ArgumentCandidate {
-    pub(crate) value: &'static str,
-    pub(crate) description: &'static str,
-    pub(crate) kind: &'static str,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DynamicArgumentKind {
-    Function,
-    Symbol,
-    Command,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,84 +55,7 @@ pub(crate) struct TokenSpan {
     pub(crate) kind: TokenKind,
 }
 
-const GRANULARITIES: &[ArgumentCandidate] = &[
-    ArgumentCandidate {
-        value: "line",
-        description: "pause once per source line",
-        kind: "granularity",
-    },
-    ArgumentCandidate {
-        value: "expr",
-        description: "pause at each expression",
-        kind: "granularity",
-    },
-    ArgumentCandidate {
-        value: "inst",
-        description: "pause before every VM instruction",
-        kind: "granularity",
-    },
-];
-
-const TRACK_SCOPES: &[ArgumentCandidate] = &[
-    ArgumentCandidate {
-        value: "global",
-        description: "track a global name",
-        kind: "scope",
-    },
-    ArgumentCandidate {
-        value: "local",
-        description: "track a local name",
-        kind: "scope",
-    },
-    ArgumentCandidate {
-        value: "capture",
-        description: "track a capture slot",
-        kind: "scope",
-    },
-];
-
-const STOP_HOOK_ACTIONS: &[ArgumentCandidate] = &[
-    ArgumentCandidate {
-        value: "add",
-        description: "add a command to every stop",
-        kind: "action",
-    },
-    ArgumentCandidate {
-        value: "list",
-        description: "list stop hooks",
-        kind: "action",
-    },
-    ArgumentCandidate {
-        value: "delete",
-        description: "delete a stop hook",
-        kind: "action",
-    },
-    ArgumentCandidate {
-        value: "clear",
-        description: "clear all stop hooks",
-        kind: "action",
-    },
-];
-
-const OPTION_O: &[ArgumentCandidate] = &[ArgumentCandidate {
-    value: "-o",
-    description: "wqdb command to run",
-    kind: "option",
-}];
-
-const ALL: &[ArgumentCandidate] = &[ArgumentCandidate {
-    value: "all",
-    description: "remove all entries",
-    kind: "value",
-}];
-
-fn command_spec(name: &str) -> Option<&'static WqdbCommandSpec> {
-    WQDB_COMMANDS
-        .iter()
-        .find(|spec| spec.aliases.contains(&name))
-}
-
-fn command_usage(spec: &WqdbCommandSpec, name: &str) -> String {
+fn command_usage(spec: &CommandSpec, name: &str) -> String {
     let mut usage = name.to_string();
     for arg in spec.args {
         usage.push(' ');
@@ -161,7 +74,7 @@ pub(crate) fn command_entry(name: &str) -> Option<CommandEntry> {
 }
 
 pub(crate) fn command_entries(prefix: &str) -> Vec<CommandEntry> {
-    let mut entries = WQDB_COMMANDS
+    let mut entries = COMMANDS
         .iter()
         .flat_map(|spec| {
             spec.aliases
@@ -183,36 +96,14 @@ pub(crate) fn argument_candidates(
     previous_args: &[&str],
     prefix: &str,
 ) -> Vec<ArgumentCandidate> {
-    let Some(command) = command_spec(command_name).map(|spec| spec.command) else {
-        return Vec::new();
-    };
-    let candidates = match (command, previous_args) {
-        (WqdbCommand::Granularity, []) => GRANULARITIES,
-        (WqdbCommand::Track, []) => TRACK_SCOPES,
-        (WqdbCommand::Untrack, []) => ALL,
-        (WqdbCommand::StopHook, []) => STOP_HOOK_ACTIONS,
-        (WqdbCommand::StopHook, ["add"]) => OPTION_O,
-        (WqdbCommand::StopHook, ["delete" | "del" | "remove" | "rm"]) => ALL,
-        _ => &[],
-    };
-    candidates
-        .iter()
-        .copied()
-        .filter(|candidate| candidate.value.starts_with(prefix))
-        .collect()
+    command_argument_candidates(command_name, previous_args, prefix)
 }
 
 pub(crate) fn dynamic_argument_kind(
     command_name: &str,
     previous_args: &[&str],
 ) -> Option<DynamicArgumentKind> {
-    let command = command_spec(command_name)?.command;
-    match (command, previous_args) {
-        (WqdbCommand::BreakFunction, []) => Some(DynamicArgumentKind::Function),
-        (WqdbCommand::Track, [] | ["global" | "g"]) => Some(DynamicArgumentKind::Symbol),
-        (WqdbCommand::StopHook, ["add", "-o"]) => Some(DynamicArgumentKind::Command),
-        _ => None,
-    }
+    command_dynamic_argument_kind(command_name, previous_args)
 }
 
 fn is_command(token: &str) -> bool {
