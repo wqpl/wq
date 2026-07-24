@@ -67,6 +67,7 @@ pub fn execute<H: Helper, P: Prompt + ?Sized>(
         }
         Cmd::EndOfFile => {
             if s.line.is_empty() {
+                s.move_cursor_to_end()?;
                 return Err(error::ReadlineError::Eof);
             } else if !input_state.is_emacs_mode() {
                 return Ok(Submit);

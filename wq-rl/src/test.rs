@@ -3,7 +3,7 @@ use std::vec::IntoIter;
 use crate::completion::{Completer, Pair};
 use crate::config::{CompletionType, Config, EditMode};
 use crate::edit::init_state;
-use crate::highlight::Highlighter;
+use crate::highlight::{Highlighter, InputAreaStyle};
 use crate::hint::Hinter;
 use crate::history::History as _;
 use crate::keymap::{Bindings, Cmd, InputState, Refresher as _};
@@ -124,6 +124,30 @@ impl Hinter for MenuCompleter {
 impl Helper for MenuCompleter {}
 impl Highlighter for MenuCompleter {}
 impl Validator for MenuCompleter {}
+
+struct InputAreaHelper;
+
+impl Completer for InputAreaHelper {
+    type Candidate = String;
+}
+
+impl Hinter for InputAreaHelper {
+    type Hint = String;
+}
+
+impl Highlighter for InputAreaHelper {
+    fn input_area_style(&self) -> Option<InputAreaStyle> {
+        Some(InputAreaStyle {
+            background: "",
+            reset: "",
+            horizontal_padding: 1,
+            vertical_padding: 1,
+        })
+    }
+}
+
+impl Validator for InputAreaHelper {}
+impl Helper for InputAreaHelper {}
 
 #[test]
 fn complete_line() {
@@ -384,6 +408,36 @@ fn interrupt_clears_visible_hint() {
     assert!(matches!(result, Err(ReadlineError::Interrupted)));
     assert!(s.hint.is_none());
     assert!(matches!(out.hints.last(), Some(None)));
+}
+
+#[test]
+fn eof_moves_cursor_past_input_area_bottom_padding() {
+    let mut out = Sink {
+        colors_enabled: true,
+        ..Sink::default()
+    };
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(InputAreaHelper);
+    let mut s = init_state(&mut out, "", 0, helper.as_ref(), &history);
+    let config = Config::builder().build();
+    let bindings = Bindings::new();
+    let input_state = InputState::new(&config, &bindings);
+    let mut kill_ring = crate::kill_ring::KillRing::new(60);
+
+    s.refresh_line().expect("paint padded input area");
+    let display_end = s.layout.display_end();
+    assert_ne!(display_end, s.layout.cursor);
+
+    let result = crate::command::execute(
+        Cmd::EndOfFile,
+        &mut s,
+        &input_state,
+        &mut kill_ring,
+        &config,
+    );
+
+    assert!(matches!(result, Err(ReadlineError::Eof)));
+    assert_eq!(display_end, s.layout.cursor);
 }
 
 // `keys`: keys to press
