@@ -61,6 +61,17 @@ test("submitted input advances immediately and terminal shortcuts remain availab
   );
 });
 
+test("clear screen keeps the first input aligned with its submitted row", () => {
+  assert.match(
+    replSource,
+    /function clearScreen\([\s\S]*ui\.output\.replaceChildren\(\);/,
+  );
+  assert.match(
+    styles,
+    /\.repl-output-log:empty \+ \.repl-live-input\s*\{[^}]*margin-top:\s*0;/,
+  );
+});
+
 test("latest output waits for sustained distance from the transcript end", () => {
   assert.match(replSource, /const LATEST_OUTPUT_REVEAL_DELAY_MS = \d+;/);
   assert.match(replSource, /function scheduleLatestOutputReveal\(\)/);

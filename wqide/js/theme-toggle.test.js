@@ -29,6 +29,13 @@ test("theme change crossfades scenes without replaying travel keyframes", () => 
   assert.doesNotMatch(styles, /@keyframes theme-(?:sun|moon)-(?:rise|set)/);
 });
 
+test("pointer theme changes preserve an active code editor caret", () => {
+  assert.match(
+    appSource,
+    /button\.addEventListener\("pointerdown",[\s\S]*document\.activeElement[\s\S]*matches\("\.wq-editor"\)[\s\S]*event\.preventDefault\(\);/,
+  );
+});
+
 test("midnight stars use quiet layers without flashing sparkles", () => {
   assert.match(appSource, /theme-stars-far/);
   assert.match(appSource, /theme-stars-mid/);

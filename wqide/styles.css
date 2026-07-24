@@ -2189,6 +2189,9 @@ body {
   border: 0;
   background: transparent;
 }
+.repl-output-log:empty + .repl-live-input {
+  margin-top: 0;
+}
 .repl-live-input-row {
   display: flex;
   align-items: flex-start;

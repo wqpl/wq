@@ -1582,6 +1582,15 @@ function wireThemeToggle() {
   if (!button || button.dataset.wired === "true") return;
   button.dataset.wired = "true";
   syncThemeToggle();
+  button.addEventListener("pointerdown", (event) => {
+    if (
+      event.isPrimary &&
+      event.button === 0 &&
+      document.activeElement?.matches(".wq-editor")
+    ) {
+      event.preventDefault();
+    }
+  });
   button.addEventListener("click", () => {
     const isMidnight =
       document.documentElement.dataset.theme === THEME_MIDNIGHT;
