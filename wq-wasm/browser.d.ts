@@ -82,6 +82,7 @@ export interface EvalWqAsyncOptions {
   signal?: AbortSignal;
   timeSliceMs?: number;
   sourcePath?: string;
+  /** Debugger pauses continue automatically when this callback is omitted. */
   onDebuggerPause?: (
     stop: DebuggerStop,
   ) => DebuggerResumeAction | PromiseLike<DebuggerResumeAction>;

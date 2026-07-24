@@ -213,14 +213,86 @@ function element(tag, className, text) {
   return node;
 }
 
-function section(title) {
+function section(title, { foldable = false, open = true } = {}) {
+  if (foldable) {
+    const node = element("details", "wqdb-section wqdb-foldable");
+    node.dataset.wqdbSection = title;
+    node.open = open;
+    node.append(element("summary", "wqdb-section-title", title));
+    return node;
+  }
   const node = element("section", "wqdb-section");
   node.append(element("h3", "wqdb-section-title", title));
   return node;
 }
 
-function renderValues(title, values) {
-  const node = section(title);
+function sectionOpen(foldState, title) {
+  return foldState.get(title) ?? true;
+}
+
+function readFoldState(body) {
+  const foldState = new Map();
+  for (const node of body.querySelectorAll(
+    ".wqdb-foldable[data-wqdb-section]",
+  )) {
+    foldState.set(node.dataset.wqdbSection, node.open);
+  }
+  return foldState;
+}
+
+function highlightedSourceLines(source, highlightWq) {
+  if (!highlightWq) return null;
+  let highlighted;
+  try {
+    highlighted = highlightWq(source);
+  } catch {
+    return null;
+  }
+  if (typeof highlighted !== "string") return null;
+
+  const wrapper = element("div");
+  wrapper.innerHTML = highlighted;
+  if (wrapper.textContent !== source) return null;
+
+  const fragments = source
+    .split("\n")
+    .map(() => document.createDocumentFragment());
+  let lineIndex = 0;
+
+  function appendText(text, ancestors) {
+    const segments = text.split("\n");
+    segments.forEach((segment, index) => {
+      if (segment && lineIndex < fragments.length) {
+        let target = fragments[lineIndex];
+        for (const ancestor of ancestors) {
+          const clone = ancestor.cloneNode(false);
+          target.append(clone);
+          target = clone;
+        }
+        target.append(document.createTextNode(segment));
+      }
+      if (index < segments.length - 1) lineIndex += 1;
+    });
+  }
+
+  function visit(node, ancestors) {
+    if (node.nodeType === 3) {
+      appendText(node.nodeValue ?? "", ancestors);
+      return;
+    }
+    const nextAncestors =
+      node === wrapper ? ancestors : [...ancestors, node];
+    for (const child of node.childNodes) {
+      visit(child, nextAncestors);
+    }
+  }
+
+  visit(wrapper, []);
+  return lineIndex === fragments.length - 1 ? fragments : null;
+}
+
+function renderValues(title, values, open) {
+  const node = section(title, { foldable: true, open });
   if (!values.length) {
     node.append(element("p", "wqdb-empty", "None"));
     return node;
@@ -244,8 +316,8 @@ function renderValues(title, values) {
   return node;
 }
 
-function renderSource(state, actions) {
-  const node = section("Source");
+function renderSource(state, actions, highlightWq, open) {
+  const node = section("Source", { foldable: true, open });
   if (!state.source) {
     node.append(element("p", "wqdb-empty", "Source unavailable"));
     return node;
@@ -253,6 +325,7 @@ function renderSource(state, actions) {
   const lines = element("div", "wqdb-source");
   const activeLine = state.pause?.location?.line;
   const breakpointLines = new Set(state.breakpointLines);
+  const highlightedLines = highlightedSourceLines(state.source, highlightWq);
   state.source.split("\n").forEach((text, index) => {
     const lineNumber = index + 1;
     const row = element(
@@ -274,10 +347,17 @@ function renderSource(state, actions) {
     breakpoint.addEventListener("click", () =>
       actions.toggleBreakpoint(lineNumber),
     );
+    const code = element("code", "wqdb-source-code");
+    const highlightedLine = highlightedLines?.[index];
+    if (highlightedLine?.hasChildNodes()) {
+      code.append(highlightedLine);
+    } else {
+      code.textContent = text || " ";
+    }
     row.append(
       breakpoint,
       element("span", "wqdb-line-number", String(lineNumber)),
-      element("code", "wqdb-source-code", text || " "),
+      code,
     );
     lines.append(row);
   });
@@ -285,8 +365,8 @@ function renderSource(state, actions) {
   return node;
 }
 
-function renderStack(state, actions) {
-  const node = section("Stack");
+function renderStack(state, actions, open) {
+  const node = section("Stack", { foldable: true, open });
   if (!state.stack.length) {
     node.append(element("p", "wqdb-empty", "No stack frames"));
     return node;
@@ -323,16 +403,39 @@ function renderInstruction(state) {
     return node;
   }
   const instruction = state.instruction;
-  const code = [
-    `${instruction.pc}: ${instruction.opcode}${instruction.operands ? ` ${instruction.operands}` : ""}`,
-    ...instruction.annotations.map((annotation) => `  ${annotation}`),
-  ].join("\n");
-  node.append(element("pre", "wqdb-instruction", code));
+  const code = element("pre", "wqdb-instruction");
+  const line = element("span", "wqdb-instruction-line");
+  line.append(
+    element(
+      "span",
+      "wqdb-instruction-pc",
+      String(instruction.pc).padStart(4, " "),
+    ),
+    " ",
+    element(
+      "span",
+      `wqdb-instruction-opcode ${instruction.class}${instruction.is_special ? " special" : ""}`,
+      instruction.opcode,
+    ),
+    element("span", "wqdb-instruction-operands", instruction.operands),
+  );
+  if (instruction.annotations.length) {
+    line.append(
+      "  ",
+      element(
+        "span",
+        "wqdb-instruction-annotations",
+        `// ${instruction.annotations.join("; ")}`,
+      ),
+    );
+  }
+  code.append(line);
+  node.append(code);
   return node;
 }
 
-function renderTracking(state, actions) {
-  const node = section("Symbol tracking");
+function renderTracking(state, actions, open) {
+  const node = section("Symbol tracking", { foldable: true, open });
   const form = element("form", "wqdb-track-form");
   const input = element("input", "wqdb-track-input");
   input.name = "symbol";
@@ -370,9 +473,9 @@ function renderTracking(state, actions) {
   return node;
 }
 
-function renderNotifications(state) {
+function renderNotifications(state, open) {
   if (!state.notifications.length) return null;
-  const node = section("Changes");
+  const node = section("Changes", { foldable: true, open });
   const list = element("ol", "wqdb-notifications");
   for (const notification of state.notifications.slice().reverse()) {
     const item = element("li", "wqdb-notification");
@@ -390,7 +493,12 @@ function renderNotifications(state) {
   return node;
 }
 
-export function renderWqdbPanel(body, state, actions) {
+export function renderWqdbPanel(
+  body,
+  state,
+  actions,
+  { highlightWq = null } = {},
+) {
   if (!body) return;
   if (!state.pause) {
     const empty = element("div", "globals-panel-empty");
@@ -406,6 +514,7 @@ export function renderWqdbPanel(body, state, actions) {
     return;
   }
 
+  const foldState = readFoldState(body);
   const fragment = document.createDocumentFragment();
   const summary = element("section", "wqdb-summary");
   const status = element(
@@ -467,15 +576,39 @@ export function renderWqdbPanel(body, state, actions) {
   granularity.append(granularityOptions);
   controls.append(granularity);
 
-  fragment.append(summary, controls, renderSource(state, actions));
   fragment.append(
-    renderStack(state, actions),
-    renderValues("Locals", state.locals),
-    renderValues("Globals", state.globals),
-    renderInstruction(state),
-    renderTracking(state, actions),
+    summary,
+    controls,
+    renderSource(
+      state,
+      actions,
+      highlightWq,
+      sectionOpen(foldState, "Source"),
+    ),
   );
-  const notifications = renderNotifications(state);
+  fragment.append(
+    renderStack(state, actions, sectionOpen(foldState, "Stack")),
+    renderValues(
+      "Locals",
+      state.locals,
+      sectionOpen(foldState, "Locals"),
+    ),
+    renderValues(
+      "Globals",
+      state.globals,
+      sectionOpen(foldState, "Globals"),
+    ),
+    renderInstruction(state),
+    renderTracking(
+      state,
+      actions,
+      sectionOpen(foldState, "Symbol tracking"),
+    ),
+  );
+  const notifications = renderNotifications(
+    state,
+    sectionOpen(foldState, "Changes"),
+  );
   if (notifications) fragment.append(notifications);
   body.replaceChildren(fragment);
 }

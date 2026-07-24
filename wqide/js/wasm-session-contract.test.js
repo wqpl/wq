@@ -306,12 +306,10 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     assert.deepEqual(stepReasons, ["entry", "step"]);
 
     session.arm_wqdb_next();
-    await assert.rejects(
-      session.eval_wq_async("1", {
-        sourcePath: "<contract:missing-handler>",
-      }),
-      /onDebuggerPause is not configured/,
-    );
+    const unhandledPauseResult = await session.eval_wq_async("1", {
+      sourcePath: "<contract:missing-handler>",
+    });
+    assert.equal(unhandledPauseResult.display, "1");
 
     session.arm_wqdb_next();
     const debugController = new AbortController();

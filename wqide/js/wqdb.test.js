@@ -199,3 +199,76 @@ test("wqdb granularity uses custom buttons instead of a native select", async ()
   assert.match(source, /wqdb-granularity-option/);
   assert.match(source, /aria-pressed/);
 });
+
+test("wqdb granularity uses nested pills with distinct active hover styling", async () => {
+  const styles = await readFile(
+    new URL("../styles.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    styles,
+    /\.wqdb-granularity-options\s*\{[^}]*padding:\s*3px;[^}]*border-radius:\s*var\(--radius-pill\)/s,
+  );
+  assert.match(
+    styles,
+    /\.wqdb-granularity-option:hover:not\(:disabled\):not\(\.active\)/,
+  );
+  assert.match(
+    styles,
+    /\.wqdb-granularity-option\.active:hover:not\(:disabled\)/,
+  );
+});
+
+test("wqdb controls share a clear disabled treatment", async () => {
+  const styles = await readFile(
+    new URL("../styles.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    styles,
+    /\.wqdb-panel-body :is\(button, input\):disabled\s*\{[^}]*cursor:\s*not-allowed;[^}]*opacity:/s,
+  );
+  assert.match(
+    styles,
+    /\.wqdb-panel-body \.btn:disabled,[\s\S]*?\.wqdb-track-input:disabled\s*\{[^}]*background:\s*var\(--surface-bg-muted\);[^}]*box-shadow:\s*none/s,
+  );
+});
+
+test("wqdb source uses highlighting with a background-only current line", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("./wqdb.js", import.meta.url), "utf8"),
+    readFile(new URL("../styles.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, /highlightWq\(source\)/);
+  assert.match(source, /highlightedLines/);
+  assert.match(
+    styles,
+    /\.wqdb-source-code\s*\{[^}]*background:\s*var\(--surface-bg-field\);[^}]*color:\s*var\(--surface-text\)/s,
+  );
+  assert.match(
+    styles,
+    /\.wqdb-source-line\.active \.wqdb-source-code\s*\{[^}]*background:\s*color-mix\(/s,
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.wqdb-source-line\.active(?:\s+\.wqdb-source-code)?\s*\{[^}]*box-shadow:/s,
+  );
+});
+
+test("wqdb renders pretty-printer instruction parts with class styling", async () => {
+  const source = await readFile(new URL("./wqdb.js", import.meta.url), "utf8");
+  assert.match(source, /wqdb-instruction-opcode/);
+  assert.match(source, /instruction\.class/);
+  assert.match(source, /instruction\.is_special/);
+  assert.match(source, /instruction\.operands/);
+  assert.match(source, /instruction\.annotations/);
+});
+
+test("potentially long wqdb sections use foldable details", async () => {
+  const source = await readFile(new URL("./wqdb.js", import.meta.url), "utf8");
+  assert.match(source, /element\("details", "wqdb-section wqdb-foldable"\)/);
+  assert.match(source, /element\("summary", "wqdb-section-title", title\)/);
+  for (const title of ["Source", "Stack", "Locals", "Globals"]) {
+    assert.match(source, new RegExp(`sectionOpen\\(foldState, "${title}"\\)`));
+  }
+});

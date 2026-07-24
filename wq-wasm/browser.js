@@ -413,9 +413,12 @@ export class WasmWqSession {
             signal,
           );
           if (!onDebuggerPause) {
-            throw new Error(
-              "Evaluation paused in wqdb, but onDebuggerPause is not configured",
+            this.#evaluationCall(
+              "resume_eval_wq_debugger",
+              result.pause.id,
+              "continue",
             );
+            continue;
           }
           this.#activePauseId = result.pause.id;
           try {

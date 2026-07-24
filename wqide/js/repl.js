@@ -557,7 +557,11 @@ function syncWqdbPanel(state = wqdbController?.state) {
         ? "Running"
         : "Idle";
   ui.globalsPanel.dataset.debuggerState = state.status;
-  renderWqdbPanel(ui.debuggerBody, state, wqdbController);
+  renderWqdbPanel(ui.debuggerBody, state, wqdbController, {
+    highlightWq: frontend
+      ? (source) => frontend.highlight_wq(source)
+      : null,
+  });
   if (state.status === "paused") {
     setInspectorTab("debugger");
   }

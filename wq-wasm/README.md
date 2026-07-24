@@ -81,9 +81,9 @@ oriented `kind` field.
 Call `arm_wqdb_next()` before a later evaluation when persistent wqdb should
 pause at entry again. Debugger stop methods are valid only while that stop is
 active. Calling one after the handler resumes, aborts, or completes throws a
-stale-pause error. An enabled wqdb evaluation without `onDebuggerPause` rejects
-with an actionable configuration error instead of returning an unknown
-evaluation status.
+stale-pause error. An enabled wqdb evaluation without `onDebuggerPause`
+continues automatically, so interfaces that do not expose debugger controls do
+not surface an internal pause error.
 
 ## Language frontend
 
