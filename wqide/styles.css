@@ -1285,7 +1285,7 @@ body {
   gap: 0;
   min-width: 0;
   height: calc(100vh - var(--header-h) - 96px);
-  min-height: 400px;
+  min-height: 440px;
   overflow: hidden;
   background: var(--globals-panel-bg);
   border: 1px solid var(--globals-panel-border);
@@ -2195,11 +2195,12 @@ body {
 .repl-live-input-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 0;
   min-width: 0;
 }
 .repl-live-prompt {
   flex: 0 0 auto;
+  margin-right: 1ch;
   padding-top: 0;
   color: var(--terminal-muted);
   font: 700 14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -5099,15 +5100,14 @@ textarea.editor-text.repl-input,
   .repl-thread {
     padding: 14px 12px 18px;
   }
-  .repl-line-body {
+  .repl-line-body,
+  .repl-live-prompt,
+  .repl-input {
     font-size: 13px;
   }
   .repl-live-input {
     margin-top: 6px;
     padding: 0;
-  }
-  .repl-live-input-row {
-    gap: 7px;
   }
   .repl-scroll-latest {
     right: 10px;

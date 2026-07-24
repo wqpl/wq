@@ -72,6 +72,32 @@ test("clear screen keeps the first input aligned with its submitted row", () => 
   );
 });
 
+test("live and submitted input use the same one-character prompt gap", () => {
+  assert.match(
+    styles,
+    /\.repl-live-input-row\s*\{[^}]*gap:\s*0;/,
+  );
+  assert.match(
+    styles,
+    /\.repl-live-prompt\s*\{[^}]*margin-right:\s*1ch;/,
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.repl-live-input-row\s*\{[^}]*gap:\s*(?:7|10)px;/,
+  );
+});
+
+test("desktop inspector keeps the same minimum height as the REPL", () => {
+  assert.match(
+    styles,
+    /\.repl-flow\s*\{[^}]*min-height:\s*440px;/,
+  );
+  assert.match(
+    styles,
+    /\.globals-panel\s*\{[^}]*min-height:\s*440px;/,
+  );
+});
+
 test("latest output waits for sustained distance from the transcript end", () => {
   assert.match(replSource, /const LATEST_OUTPUT_REVEAL_DELAY_MS = \d+;/);
   assert.match(replSource, /function scheduleLatestOutputReveal\(\)/);
