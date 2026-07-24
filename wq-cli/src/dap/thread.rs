@@ -9,10 +9,10 @@ use wq_dap::event::{BreakpointEventBody, Event, OutputEventBody};
 use wq_dap::r#type::{
     Breakpoint, BreakpointEventReason, OutputEventCategory, Scope, StoppedEventReason, Variable,
 };
-use wqpl::debug::{DebugResume, Debugger, PauseEvent, PauseReason};
 use wqpl::session::stdio::{WqIoError, WqOutput};
 use wqpl::session::{EvaluationFailure, Session, SessionInterruptHandle};
 use wqpl::style::ColorMode;
+use wqpl::wqdb::{DebugResume, Debugger, PauseEvent, PauseReason};
 
 use crate::dap::adapter;
 use crate::load::load_script;

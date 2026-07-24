@@ -328,7 +328,7 @@ pub(crate) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError 
     };
     let Some(source) = vm
         .debug_info
-        .resolve_location(crate::debug::data::CodeLoc { chunk, pc })
+        .resolve_location(crate::wqdb::data::CodeLoc { chunk, pc })
         .and_then(|resolved| resolved.source)
     else {
         return err;
@@ -340,7 +340,7 @@ pub(crate) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debug::data::Span;
+    use crate::wqdb::data::Span;
 
     fn strip_ansi(s: &str) -> String {
         let mut out = String::new();

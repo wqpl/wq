@@ -7,10 +7,6 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
 use wqpl::builtins::BuiltinPreset;
-use wqpl::debug::{
-    CrashFrame, DebugInstruction, DebugNotification, DebugPause, PauseReason, ResumeAction,
-    SourceBreakpoint, SymbolMutation, SymbolTrackTarget,
-};
 use wqpl::display::{BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info};
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::format::{FormatConfig, Formatter};
@@ -30,6 +26,10 @@ use wqpl::session::{
 use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::Value;
+use wqpl::wqdb::{
+    CrashFrame, DebugInstruction, DebugNotification, DebugPause, PauseReason, ResumeAction,
+    SourceBreakpoint, SymbolMutation, SymbolTrackTarget,
+};
 use wqpl::wqerror::WqError;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -639,7 +639,7 @@ impl WasmWqSession {
             let color_mode = session.stderr_color_mode();
             let result = session.resume_script_debugger(
                 active,
-                wqpl::debug::DebugPauseId::from_u64(pause_id),
+                wqpl::wqdb::DebugPauseId::from_u64(pause_id),
                 action,
             );
             (result, color_mode)
@@ -1240,15 +1240,15 @@ fn debugger_instruction_to_js(instruction: &DebugInstruction) -> Object {
         &strings_to_array(instruction.annotations.iter().map(String::as_str)).into(),
     );
     let class = match instruction.class {
-        wqpl::debug::InstructionClass::Load => "load",
-        wqpl::debug::InstructionClass::Store => "store",
-        wqpl::debug::InstructionClass::Call => "call",
-        wqpl::debug::InstructionClass::Jump => "jump",
-        wqpl::debug::InstructionClass::Stack => "stack",
-        wqpl::debug::InstructionClass::Operator => "operator",
-        wqpl::debug::InstructionClass::Indexing => "indexing",
-        wqpl::debug::InstructionClass::Construct => "construct",
-        wqpl::debug::InstructionClass::Try => "try",
+        wqpl::wqdb::InstructionClass::Load => "load",
+        wqpl::wqdb::InstructionClass::Store => "store",
+        wqpl::wqdb::InstructionClass::Call => "call",
+        wqpl::wqdb::InstructionClass::Jump => "jump",
+        wqpl::wqdb::InstructionClass::Stack => "stack",
+        wqpl::wqdb::InstructionClass::Operator => "operator",
+        wqpl::wqdb::InstructionClass::Indexing => "indexing",
+        wqpl::wqdb::InstructionClass::Construct => "construct",
+        wqpl::wqdb::InstructionClass::Try => "try",
     };
     set_js_property(&object, "class", &JsValue::from_str(class));
     set_js_property(

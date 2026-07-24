@@ -5,8 +5,6 @@ use ahash::AHashMap;
 use smallvec::SmallVec;
 
 use crate::builtins::{BuiltinContext, BuiltinEnum, BuiltinFnArgs, Builtins};
-use crate::debug::build::mark_stmt_heuristic;
-use crate::debug::data::ChunkId;
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cell::ValueCell;
@@ -19,6 +17,8 @@ use crate::vm::{
     CallFrame, ExecutionFrame, InlineCache, Vm, arity_err_vm, ensure_stack_len, not_bound_err,
     vm_err,
 };
+use crate::wqdb::build::mark_stmt_heuristic;
+use crate::wqdb::data::ChunkId;
 use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 const DEFAULT_OPERAND_STACK_CAPACITY: usize = 256;

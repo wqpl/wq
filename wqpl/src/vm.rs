@@ -16,9 +16,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use ahash::AHashMap;
 
 use crate::builtins::{BuiltinPreset, Builtins};
-use crate::debug::DebugPause;
-use crate::debug::data::{ChunkId, CrashSnapshot, DebugInfo};
-use crate::debug::state::DebugState;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::session::stdio::{RuntimeIo, WqInputPoll, WqIoError};
@@ -31,6 +28,9 @@ use crate::vm::debug::PauseHandler;
 use crate::vm::inst::Instruction;
 use crate::vm::owned_const::extract_owned_consts;
 use crate::vm::trace::TraceRecord;
+use crate::wqdb::DebugPause;
+use crate::wqdb::data::{ChunkId, CrashSnapshot, DebugInfo};
+use crate::wqdb::state::DebugState;
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) type GlobalMap = crate::session::Bindings;
@@ -793,7 +793,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::debug::DebugResume;
+    use crate::wqdb::DebugResume;
 
     #[test]
     fn new_keeps_constants_inline_by_default() {
@@ -935,7 +935,7 @@ mod tests {
             .expect("crash snapshot")
             .frames()
             .iter()
-            .find(|frame| matches!(frame, crate::debug::data::CrashFrame::TailCallsOmitted))
+            .find(|frame| matches!(frame, crate::wqdb::data::CrashFrame::TailCallsOmitted))
             .expect("tail overflow marker");
 
         assert!(omitted.location().is_none());

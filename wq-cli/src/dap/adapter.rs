@@ -1,8 +1,8 @@
 use wq_dap::r#type::{
     Breakpoint, Scope, ScopePresentationhint, Source, StackFrame, Thread, Variable,
 };
-use wqpl::debug::{CrashFrame, Debugger, SourceBreakpoint};
 use wqpl::value::Excerpt;
+use wqpl::wqdb::{CrashFrame, Debugger, SourceBreakpoint};
 
 pub(crate) struct StackTracePage {
     pub(crate) frames: Vec<StackFrame>,
@@ -247,8 +247,8 @@ fn decode_locals_ref(variables_reference: usize) -> Option<usize> {
 mod tests {
     use std::sync::Arc;
 
-    use wqpl::debug::{ChunkId, CodeLoc};
     use wqpl::session::Session;
+    use wqpl::wqdb::{ChunkId, CodeLoc};
 
     use super::*;
 

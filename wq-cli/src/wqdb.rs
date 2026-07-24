@@ -5,15 +5,15 @@ use std::io::{IsTerminal as _, Write as _};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
-use wqpl::debug::{
-    CodeLoc, DebugInfo, DebugInstruction, DebugLocalsFrame, DebugNotification, DebugResume,
-    Debugger, InstructionClass, Span, StepGranularity, SymbolMutation, SymbolTrackTarget,
-    TrackResult,
-};
 use wqpl::session::stdio::WqIoError;
 use wqpl::session::{EvaluationFailure, Session};
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
+use wqpl::wqdb::{
+    CodeLoc, DebugInfo, DebugInstruction, DebugLocalsFrame, DebugNotification, DebugResume,
+    Debugger, InstructionClass, Span, StepGranularity, SymbolMutation, SymbolTrackTarget,
+    TrackResult,
+};
 
 use crate::repl::InteractiveOutputSpacing;
 use crate::repl::input::{RustylineInput, WqInputMode};
@@ -2033,7 +2033,7 @@ mod tests {
     fn stale_locations_render_without_panicking() {
         let di = DebugInfo::default();
         let loc = CodeLoc {
-            chunk: wqpl::debug::ChunkId(u32::MAX),
+            chunk: wqpl::wqdb::ChunkId(u32::MAX),
             pc: 7,
         };
 

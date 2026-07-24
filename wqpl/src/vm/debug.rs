@@ -1,19 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Arc;
 
-use crate::debug::build::{
-    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
-};
-use crate::debug::data::{
-    ChunkId, CodeLoc, CrashFrame, CrashId, CrashSnapshot, DebugChunkSpec, DebugInfo,
-    DebugLocalsFrame, DebugProvenance,
-};
-use crate::debug::model::{BreakpointKind, StepGranularity, SymbolTrackTarget};
-use crate::debug::{
-    DebugError, DebugInstruction, DebugNotification, DebugPause, DebugPauseId, DebugResume,
-    Debugger, PauseEvent, PauseReason, ResumeAction, SymbolMutation, SymbolMutationKind,
-    TrackResult,
-};
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::Value;
 use crate::value::func::{
@@ -21,6 +8,19 @@ use crate::value::func::{
 };
 use crate::vm::Vm;
 use crate::vm::inst::{InstPrettyDumper, Instruction};
+use crate::wqdb::build::{
+    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
+};
+use crate::wqdb::data::{
+    ChunkId, CodeLoc, CrashFrame, CrashId, CrashSnapshot, DebugChunkSpec, DebugInfo,
+    DebugLocalsFrame, DebugProvenance,
+};
+use crate::wqdb::model::{BreakpointKind, StepGranularity, SymbolTrackTarget};
+use crate::wqdb::{
+    DebugError, DebugInstruction, DebugNotification, DebugPause, DebugPauseId, DebugResume,
+    Debugger, PauseEvent, PauseReason, ResumeAction, SymbolMutation, SymbolMutationKind,
+    TrackResult,
+};
 use crate::wqerror::{WqError, WqErrorType};
 
 type CapturedCrash = (Vec<CrashFrame>, Vec<Option<Arc<[Instruction]>>>);
@@ -788,7 +788,7 @@ impl Vm {
         })
     }
 
-    pub(crate) fn dbg_symbol_trackers(&self) -> Vec<crate::debug::model::SymbolTracker> {
+    pub(crate) fn dbg_symbol_trackers(&self) -> Vec<crate::wqdb::model::SymbolTracker> {
         self.debug_state.symbol_trackers().to_vec()
     }
 

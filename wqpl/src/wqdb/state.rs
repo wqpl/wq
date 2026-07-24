@@ -1,17 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-#[cfg(test)]
-use unicode_width::UnicodeWidthChar as _;
-
-use crate::debug::data::{CodeLoc, CrashFrame, DebugInfo, Span};
-use crate::debug::model::{
+use crate::session::dbglog::{DebugLog, DebugLogFlags};
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
+use crate::wqdb::data::{CodeLoc, CrashFrame, DebugInfo, Span};
+use crate::wqdb::model::{
     Breakpoint, BreakpointKind, SourceBreakpoint, StepGranularity, StepMode, SymbolTrackTarget,
     SymbolTracker,
 };
-use crate::debug::{DebugNotification, PauseReason};
-use crate::session::dbglog::{DebugLog, DebugLogFlags};
-use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
+use crate::wqdb::{DebugNotification, PauseReason};
 
 pub(crate) struct DebugState {
     enabled: bool,
@@ -453,7 +450,7 @@ fn resolve_source_line(
 
 #[cfg(test)]
 fn format_span_snippet(
-    sf: &crate::debug::data::SourceFile,
+    sf: &crate::wqdb::data::SourceFile,
     start_byte: usize,
     end_byte: usize,
     color_mode: ColorMode,
@@ -520,6 +517,7 @@ fn terminal_text_width(text: &str, start_column: usize) -> usize {
         if ch == '\t' {
             column += TAB_STOP - column % TAB_STOP;
         } else {
+            use unicode_width::UnicodeWidthChar as _;
             column += ch.width().unwrap_or(0);
         }
     }
@@ -768,9 +766,10 @@ pub fn format_crash_frame(frame: &CrashFrame, is_current: bool, color_mode: Colo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debug::build::apply_stmt_debug_exact_offs;
-    use crate::debug::data::{ChunkId, LineTable, Span};
-    use crate::debug::model::StepGranularity;
+    use crate::wqdb::SourceFile;
+    use crate::wqdb::build::apply_stmt_debug_exact_offs;
+    use crate::wqdb::data::{ChunkId, LineTable, Span};
+    use crate::wqdb::model::StepGranularity;
 
     fn granularity_debug_info() -> (DebugInfo, ChunkId) {
         let mut di = DebugInfo::default();
@@ -977,7 +976,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_aligns_with_source() {
-        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "abc\n");
+        let source = SourceFile::new(0, "wq[test]", "abc\n");
 
         let rendered = format_span_snippet(&source, 1, 2, ColorMode::Never);
 
@@ -986,7 +985,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_counts_unicode_columns() {
-        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "αβγ\n");
+        let source = SourceFile::new(0, "wq[test]", "αβγ\n");
 
         let rendered = format_span_snippet(&source, 2, 4, ColorMode::Never);
 
@@ -995,7 +994,7 @@ mod tests {
 
     #[test]
     fn span_snippet_clamps_malformed_unicode_offsets() {
-        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "aéz\n");
+        let source = SourceFile::new(0, "wq[test]", "aéz\n");
 
         let rendered = format_span_snippet(&source, 2, 2, ColorMode::Never);
 
@@ -1004,7 +1003,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_uses_terminal_width() {
-        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "界a\n");
+        let source = SourceFile::new(0, "wq[test]", "界a\n");
 
         let rendered = format_span_snippet(&source, 3, 4, ColorMode::Never);
 
@@ -1013,7 +1012,7 @@ mod tests {
 
     #[test]
     fn span_snippet_clamps_multiline_span_to_the_first_displayed_line() {
-        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "a:1\nb:2\n");
+        let source = SourceFile::new(0, "wq[test]", "a:1\nb:2\n");
 
         let rendered = format_span_snippet(&source, 0, 7, ColorMode::Never);
 
@@ -1022,7 +1021,7 @@ mod tests {
 
     #[test]
     fn span_snippet_plain_underline_expands_tabs_from_the_source_column() {
-        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "  \ta:1\n");
+        let source = SourceFile::new(0, "wq[test]", "  \ta:1\n");
 
         let rendered = format_span_snippet(&source, 3, 6, ColorMode::Never);
 
@@ -1031,7 +1030,7 @@ mod tests {
 
     #[test]
     fn source_file_reports_display_columns_for_debugger_cards() {
-        let source = crate::debug::data::SourceFile::new(0, "wq[test]", "α界\tz\n");
+        let source = SourceFile::new(0, "wq[test]", "α界\tz\n");
 
         assert_eq!(source.display_line_col(6), (1, 9));
     }

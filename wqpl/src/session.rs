@@ -7,14 +7,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::ast::AstNode;
 use crate::builtins::BuiltinPreset;
 use crate::compile::Compiler;
-use crate::debug::build::{
-    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
-    register_function_chunks,
-};
-use crate::debug::data::{CrashSnapshot, DebugInfo};
-use crate::debug::{
-    DebugPause, DebugPauseId, DebugResume, Debugger, PauseEvent, ResumeAction, state,
-};
 use crate::interpret::InterpreterKind;
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
@@ -30,6 +22,14 @@ use crate::token::{fmt_tokens_table, rebase_token};
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{InstPrettyDumper, Instruction};
 use crate::vm::{GlobalMap, PreparedInstructions, Vm};
+use crate::wqdb::build::{
+    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
+    register_function_chunks,
+};
+use crate::wqdb::data::{CrashSnapshot, DebugInfo};
+use crate::wqdb::{
+    DebugPause, DebugPauseId, DebugResume, Debugger, PauseEvent, ResumeAction, state,
+};
 use crate::wqerror::{WqError, WqErrorType};
 
 /// Snapshot of user-defined global bindings owned by a [`Session`].
@@ -201,11 +201,11 @@ impl EvaluationFailure {
     }
 }
 
-fn error_primary_matches_frame(error: &WqError, frame: &crate::debug::data::CrashFrame) -> bool {
+fn error_primary_matches_frame(error: &WqError, frame: &crate::wqdb::data::CrashFrame) -> bool {
     let (Some((start, end)), Some(context)) = (error.span, error.source_ctx.as_deref()) else {
         return false;
     };
-    let crate::debug::data::CrashFrame::Located {
+    let crate::wqdb::data::CrashFrame::Located {
         source: Some(source),
         ..
     } = frame
@@ -1458,10 +1458,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::debug::{
+    use crate::session::stdio::{WqInput, WqOutput};
+    use crate::wqdb::{
         DebugNotification, PauseReason, ResumeAction, SymbolMutationKind, TrackResult,
     };
-    use crate::session::stdio::{WqInput, WqOutput};
 
     struct CaptureOutput(Arc<Mutex<String>>);
 
@@ -2635,7 +2635,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .get_chunk(crate::debug::data::ChunkId(0))
+                .get_chunk(crate::wqdb::data::ChunkId(0))
                 .is_none()
         );
     }
@@ -2723,7 +2723,7 @@ mod tests {
                 let pc = (0..meta.len)
                     .find(|pc| meta.line_table.is_stmt(*pc))
                     .unwrap_or(0);
-                debugger.set_breakpoint(crate::debug::data::CodeLoc { chunk, pc });
+                debugger.set_breakpoint(crate::wqdb::data::CodeLoc { chunk, pc });
             }
             DebugResume::Continue
         });
@@ -2745,7 +2745,7 @@ mod tests {
         session.set_pause_handler(move |_, debugger| {
             let stop = captured_pauses.fetch_add(1, Ordering::SeqCst) + 1;
             if stop == 1 {
-                debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
+                debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
                 DebugResume::StepIn
             } else {
                 DebugResume::Continue
@@ -2775,7 +2775,7 @@ mod tests {
                     .expect("line stops lock")
                     .push(source.line_col(span.start).0);
             }
-            debugger.set_step_granularity(crate::debug::model::StepGranularity::Line);
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Line);
             DebugResume::StepIn
         });
         session.set_wqdb(true);
@@ -2799,7 +2799,7 @@ mod tests {
         let captured_targets = Arc::clone(&targets);
         let mut session = Session::new();
         session.set_pause_handler(move |event, debugger| {
-            debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
             let loc = event.location;
             let name = debugger.function_name(loc.chunk);
             let instruction = debugger
@@ -2864,7 +2864,7 @@ mod tests {
         let captured_target = Arc::clone(&target);
         let mut session = Session::new();
         session.set_pause_handler(move |event, debugger| {
-            debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
             let loc = event.location;
             let name = debugger.function_name(loc.chunk);
             let instruction = debugger
@@ -2911,7 +2911,7 @@ mod tests {
         let captured_target = Arc::clone(&target);
         let mut session = Session::new();
         session.set_pause_handler(move |event, debugger| {
-            debugger.set_step_granularity(crate::debug::model::StepGranularity::Inst);
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
             let loc = event.location;
             let name = debugger.function_name(loc.chunk);
             let instruction = debugger
@@ -2967,7 +2967,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .get_chunk(crate::debug::data::ChunkId(0))
+                .get_chunk(crate::wqdb::data::ChunkId(0))
                 .is_none(),
             "idle pause callback should not create debug chunks when bt and wqdb are off"
         );
@@ -2995,7 +2995,7 @@ mod tests {
             session
                 .vm
                 .debug_info
-                .get_chunk(crate::debug::data::ChunkId(0))
+                .get_chunk(crate::wqdb::data::ChunkId(0))
                 .is_some(),
             "@p should still request debug artifacts for the pause callback"
         );

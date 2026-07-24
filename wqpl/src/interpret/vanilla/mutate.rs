@@ -1,9 +1,9 @@
 use super::{index_err, not_bound_err, vm_err};
-use crate::debug::SymbolMutationKind;
 use crate::value::access::{insert_in_place, parse_pop_count, pop_in_place, remove_in_place};
 use crate::value::{Excerpt, Value, WqResult};
 use crate::vm::inst::{MutationOp, StoreTarget};
 use crate::vm::{Vm, pop1_stack};
+use crate::wqdb::SymbolMutationKind;
 use crate::wqerror::WqError;
 
 pub(super) fn index_load_err(idx_val: &Value, target: &Value) -> WqError {

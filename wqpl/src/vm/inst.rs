@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::builtins::Builtins;
-use crate::debug::data::ChunkId;
-use crate::debug::{DebugInstruction, InstructionClass};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
+use crate::wqdb::data::ChunkId;
+use crate::wqdb::{DebugInstruction, InstructionClass};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Capture {

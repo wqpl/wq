@@ -5,11 +5,6 @@ use num_bigint::BigInt;
 use smallvec::SmallVec;
 
 use crate::ast::{BinaryOperator, binary_op_display, unary_op_display};
-use crate::debug::build::{
-    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
-};
-use crate::debug::data::ChunkId;
-use crate::debug::{DebugPause, SymbolMutationKind};
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
 use crate::range::{make_range, make_range_from_next, range_alloc_len};
 use crate::session::dbglog::DebugLogFlags;
@@ -20,6 +15,11 @@ use crate::vm::debug::DebugBoundary;
 use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
+use crate::wqdb::build::{
+    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
+};
+use crate::wqdb::data::ChunkId;
+use crate::wqdb::{DebugPause, SymbolMutationKind};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
 
 mod call;
@@ -2010,13 +2010,13 @@ mod tests {
     use super::{domain_requirement, named_arg_index_err};
     use crate::ast::{BinaryOperator, BoolOperator};
     use crate::builtins::BuiltinFnArgs;
-    use crate::debug::data::ChunkId;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
     use crate::value::func::FunctionData;
     use crate::value::{Value, WqResult, eval_binary};
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
     use crate::vm::{PreparedInstructions, Slot, Vm};
+    use crate::wqdb::data::ChunkId;
     use crate::wqerror::Requirement;
 
     #[test]
@@ -2600,7 +2600,7 @@ mod tests {
         for pc in 0..len {
             meta.line_table.set_exact_span(
                 pc,
-                crate::debug::data::Span {
+                crate::wqdb::data::Span {
                     file_id,
                     start: 0,
                     end: 4,

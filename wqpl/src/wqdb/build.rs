@@ -1,11 +1,6 @@
-// mark_stmt_heuristic
-// apply_stmt_spans_exact_offs
-// apply_stmt_debug_exact_offs
-// register_function_chunks
-
-use crate::debug::data::{ChunkId, DebugInfo, LineTable, Span};
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::vm::inst::{ClosurePayload, DebugStmtMark, Instruction};
+use crate::wqdb::data::{ChunkId, DebugInfo, LineTable, Span};
 
 pub(crate) fn mark_stmt_heuristic(
     table: &mut LineTable,
@@ -486,7 +481,7 @@ pub(crate) fn register_function_chunks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debug::data::ChunkId;
+    use crate::wqdb::data::ChunkId;
 
     fn empty_payload() -> ClosurePayload {
         ClosurePayload {

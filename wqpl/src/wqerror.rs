@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::debug::data::{CrashFrame, CrashSnapshot, DebugInfo};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::{Excerpt as _, Value};
+use crate::wqdb::data::{CrashFrame, CrashSnapshot, DebugInfo};
 
 mod requirement;
 

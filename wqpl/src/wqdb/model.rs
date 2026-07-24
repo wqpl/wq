@@ -1,4 +1,4 @@
-use crate::debug::data::{ChunkId, CodeLoc};
+use crate::wqdb::data::{ChunkId, CodeLoc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BreakpointKind {

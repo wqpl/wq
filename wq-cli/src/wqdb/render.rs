@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use unicode_width::UnicodeWidthChar as _;
-use wqpl::debug::{CodeLoc, CrashFrame, DebugInfo, SourceFile, Span};
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
+use wqpl::wqdb::{CodeLoc, CrashFrame, DebugInfo, SourceFile, Span};
 
 fn clamp_byte_offset(source: &SourceFile, byte_offset: usize) -> usize {
     let mut byte_offset = byte_offset.min(source.text().len());
