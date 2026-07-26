@@ -4821,6 +4821,22 @@ mod symbolic_quote_tests {
     }
 
     #[test]
+    fn symbolic_quote_builds_binding_aware_integral() {
+        let ast = parse_input("@s integrate[y;x]").expect("quoted integral should parse");
+        let AstNode::Literal(value, _) = ast else {
+            panic!("expected CAS literal, got {ast:?}");
+        };
+        let (scope, bounds) = value
+            .cas_integral_parts()
+            .expect("expected symbolic integral node");
+
+        assert_eq!(scope.hint().as_str(), "x");
+        assert_eq!(scope.body().cas_var_name(), Some("y"));
+        assert_eq!(bounds, None);
+        assert_eq!(value.to_string(), "integrate[y;x]");
+    }
+
+    #[test]
     fn symbolic_quote_rejects_invalid_reserved_calls() {
         for (input, expected) in [
             ("@s sin[]", "'sin' expects exactly 1 argument"),
@@ -4830,6 +4846,18 @@ mod symbolic_quote_tests {
             ("@s floor[x;1]", "'floor' expects exactly 1 argument"),
             ("@s sin[`x:y]", "'sin' does not accept named arguments"),
             ("@s nonzero[x;y]", "'nonzero' expects exactly 1 argument"),
+            (
+                "@s integer[\"hi\"]",
+                "'integer' expects a numeric or symbolic expression",
+            ),
+            (
+                "@s positive[T]",
+                "'positive' expects a numeric or symbolic expression",
+            ),
+            (
+                "@s nonnegative[(1;2)]",
+                "'nonnegative' expects a numeric or symbolic expression",
+            ),
         ] {
             let ast = parse_input(input).expect("parser should recover with an error node");
             let AstNode::Error(err, _) = ast else {
@@ -4851,10 +4879,11 @@ mod symbolic_quote_tests {
         let AstNode::Literal(value, _) = ast else {
             panic!("expected CAS literal, got {ast:?}");
         };
-        let (_expr, var, point, direction) = value
+        let (scope, point, direction) = value
             .cas_limit_parts()
             .expect("expected symbolic limit node");
-        assert_eq!(var, &Value::from_cas_var("x"));
+        assert_eq!(scope.hint().as_str(), "x");
+        assert_eq!(crate::cas::open_cas_scope(scope).0.to_string(), "x^-1");
         assert_eq!(point, &Value::Int(0));
         assert_eq!(direction, Some(crate::cas::limit::LimitDirection::Right));
         assert_eq!(value.to_string(), "limit[x^-1;x;0;`direction:+]");

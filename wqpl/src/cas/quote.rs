@@ -1,14 +1,15 @@
-use super::limit::parse_limit_direction;
-use super::{CasExprContext, cas_call_expr, cas_err, ensure_expr_arg, infer_single_cas_var};
+use super::{
+    CasExprContext, CasNamedArg, cas_call_expr, cas_err, close_cas_scope, ensure_cas_math_expr,
+    ensure_expr_arg, parse_integral_spec, parse_limit_spec,
+};
 use crate::value::cas::{CasFunction, CasPredicate};
 use crate::value::{Value, WqResult};
-
-pub(crate) type CasNamedArg = (String, Value);
 
 pub(crate) fn cas_special_call_name(name: &str) -> bool {
     matches!(
         name,
         "limit"
+            | "integrate"
             | "root"
             | "zero"
             | "nonzero"
@@ -43,74 +44,36 @@ fn cas_predicate_expr(
     };
     let quoted_name = format!("'{name}'");
     ensure_expr_arg(arg, CasExprContext::Builtin(&quoted_name))?;
+    ensure_cas_math_expr(name, arg)?;
     Ok(Some(Value::from_cas_predicate(constructor(arg.clone()))))
 }
 
-fn limit_direction(named: &[CasNamedArg]) -> WqResult<Option<super::limit::LimitDirection>> {
-    let mut direction = None;
-    for (name, value) in named {
-        if name != "direction" {
-            return Err(cas_err(format!("unknown named argument '{name}'")));
-        }
-        if direction.is_some() {
-            return Err(cas_err("duplicate named argument 'direction'"));
-        }
-        direction = Some(
-            parse_limit_direction(value)
-                .ok_or_else(|| cas_err("'limit' direction must be '@s+' or '@s-'"))?,
-        );
-    }
-    Ok(direction)
-}
-
-fn inferred_limit_var(expr: &Value) -> WqResult<Value> {
-    infer_single_cas_var(expr)
-        .map(Value::from_cas_var)
-        .map_err(|_| cas_err("'limit' could not infer exactly one symbolic variable"))
-}
-
-fn required_limit_var(value: &Value) -> WqResult<Value> {
-    if value.cas_var_name().is_some() && parse_limit_direction(value).is_none() {
-        Ok(value.clone())
-    } else {
-        Err(cas_err("'limit' target must be a symbolic variable").got1(value))
-    }
-}
-
 fn cas_limit_expr(args: &[Value], named: &[CasNamedArg]) -> WqResult<Value> {
-    let direction = limit_direction(named)?;
-    if args.len() < 2 {
-        return Err(cas_err(
-            "'limit' expects at least 2 arguments: 'limit[expr;point]'",
-        ));
-    }
-
-    if let [expr, point] = args {
-        return Ok(Value::from_cas_limit(
-            expr.clone(),
-            inferred_limit_var(expr)?,
-            point.clone(),
-            direction,
-        ));
-    }
-
-    let n = args.len() - 1;
-    if !n.is_multiple_of(2) {
-        return Err(cas_err(
-            "'limit' expects 'limit[expr;point]' or 'limit[expr;var;point]', optionally followed by additional 'var;point' pairs",
-        ));
-    }
-
-    let n_pairs = n / 2;
-    let mut result = args[0].clone();
-    for i in 0..n_pairs {
-        let idx = 1 + i * 2;
-        let var = required_limit_var(&args[idx])?;
-        let point = args[idx + 1].clone();
-        let dir = if i == n_pairs - 1 { direction } else { None };
-        result = Value::from_cas_limit(result, var, point, dir);
+    let spec = parse_limit_spec(args, named)?;
+    let mut result = spec.expr;
+    for step in spec.steps {
+        let name = step
+            .var
+            .cas_var_name()
+            .expect("validated symbolic limit variable");
+        result = Value::from_cas_limit(close_cas_scope(&result, name), step.point, step.direction);
     }
     Ok(result)
+}
+
+fn cas_integral_expr(args: &[Value], named: &[CasNamedArg]) -> WqResult<Value> {
+    if !named.is_empty() {
+        return Err(cas_err("'integrate' does not accept named arguments"));
+    }
+    let spec = parse_integral_spec(args)?;
+    let name = spec
+        .var
+        .cas_var_name()
+        .expect("validated symbolic integration variable");
+    Ok(Value::from_cas_integral(
+        close_cas_scope(&spec.expr, name),
+        spec.bounds,
+    ))
 }
 
 fn with_named_args(args: &[Value], named: &[CasNamedArg]) -> Vec<Value> {
@@ -131,6 +94,9 @@ pub(crate) fn cas_symbolic_call_expr(
 ) -> WqResult<Value> {
     if name == "limit" {
         return cas_limit_expr(args, named);
+    }
+    if name == "integrate" {
+        return cas_integral_expr(args, named);
     }
     if name == "root" {
         return super::root::cas_root_expr(args, named);

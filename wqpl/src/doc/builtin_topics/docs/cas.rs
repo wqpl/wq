@@ -7,48 +7,6 @@ const EQ_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("x^2 = 1"),
 }];
 
-const NONZERO_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe a nonzero symbolic parameter",
-    code: "nonzero @s a",
-    expectation: ExampleExpectation::ResultContains("nonzero[a]"),
-}];
-
-const ZERO_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe a zero symbolic expression",
-    code: "zero @s a",
-    expectation: ExampleExpectation::ResultContains("zero[a]"),
-}];
-
-const POSITIVE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe a positive symbolic parameter",
-    code: "positive @s a",
-    expectation: ExampleExpectation::ResultContains("positive[a]"),
-}];
-
-const NEGATIVE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe a negative symbolic parameter",
-    code: "negative @s a",
-    expectation: ExampleExpectation::ResultContains("negative[a]"),
-}];
-
-const NONNEGATIVE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe a non-negative symbolic parameter",
-    code: "nonnegative @s a",
-    expectation: ExampleExpectation::ResultContains("nonnegative[a]"),
-}];
-
-const REAL_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe a real symbolic parameter",
-    code: "real @s a",
-    expectation: ExampleExpectation::ResultContains("real[a]"),
-}];
-
-const INTEGER_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Describe an integer symbolic parameter",
-    code: "integer @s n",
-    expectation: ExampleExpectation::ResultContains("integer[n]"),
-}];
-
 const SIMPLIFY_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Combine like terms",
     code: "simplify @s 2*x+x+1",
@@ -142,7 +100,7 @@ const INTEGRATE_EXAMPLES: &[DocExample] = &[
 const LIMIT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Use a classic trigonometric limit",
     code: "limit[@s sin[x]/x;0]",
-    expectation: ExampleExpectation::ResultContains("1.0"),
+    expectation: ExampleExpectation::ResultContains("1"),
 }];
 
 const SOLVE_EXAMPLES: &[DocExample] = &[
@@ -162,9 +120,9 @@ const SOLVE_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains("2^(1/2)"),
     },
     DocExample {
-        title: "Solve a numeric binomial quintic",
+        title: "Keep exact binomial quintic roots",
         code: "solve[@s x^5-1]",
-        expectation: ExampleExpectation::ResultContains("0.309016"),
+        expectation: ExampleExpectation::ResultContains("sin[2/5*pi]"),
     },
     DocExample {
         title: "Restrict roots to the real domain",
@@ -204,62 +162,6 @@ pub(super) const EQ: BuiltinDoc = BuiltinDoc {
     details: "`eq[lhs;rhs]` wraps two values as a CAS equation without solving it. Use `@s` for symbolic sides when names should remain variables; equation values can be passed to `solve`, `substitute`, `brent`, and `newton`.",
     examples: EQ_EXAMPLES,
     related: &["solve", "substitute", "brent", "newton"],
-};
-
-pub(super) const NONZERO: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Nonzero,
-    summary: "Build a symbolic nonzero condition.",
-    details: "`nonzero[expr]` creates a CAS condition asserting that `expr` is defined and unequal to zero. Pass one condition or a list of conditions through the `assuming` named argument of an assumption-aware CAS builtin.",
-    examples: NONZERO_EXAMPLES,
-    related: &["zero", "positive", "solve", "solve_system"],
-};
-
-pub(super) const ZERO: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Zero,
-    summary: "Build a symbolic zero condition.",
-    details: "`zero[expr]` creates a CAS condition asserting that `expr` equals zero. It is equivalent to `eq[expr;0]` when used through the `assuming` named argument.",
-    examples: ZERO_EXAMPLES,
-    related: &["nonzero", "eq", "solve", "solve_system"],
-};
-
-pub(super) const POSITIVE: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Positive,
-    summary: "Build a symbolic positive condition.",
-    details: "`positive[expr]` asserts that `expr` is real and greater than zero. The CAS can derive nonzero, non-negative, and real facts from this condition.",
-    examples: POSITIVE_EXAMPLES,
-    related: &["negative", "nonnegative", "real", "solve"],
-};
-
-pub(super) const NEGATIVE: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Negative,
-    summary: "Build a symbolic negative condition.",
-    details: "`negative[expr]` asserts that `expr` is real and less than zero. The CAS can derive nonzero and real facts from this condition.",
-    examples: NEGATIVE_EXAMPLES,
-    related: &["positive", "nonnegative", "real", "solve"],
-};
-
-pub(super) const NONNEGATIVE: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Nonnegative,
-    summary: "Build a symbolic non-negative condition.",
-    details: "`nonnegative[expr]` asserts that `expr` is real and greater than or equal to zero. It does not imply that the expression is nonzero.",
-    examples: NONNEGATIVE_EXAMPLES,
-    related: &["positive", "negative", "real", "solve"],
-};
-
-pub(super) const REAL: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Real,
-    summary: "Build a symbolic real condition.",
-    details: "`real[expr]` asserts that `expr` belongs to the real numbers. Integer, positive, negative, and non-negative conditions also imply realness.",
-    examples: REAL_EXAMPLES,
-    related: &["integer", "positive", "negative", "solve"],
-};
-
-pub(super) const INTEGER: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Integer,
-    summary: "Build a symbolic integer condition.",
-    details: "`integer[expr]` asserts that `expr` is an integer. Integer conditions also imply that the expression is real.",
-    examples: INTEGER_EXAMPLES,
-    related: &["real", "positive", "solve"],
 };
 
 pub(super) const SIMPLIFY: BuiltinDoc = BuiltinDoc {
@@ -329,7 +231,7 @@ pub(super) const FACTOR: BuiltinDoc = BuiltinDoc {
 pub(super) const INTEGRATE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Integrate,
     summary: "Integrate a symbolic expression.",
-    details: "`integrate[expr]` infers one symbolic variable, `integrate[expr;var]` uses an explicit variable, and `integrate[expr;var;lower;upper]` computes a definite integral. Supported affine table rules treat other symbols as parameters when an explicit variable is passed. `I` is an alias.",
+    details: "`integrate[expr]` infers one symbolic variable, `integrate[expr;var]` uses an explicit variable, and `integrate[expr;var;lower;upper]` computes a definite integral. Supported affine table rules treat other symbols as parameters when an explicit variable is passed. Inside `@s`, `integrate[...]` creates an unevaluated binding-aware integral instead of calling this evaluator. `I` is an alias.",
     examples: INTEGRATE_EXAMPLES,
     related: &["diff", "limit"],
 };
@@ -337,7 +239,7 @@ pub(super) const INTEGRATE: BuiltinDoc = BuiltinDoc {
 pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Limit,
     summary: "Compute a symbolic limit.",
-    details: "`limit[expr;point]` infers the only symbolic variable. `limit[expr;var;point]` uses an explicit variable. Points may be finite values, runtime infinities such as `inf` and `-inf`, or symbolic infinity such as `@s inf` and `@s -inf` (`@s oo` remains an alias for positive infinity). Additional `var;point` pairs are applied in sequence. Use named argument `direction` with `@s+` or `@s-` to request a one-sided limit for the last pair.",
+    details: "`limit[expr;point]` infers the only symbolic variable. `limit[expr;var;point]` uses an explicit variable. Points accept finite values, runtime infinities such as `inf` and `-inf`, or symbolic infinity such as `@s inf` and `@s -inf` (`@s oo` remains an alias for positive infinity). Additional `var;point` pairs are applied in sequence. Use named argument `direction` with `@s+` or `@s-` to request a one-sided limit for the last pair. Inside `@s`, the same forms create an unevaluated binding-aware limit. Quoted and evaluator forms share the same argument validation.",
     examples: LIMIT_EXAMPLES,
     related: &["diff", "integrate", "numeric"],
 };
@@ -352,11 +254,11 @@ When a symbolic coefficient can change the degree, the result contains `cases` w
 A finite solution is a list, the `all` tag is the identity result, and an empty list means no solution.
 Named argument `assuming` narrows the cases. Named argument `domain` accepts the `complex` tag, which is the default, or the `real` tag.
 Parameterized real-domain solves require `real` assumptions for symbolic coefficients.
-Exact real quadratic coefficients keep exact real roots when possible.
-For degree greater than 2, `solve` currently supports numeric binomials of the form `a*x^n + b = 0`.
+Exact quadratic coefficients keep exact real or complex roots.
+For degree greater than 2, `solve` currently supports binomials of the form `a*x^n + b = 0`; exact coefficients produce exact symbolic roots and approximate coefficients produce approximate roots.
 General higher-degree polynomials such as `x^3+x-1` are not solved symbolically; use `brent` or `newton` for numeric real roots.",
     examples: SOLVE_EXAMPLES,
-    related: &["eq", "nonzero", "solve_system", "brent", "newton"],
+    related: &["eq", "solve_system", "brent", "newton"],
 };
 
 pub(super) const SOLVE_SYSTEM: BuiltinDoc = BuiltinDoc {
@@ -371,7 +273,7 @@ A dependent or underdetermined system returns `solution` bindings plus a `parame
 The `none` tag means the system is inconsistent.
 The symbolic square-system path supports up to 12 variables, and Gaussian elimination handles other linear shapes.",
     examples: SOLVE_SYSTEM_EXAMPLES,
-    related: &["solve", "eq", "nonzero", "substitute"],
+    related: &["solve", "eq", "substitute"],
 };
 
 pub(super) const BRENT: BuiltinDoc = BuiltinDoc {

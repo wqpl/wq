@@ -1253,16 +1253,6 @@ fn integrate_xn_sqrt_reduction(n: usize, k: &Value, is_sqrt: bool, var: &str) ->
 
 fn sqrt_value(value: &Value) -> Option<Value> {
     match value {
-        Value::Int(n) if *n >= 0 => {
-            let f = (*n as f64).sqrt();
-            if (f - f.round()).abs() < 1e-12 {
-                Some(Value::Int(f.round() as i64))
-            } else if f.is_finite() {
-                Some(Value::float(f))
-            } else {
-                None
-            }
-        }
         Value::Float(f) if **f >= 0.0 => {
             let sqrt = f.sqrt();
             if sqrt.is_finite() {
@@ -1271,40 +1261,11 @@ fn sqrt_value(value: &Value) -> Option<Value> {
                 None
             }
         }
-        Value::BigInt(n) => {
-            if let Some(i) = n.to_i64() {
-                if i >= 0 {
-                    let f = (i as f64).sqrt();
-                    if (f - f.round()).abs() < 1e-12 {
-                        Some(Value::Int(f.round() as i64))
-                    } else if f.is_finite() {
-                        Some(Value::float(f))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        Value::Fraction(fr) => {
-            let numer = fr.numer().to_f64()?;
-            let denom = fr.denom().to_f64()?;
-            if numer >= 0.0 && denom > 0.0 {
-                let f = (numer / denom).sqrt();
-                if (f - f.round()).abs() < 1e-12 {
-                    Some(Value::Int(f.round() as i64))
-                } else if f.is_finite() {
-                    Some(Value::float(f))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
+        _ if value.rational_parts().is_some() && !numeric_is_negative(value) => cas_pow(
+            value.clone(),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .ok(),
         _ => None,
     }
 }
@@ -1315,6 +1276,16 @@ mod tests {
 
     fn op(op: CasOp, args: Vec<Value>) -> Value {
         Value::from_cas_op(op, args)
+    }
+
+    #[test]
+    fn sqrt_value_keeps_non_square_rational_exact() {
+        assert_eq!(
+            sqrt_value(&Value::Int(2))
+                .expect("exact square root")
+                .to_string(),
+            "2^(1/2)"
+        );
     }
 
     #[test]

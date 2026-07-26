@@ -328,7 +328,7 @@ fn rewrite_removes_abs_square() {
 fn simplify_evaluates_extended_numeric_calls() {
     assert_eq!(
         simplify_cas_value(&call(CasFunction::Log2, vec![Value::Int(8)])).unwrap(),
-        Value::float(3.0)
+        Value::Int(3)
     );
     assert_eq!(
         simplify_cas_value(&call(CasFunction::Floor, vec![Value::float(2.9)])).unwrap(),
@@ -420,25 +420,35 @@ fn substitute_recurses_into_limit_point_but_not_bound_body() {
         y.clone(),
     )
     .unwrap();
-    let limit = Value::from_cas_limit(inner, y, x.clone(), None);
+    let limit = Value::from_cas_limit(close_cas_scope(&inner, "y"), x.clone(), None);
 
     let result = substitute_cas(&limit, &x, &Value::Int(0)).unwrap();
     assert_eq!(result.to_string(), "limit[sin[y]/y;y;0]");
 }
 
 #[test]
-fn substitute_rejects_limit_capture() {
+fn substitute_avoids_limit_capture() {
     let x = Value::from_cas_var("x");
     let y = Value::from_cas_var("y");
-    let limit = Value::from_cas_limit(y.clone(), x.clone(), Value::Int(0), None);
+    let limit = Value::from_cas_limit(close_cas_scope(&y, "x"), Value::Int(0), None);
 
-    let err = substitute_cas(&limit, &y, &x).expect_err("substitution would capture x");
-    assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("capture bound limit variable")),
-        "unexpected error: {err:?}"
-    );
+    let result = substitute_cas(&limit, &y, &x).expect("capture-free substitution");
+    let (scope, _, _) = result.cas_limit_parts().expect("limit");
+    assert_eq!(scope.body().cas_var_name(), Some("x"));
+    assert_eq!(result.to_string(), "limit[x;x1;0]");
+}
+
+#[test]
+fn substitute_avoids_integral_capture() {
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let integral = Value::from_cas_integral(close_cas_scope(&y, "x"), None);
+
+    let result = substitute_cas(&integral, &y, &x).expect("capture-free substitution");
+    let (scope, bounds) = result.cas_integral_parts().expect("integral");
+    assert_eq!(scope.body().cas_var_name(), Some("x"));
+    assert_eq!(bounds, None);
+    assert_eq!(result.to_string(), "integrate[x;x1]");
 }
 
 #[test]
@@ -842,16 +852,11 @@ fn solve_monomial_quintic_equation() {
         panic!("expected list of roots");
     };
     assert_eq!(roots.len(), 5);
-    assert!(roots.iter().any(|root| {
-        root.as_f64()
-            .is_some_and(|value| (value - 1.0).abs() < 1e-9)
-    }));
-    assert_eq!(
+    assert_eq!(roots.first(), Some(&Value::Int(1)));
+    assert!(
         roots
             .iter()
-            .filter(|root| matches!(root, Value::Complex(_)))
-            .count(),
-        4
+            .all(|root| !matches!(root, Value::Float(_) | Value::Complex(_)))
     );
 }
 
@@ -1267,24 +1272,20 @@ fn linear_coeff_negative_product_of_sum() {
 #[test]
 fn numeric_erf_zero() {
     let result = simplify_cas_value(&call(CasFunction::Erf, vec![Value::Int(0)])).unwrap();
-    assert_eq!(result, Value::float(0.0));
+    assert_eq!(result, Value::Int(0));
 }
 
 #[test]
 fn numeric_erfc_zero() {
     let result = simplify_cas_value(&call(CasFunction::Erfc, vec![Value::Int(0)])).unwrap();
-    assert_eq!(result, Value::float(1.0));
+    assert_eq!(result, Value::Int(1));
 }
 
 #[test]
 fn numeric_gamma_five() {
     // gamma(5) = 4! = 24
     let result = simplify_cas_value(&call(CasFunction::Gamma, vec![Value::Int(5)])).unwrap();
-    if let Value::Float(f) = result {
-        assert!((*f - 24.0).abs() < 1e-10);
-    } else {
-        panic!("expected Float");
-    }
+    assert_eq!(result, Value::Int(24));
 }
 
 #[test]

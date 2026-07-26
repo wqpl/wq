@@ -84,9 +84,7 @@ pub(crate) fn definite_integrate_cas_with_debug(
     let antideriv = integrate_cas_with_debug(&expr, var, debug)?;
 
     // If the antiderivative is itself an unevaluated integral, bail.
-    if let Some((name, _)) = antideriv.cas_function_parts()
-        && name == CasFunction::Integrate
-    {
+    if antideriv.cas_integral_parts().is_some() {
         return Ok(antideriv);
     }
 
@@ -637,6 +635,14 @@ fn find_var_dependent_application(expr: &Value, var: &str) -> Option<String> {
 }
 
 fn find_unhandled_builtin_function(expr: &Value, var: &str) -> Option<&'static str> {
+    if let Some((scope, bounds)) = expr.cas_integral_parts()
+        && (contains_cas_var(scope.body(), var)
+            || bounds.is_some_and(|(lower, upper)| {
+                contains_cas_var(lower, var) || contains_cas_var(upper, var)
+            }))
+    {
+        return Some("integrate");
+    }
     if let Some((name, args)) = expr.cas_function_parts()
         && args.iter().any(|arg| contains_cas_var(arg, var))
         && is_unhandled_integral_function(name)
@@ -660,7 +666,6 @@ fn is_unhandled_integral_function(name: CasFunction) -> bool {
             | CasFunction::Floor
             | CasFunction::Ceil
             | CasFunction::Round
-            | CasFunction::Integrate
             | CasFunction::Log
     )
 }
@@ -773,6 +778,25 @@ fn visit_cas_children<T>(expr: &Value, mut visit: impl FnMut(&Value) -> Option<T
         }
     } else if let Some((_, value)) = expr.cas_named_arg_parts() {
         if let Some(value) = visit(value) {
+            return Some(value);
+        }
+    } else if let Some((scope, bounds)) = expr.cas_integral_parts() {
+        if let Some(value) = visit(scope.body()) {
+            return Some(value);
+        }
+        if let Some((lower, upper)) = bounds {
+            if let Some(value) = visit(lower) {
+                return Some(value);
+            }
+            if let Some(value) = visit(upper) {
+                return Some(value);
+            }
+        }
+    } else if let Some((scope, point, _direction)) = expr.cas_limit_parts() {
+        if let Some(value) = visit(scope.body()) {
+            return Some(value);
+        }
+        if let Some(value) = visit(point) {
             return Some(value);
         }
     } else if let Some((lhs, rhs)) = expr.cas_eq_parts() {

@@ -130,6 +130,10 @@ impl std::hash::Hash for Value {
                         0u8.hash(state);
                         name.hash(state);
                     }
+                    CasKind::BoundVar(index) => {
+                        10u8.hash(state);
+                        index.hash(state);
+                    }
                     CasKind::Const(name) => {
                         4u8.hash(state);
                         name.hash(state);
@@ -160,23 +164,20 @@ impl std::hash::Hash for Value {
                         name.hash(state);
                         value.hash(state);
                     }
+                    CasKind::Integral { scope, bounds } => {
+                        11u8.hash(state);
+                        scope.body().hash(state);
+                        bounds.hash(state);
+                    }
                     CasKind::Limit {
-                        expr,
-                        var,
+                        scope,
                         point,
                         direction,
                     } => {
                         5u8.hash(state);
-                        expr.hash(state);
-                        var.hash(state);
+                        scope.body().hash(state);
                         point.hash(state);
                         direction.hash(state);
-                    }
-                    CasKind::Root { poly, lo, hi } => {
-                        8u8.hash(state);
-                        poly.hash(state);
-                        lo.to_bits().hash(state);
-                        hi.to_bits().hash(state);
                     }
                     CasKind::Eq(lhs, rhs) => {
                         3u8.hash(state);
@@ -280,6 +281,7 @@ impl PartialEq for Value {
 
             (Cas(a), Cas(b)) => match (&a.kind, &b.kind) {
                 (CasKind::Var(na), CasKind::Var(nb)) => na == nb,
+                (CasKind::BoundVar(a), CasKind::BoundVar(b)) => a == b,
                 (CasKind::Const(na), CasKind::Const(nb)) => na == nb,
                 (CasKind::Op(opa, arga), CasKind::Op(opb, argb)) => {
                     opa == opb
@@ -298,35 +300,27 @@ impl PartialEq for Value {
                 }
                 (CasKind::NamedArg(na, va), CasKind::NamedArg(nb, vb)) => na == nb && va == vb,
                 (
+                    CasKind::Integral {
+                        scope: sa,
+                        bounds: ba,
+                    },
+                    CasKind::Integral {
+                        scope: sb,
+                        bounds: bb,
+                    },
+                ) => sa == sb && ba == bb,
+                (
                     CasKind::Limit {
-                        expr: ea,
-                        var: va,
+                        scope: sa,
                         point: pa,
                         direction: da,
                     },
                     CasKind::Limit {
-                        expr: eb,
-                        var: vb,
+                        scope: sb,
                         point: pb,
                         direction: db,
                     },
-                ) => ea == eb && va == vb && pa == pb && da == db,
-                (
-                    CasKind::Root {
-                        poly: polya,
-                        lo: loa,
-                        hi: hia,
-                    },
-                    CasKind::Root {
-                        poly: polyb,
-                        lo: lob,
-                        hi: hib,
-                    },
-                ) => {
-                    polya == polyb
-                        && loa.to_bits() == lob.to_bits()
-                        && hia.to_bits() == hib.to_bits()
-                }
+                ) => sa == sb && pa == pb && da == db,
                 (CasKind::Eq(lhsa, rhsa), CasKind::Eq(lhsb, rhsb)) => lhsa == lhsb && rhsa == rhsb,
                 (CasKind::Predicate(a), CasKind::Predicate(b)) => a == b,
                 _ => false,

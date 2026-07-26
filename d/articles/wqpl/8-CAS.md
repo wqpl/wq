@@ -51,12 +51,12 @@ You can narrow those cases with assumptions:
 solve_system[
   (eq[@s a*x+b*y;1];eq[@s c*x+d*y;2]);
   (@s x;@s y);
-  `assuming:nonzero[@s a*d-b*c]]|echo
+  `assuming:@s nonzero[a*d-b*c]]|echo
 ```
 
-Use `nonzero[expr]` for a nonzero condition and `eq[expr;0]` for a zero condition. A list passed to named argument `assuming` represents their conjunction.
+Use `@s nonzero[expr]` for a nonzero condition and `eq[expr;0]` for a zero condition. The condition constructs `zero`, `nonzero`, `positive`, `negative`, `nonnegative`, `real`, and `integer` exist only inside `@s`, so their names remain available for ordinary wq bindings. A list passed to named argument `assuming` represents the conjunction of its conditions.
 
-Conditions can also describe `zero`, `positive`, `negative`, `nonnegative`, `real`, and `integer` expressions. The CAS derives basic consequences such as positive values being nonzero and integers being real. Contradictory assumptions are rejected.
+The CAS derives basic consequences such as positive values being nonzero and integers being real. Contradictory assumptions are rejected.
 
 For `solve`, a finite root set is a list, the `all` tag means every value is a solution, and an empty list means there is no solution. The default domain is the `complex` tag. Pass named argument `domain` with the `real` tag to exclude non-real roots. A parameterized real-domain solve also needs `real` assumptions for its symbolic coefficients, so the solver does not silently assume that a parameter is real. For `solve_system`, a unique solution stays a variable dict, the `none` tag means no solution, and dependent systems return a `solution` dict with a `parameters` list of fresh symbols.
 
@@ -74,6 +74,7 @@ f|numeric[`x:0;`y:2]|echo
 
 The roots are values now, so list arithmetic works.
 The expression `f` is a value too; `numeric` can bind `x` and `y` before evaluating it.
+Exact quoted function calls remain symbolic unless an exact identity applies. `numeric` is the explicit boundary that turns exact constants and functions into approximations.
 
 ## Keep
 

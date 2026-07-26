@@ -2,10 +2,9 @@ use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::quote::CasNamedArg;
 use super::{
-    cas_err, cas_internal_err, infer_single_cas_var, normalize_root_objective_cas, numeric_mul,
-    poly_degree, poly_divide, poly_from_expr, poly_to_expr,
+    CasNamedArg, cas_err, cas_internal_err, infer_single_cas_var, normalize_root_objective_cas,
+    numeric_mul, poly_degree, poly_divide, poly_from_expr,
 };
 use crate::value::algebraic::{AlgebraicData, AlgebraicField, validate_real_root_interval};
 use crate::value::{Value, WqResult};
@@ -14,54 +13,48 @@ pub(crate) fn cas_root_expr(args: &[Value], named: &[CasNamedArg]) -> WqResult<V
     if !named.is_empty() {
         return Err(cas_err("'root' does not accept named arguments"));
     }
-    if args.len() != 2 && args.len() != 3 {
+    if !(2..=4).contains(&args.len()) {
         return Err(cas_err(
-            "'root' expects 'root[poly;near]' or 'root[poly;lo;hi]'",
+            "'root' expects 'root[poly;near]', 'root[poly;lo;hi]', 'root[poly;var;near]', or 'root[poly;var;lo;hi]'",
         ));
     }
 
     let objective = normalize_root_objective_cas(&args[0])?;
-    let var = infer_single_cas_var(&objective)?;
+    let (var, selector_start) = match args {
+        [_, var, _] if var.cas_var_name().is_some() => (
+            var.cas_var_name()
+                .expect("explicit root variable checked")
+                .to_string(),
+            2,
+        ),
+        [_, var, _, _] => (
+            var.cas_var_name()
+                .ok_or_else(|| cas_err("'root' target must be a symbolic variable").got1(var))?
+                .to_string(),
+            2,
+        ),
+        _ => (infer_single_cas_var(&objective)?, 1),
+    };
     let coeffs = poly_from_expr(&objective, &var)?;
     if poly_degree(&coeffs) < 2 {
         return Err(cas_err("'root' expects a polynomial of degree at least 2"));
     }
     let poly = integer_poly_from_coeffs(&coeffs)?;
 
-    let interval = if args.len() == 2 {
-        let near = required_finite_f64(&args[1], "near")?;
+    let selectors = &args[selector_start..];
+    let interval = if let [near] = selectors {
+        let near = required_finite_f64(near, "near")?;
         root_interval_near(&poly, near)?
-    } else {
-        let lo = required_finite_f64(&args[1], "lo")?;
-        let hi = required_finite_f64(&args[2], "hi")?;
+    } else if let [lo, hi] = selectors {
+        let lo = required_finite_f64(lo, "lo")?;
+        let hi = required_finite_f64(hi, "hi")?;
         (lo, hi)
+    } else {
+        return Err(cas_err(
+            "'root' expects one near value or a lower and upper bound",
+        ));
     };
 
-    let poly = match select_rational_factor(poly, interval)? {
-        RootSelection::Exact(value) => return Ok(value),
-        RootSelection::Polynomial(poly) => poly,
-    };
-    let field = AlgebraicField::new_real_root(poly, interval)?;
-    let normalized_poly = integer_poly_expr(field.poly(), &var)?;
-    let (lo, hi) = field.interval();
-    Ok(Value::from_cas_root(normalized_poly, lo, hi))
-}
-
-pub(crate) fn resolve_cas_root(value: &Value) -> WqResult<Option<Value>> {
-    let Some((poly, lo, hi)) = value.cas_root_parts() else {
-        return Ok(None);
-    };
-    root_value(poly, (lo, hi)).map(Some)
-}
-
-fn root_value(poly_expr: &Value, interval: (f64, f64)) -> WqResult<Value> {
-    let objective = normalize_root_objective_cas(poly_expr)?;
-    let var = infer_single_cas_var(&objective)?;
-    let coeffs = poly_from_expr(&objective, &var)?;
-    if poly_degree(&coeffs) < 2 {
-        return Err(cas_err("'root' expects a polynomial of degree at least 2"));
-    }
-    let poly = integer_poly_from_coeffs(&coeffs)?;
     let poly = match select_rational_factor(poly, interval)? {
         RootSelection::Exact(value) => return Ok(value),
         RootSelection::Polynomial(poly) => poly,
@@ -119,15 +112,6 @@ fn select_rational_factor(poly: Vec<BigInt>, interval: (f64, f64)) -> WqResult<R
         }
         coeffs = quotient;
     }
-}
-
-fn integer_poly_expr(poly: &[BigInt], var: &str) -> WqResult<Value> {
-    let coeffs = poly
-        .iter()
-        .cloned()
-        .map(Value::from_bigint)
-        .collect::<Vec<_>>();
-    poly_to_expr(&coeffs, var)
 }
 
 fn required_finite_f64(value: &Value, name: &str) -> WqResult<f64> {
@@ -276,6 +260,9 @@ fn eval_integer_poly_f64(poly: &[BigInt], x: f64) -> WqResult<f64> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     use super::*;
     use crate::value::cas::CasOp;
 
@@ -283,21 +270,27 @@ mod tests {
         Value::from_cas_op(
             CasOp::Add,
             vec![
-                Value::from_cas_op(CasOp::Power, vec![Value::from_cas_var("_"), Value::Int(2)]),
+                Value::from_cas_op(CasOp::Power, vec![Value::from_cas_var("t"), Value::Int(2)]),
                 Value::Int(-2),
             ],
         )
     }
 
     #[test]
-    fn root_special_form_constructs_cas_node() {
-        let root =
-            cas_root_expr(&[sqrt2_poly(), Value::Int(1), Value::Int(2)], &[]).expect("root node");
-        let (poly, lo, hi) = root.cas_root_parts().expect("root parts");
+    fn root_special_form_constructs_algebraic_value() {
+        let root = cas_root_expr(
+            &[
+                sqrt2_poly(),
+                Value::from_cas_var("t"),
+                Value::Int(1),
+                Value::Int(2),
+            ],
+            &[],
+        )
+        .expect("root value");
 
-        assert_eq!(poly.to_string(), "_^2 - 2");
-        assert_eq!(lo, 1.0);
-        assert_eq!(hi, 2.0);
+        assert!(matches!(root, Value::Algebraic(_)));
+        assert_eq!(root.to_string(), "2^(1/2)");
     }
 
     #[test]
@@ -306,28 +299,33 @@ mod tests {
 
         assert_eq!(
             err.msg.as_deref(),
-            Some("'root' expects 'root[poly;near]' or 'root[poly;lo;hi]'")
+            Some(
+                "'root' expects 'root[poly;near]', 'root[poly;lo;hi]', 'root[poly;var;near]', or 'root[poly;var;lo;hi]'"
+            )
         );
     }
 
     #[test]
-    fn root_node_lowers_to_algebraic_data() {
-        let root =
-            cas_root_expr(&[sqrt2_poly(), Value::Int(1), Value::Int(2)], &[]).expect("root node");
-        let value = resolve_cas_root(&root).expect("lowering").expect("value");
+    fn equal_root_selections_have_stable_identity_and_hash() {
+        let first =
+            cas_root_expr(&[sqrt2_poly(), Value::Int(1), Value::Int(2)], &[]).expect("first root");
+        let second = cas_root_expr(&[sqrt2_poly(), Value::float(1.4)], &[]).expect("second root");
+        let mut first_hash = DefaultHasher::new();
+        let mut second_hash = DefaultHasher::new();
+        first.hash(&mut first_hash);
+        second.hash(&mut second_hash);
 
-        assert!(matches!(value, Value::Algebraic(_)));
-        assert_eq!(value.to_string(), "2^(1/2)");
+        assert_eq!(first, second);
+        assert_eq!(first_hash.finish(), second_hash.finish());
     }
 
     #[test]
     fn root_removes_unselected_rational_factor_before_field_construction() {
-        let placeholder = Value::from_cas_var("_");
+        let placeholder = Value::from_cas_var("t");
         let rational_factor = Value::from_cas_op(CasOp::Add, vec![placeholder, Value::Int(-3)]);
         let polynomial = Value::from_cas_op(CasOp::Multiply, vec![sqrt2_poly(), rational_factor]);
-        let root =
-            cas_root_expr(&[polynomial, Value::Int(1), Value::Int(2)], &[]).expect("root node");
-        let value = resolve_cas_root(&root).expect("lowering").expect("value");
+        let value =
+            cas_root_expr(&[polynomial, Value::Int(1), Value::Int(2)], &[]).expect("root value");
         let denominator = value.subtract(&Value::Int(3)).expect("alpha minus three");
         let quotient = Value::Int(1)
             .divide(&denominator)

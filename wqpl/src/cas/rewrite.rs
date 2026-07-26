@@ -47,19 +47,14 @@ fn extract_unit_negative(arg: &Value) -> Option<Value> {
     })
 }
 
-fn take_additive_constant(arg: &Value, target: f64) -> Option<Value> {
+fn take_additive_term(arg: &Value, target: &Value) -> Option<Value> {
     let (CasOp::Add, args) = arg.cas_op_parts()? else {
         return None;
     };
     let mut rest = Vec::with_capacity(args.len().saturating_sub(1));
     let mut removed = false;
     for term in args {
-        if !removed
-            && !term.is_cas_expr()
-            && term
-                .as_f64()
-                .is_some_and(|value| (value - target).abs() <= 1e-12)
-        {
+        if !removed && term == target {
             removed = true;
         } else {
             rest.push(term.clone());
@@ -1339,14 +1334,17 @@ fn cas_tree_size(value: &Value) -> usize {
     if let Some((_, named_value)) = value.cas_named_arg_parts() {
         return 1 + cas_tree_size(named_value);
     }
-    if let Some((inner, limit_var, point, _)) = value.cas_limit_parts() {
-        return 1 + cas_tree_size(inner) + cas_tree_size(limit_var) + cas_tree_size(point);
+    if let Some((scope, bounds)) = value.cas_integral_parts() {
+        let bounds_size = bounds
+            .map(|(lower, upper)| cas_tree_size(lower) + cas_tree_size(upper))
+            .unwrap_or(0);
+        return 1 + cas_tree_size(scope.body()) + bounds_size;
+    }
+    if let Some((scope, point, _)) = value.cas_limit_parts() {
+        return 1 + cas_tree_size(scope.body()) + cas_tree_size(point);
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
         return 1 + cas_tree_size(lhs) + cas_tree_size(rhs);
-    }
-    if let Some((poly, _, _)) = value.cas_root_parts() {
-        return 1 + cas_tree_size(poly);
     }
     if let Some(predicate) = value.cas_predicate() {
         return 1 + cas_tree_size(predicate.expr());
@@ -1983,7 +1981,11 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                     CasFunction::Sin,
                     vec![inner],
                 ))?)
-            } else if let Some(shifted) = take_additive_constant(arg, std::f64::consts::FRAC_PI_2) {
+            } else if let Some(shifted) =
+                cas_div(Value::from_cas_const(CasConst::Pi), Value::Int(2))
+                    .ok()
+                    .and_then(|half_pi| take_additive_term(arg, &half_pi))
+            {
                 Some(Value::from_cas_function(CasFunction::Cos, vec![shifted]))
             } else {
                 let (coeff, core) = split_add_term(arg);
@@ -2123,11 +2125,14 @@ pub(crate) fn contains_cas_var(expr: &Value, var: &str) -> bool {
     if let Some((_name, value)) = expr.cas_named_arg_parts() {
         return contains_cas_var(value, var);
     }
-    if let Some((inner, limit_var, point, _)) = expr.cas_limit_parts() {
-        let inner_contains = limit_var
-            .cas_var_name()
-            .is_none_or(|bound| bound != var && contains_cas_var(inner, var));
-        return inner_contains || contains_cas_var(point, var);
+    if let Some((scope, bounds)) = expr.cas_integral_parts() {
+        return contains_cas_var(scope.body(), var)
+            || bounds.is_some_and(|(lower, upper)| {
+                contains_cas_var(lower, var) || contains_cas_var(upper, var)
+            });
+    }
+    if let Some((scope, point, _)) = expr.cas_limit_parts() {
+        return contains_cas_var(scope.body(), var) || contains_cas_var(point, var);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
         return contains_cas_var(lhs, var) || contains_cas_var(rhs, var);
@@ -2345,12 +2350,36 @@ mod tests {
     }
 
     #[test]
-    fn tree_cost_counts_root_and_predicate_contents() {
+    fn sine_shift_rewrite_requires_exact_half_pi() {
+        let x = Value::from_cas_var("x");
+        let near_half_pi = Value::from_fraction_parts(
+            BigInt::from(15_707_963_267_949_i64),
+            BigInt::from(10_000_000_000_000_i64),
+        );
+        let near = Value::from_cas_function(
+            CasFunction::Sin,
+            vec![cas_add(vec![x.clone(), near_half_pi]).expect("near shift")],
+        );
+        let half_pi = cas_div(Value::from_cas_const(CasConst::Pi), Value::Int(2)).expect("half pi");
+        let exact = Value::from_cas_function(
+            CasFunction::Sin,
+            vec![cas_add(vec![x.clone(), half_pi]).expect("exact shift")],
+        );
+
+        assert_eq!(rewrite_expr(&near).expect("near rewrite"), near);
+        assert_eq!(
+            rewrite_expr(&exact).expect("exact rewrite"),
+            Value::from_cas_function(CasFunction::Cos, vec![x])
+        );
+    }
+
+    #[test]
+    fn tree_cost_counts_integral_and_predicate_contents() {
         let poly = cas_add(vec![Value::from_cas_var("x"), Value::Int(1)]).expect("x + 1");
-        let root = Value::from_cas_root(poly.clone(), 0.0, 1.0);
+        let integral = Value::from_cas_integral(crate::cas::close_cas_scope(&poly, "x"), None);
         let predicate = Value::from_cas_predicate(CasPredicate::Positive(poly));
 
-        assert_eq!(cas_tree_size(&root), 4);
+        assert_eq!(cas_tree_size(&integral), 4);
         assert_eq!(cas_tree_size(&predicate), 4);
     }
 

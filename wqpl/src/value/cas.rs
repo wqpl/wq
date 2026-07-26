@@ -134,14 +134,12 @@ pub(crate) enum CasFunction {
     Floor,
     Ceil,
     Round,
-    Integrate,
 }
 
 impl CasFunction {
     pub(crate) fn valid_arities(self) -> &'static [usize] {
         match self {
             Self::En | Self::EllIk | Self::EllIe | Self::Log | Self::ArcTan2 => &[2],
-            Self::Integrate => &[1, 2, 4],
             Self::Abs
             | Self::Sgn
             | Self::Sin
@@ -189,7 +187,6 @@ impl CasFunction {
         match self.valid_arities() {
             [1] => "exactly 1 argument",
             [2] => "exactly 2 arguments",
-            [1, 2, 4] => "1, 2, or 4 arguments",
             _ => unreachable!("every CAS function has a documented signature"),
         }
     }
@@ -237,7 +234,6 @@ impl CasFunction {
             "floor" => Some(Self::Floor),
             "ceil" => Some(Self::Ceil),
             "round" => Some(Self::Round),
-            "integrate" => Some(Self::Integrate),
             _ => None,
         }
     }
@@ -285,7 +281,6 @@ impl CasFunction {
             Self::Floor => "floor",
             Self::Ceil => "ceil",
             Self::Round => "round",
-            Self::Integrate => "integrate",
         }
     }
 }
@@ -296,11 +291,43 @@ impl fmt::Display for CasFunction {
     }
 }
 
+/// A CAS expression body with one locally bound variable.
+///
+/// Bound occurrences use `CasKind::BoundVar(0)`. The hint is presentation
+/// metadata and is deliberately excluded from semantic equality.
+#[derive(Debug, Clone)]
+pub(crate) struct CasScope {
+    body: Value,
+    hint: CasSymbol,
+}
+
+impl CasScope {
+    pub(crate) fn new(body: Value, hint: CasSymbol) -> Self {
+        Self { body, hint }
+    }
+
+    pub(crate) fn body(&self) -> &Value {
+        &self.body
+    }
+
+    pub(crate) fn hint(&self) -> &CasSymbol {
+        &self.hint
+    }
+}
+
+impl PartialEq for CasScope {
+    fn eq(&self, other: &Self) -> bool {
+        self.body == other.body
+    }
+}
+
 /// Symbolic algebra expression kind.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CasKind {
     /// Symbolic variable (e.g. `x`).
     Var(CasSymbol),
+    /// Locally bound variable. Zero refers to the nearest enclosing scope.
+    BoundVar(u32),
     /// Symbolic constant (e.g. `pi`).
     Const(CasConst),
     /// Symbolic operator (e.g. `+`, `*`, `^`).
@@ -311,15 +338,17 @@ pub(crate) enum CasKind {
     Apply(CasSymbol, Arc<[Value]>),
     /// Named symbolic call argument (e.g. `` `direction:x``).
     NamedArg(CasSymbol, Value),
+    /// Unevaluated integral special form.
+    Integral {
+        scope: CasScope,
+        bounds: Option<(Value, Value)>,
+    },
     /// Unevaluated limit special form.
     Limit {
-        expr: Value,
-        var: Value,
+        scope: CasScope,
         point: Value,
         direction: Option<crate::cas::limit::LimitDirection>,
     },
-    /// Opaque real root of an exact polynomial on a finite isolating interval.
-    Root { poly: Value, lo: f64, hi: f64 },
     /// Equation (lhs = rhs).
     Eq(Value, Value),
     /// Symbolic condition used by CAS assumption contexts.
@@ -367,6 +396,18 @@ impl CasPredicate {
             | Self::NonNegative(expr)
             | Self::Real(expr)
             | Self::Integer(expr) => expr,
+        }
+    }
+
+    pub(crate) fn with_expr(&self, expr: Value) -> Self {
+        match self {
+            Self::Zero(_) => Self::Zero(expr),
+            Self::NonZero(_) => Self::NonZero(expr),
+            Self::Positive(_) => Self::Positive(expr),
+            Self::Negative(_) => Self::Negative(expr),
+            Self::NonNegative(_) => Self::NonNegative(expr),
+            Self::Real(_) => Self::Real(expr),
+            Self::Integer(_) => Self::Integer(expr),
         }
     }
 }
@@ -518,7 +559,6 @@ mod cas_tests {
             ("ln", CasFunction::Ln),
             ("sqrt", CasFunction::Sqrt),
             ("arctan2", CasFunction::ArcTan2),
-            ("integrate", CasFunction::Integrate),
         ] {
             assert_eq!(CasFunction::from_name(name), Some(function));
             assert_eq!(function.name(), name);
@@ -532,10 +572,6 @@ mod cas_tests {
         assert!(!CasFunction::Sin.accepts_arity(0));
         assert!(CasFunction::Log.accepts_arity(2));
         assert!(!CasFunction::Log.accepts_arity(1));
-        assert!(CasFunction::Integrate.accepts_arity(1));
-        assert!(CasFunction::Integrate.accepts_arity(2));
-        assert!(CasFunction::Integrate.accepts_arity(4));
-        assert!(!CasFunction::Integrate.accepts_arity(3));
     }
 
     #[test]
@@ -544,9 +580,6 @@ mod cas_tests {
         assert!(crate::cas::cas_call_expr(CasFunction::Sin, &[]).is_err());
         assert!(crate::cas::cas_call_expr(CasFunction::Sin, &[x.clone(), x.clone()]).is_err());
         assert!(crate::cas::cas_call_expr(CasFunction::Log, std::slice::from_ref(&x)).is_err());
-        assert!(
-            crate::cas::cas_call_expr(CasFunction::Integrate, &[x.clone(), x.clone(), x]).is_err()
-        );
         assert!(
             crate::cas::simplify_cas_value(&Value::from_cas_function(
                 CasFunction::ArcTan2,

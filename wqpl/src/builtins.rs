@@ -1249,13 +1249,6 @@ declare_builtins! {
 
     // CAS
     (EQ, Eq, "eq", "eq[lhs;rhs]", sig!(arity!(2)), plain(cas::eq), builtin_metadata!(Cas, PURE)),
-    (ZERO, Zero, "zero", "zero[expr]", sig!(arity!(1)), plain(cas::zero), builtin_metadata!(Cas, PURE)),
-    (NONZERO, Nonzero, "nonzero", "nonzero[expr]", sig!(arity!(1)), plain(cas::nonzero), builtin_metadata!(Cas, PURE)),
-    (POSITIVE, Positive, "positive", "positive[expr]", sig!(arity!(1)), plain(cas::positive), builtin_metadata!(Cas, PURE)),
-    (NEGATIVE, Negative, "negative", "negative[expr]", sig!(arity!(1)), plain(cas::negative), builtin_metadata!(Cas, PURE)),
-    (NONNEGATIVE, Nonnegative, "nonnegative", "nonnegative[expr]", sig!(arity!(1)), plain(cas::nonnegative), builtin_metadata!(Cas, PURE)),
-    (REAL, Real, "real", "real[expr]", sig!(arity!(1)), plain(cas::real), builtin_metadata!(Cas, PURE)),
-    (INTEGER, Integer, "integer", "integer[expr]", sig!(arity!(1)), plain(cas::integer), builtin_metadata!(Cas, PURE)),
     (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), with_context(cas::simplify), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), with_context(cas::rewrite), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), any_named, defer), plain(cas::numeric), builtin_metadata!(Cas, PURE)),
@@ -1679,6 +1672,21 @@ mod tests {
     }
 
     #[test]
+    fn cas_predicate_constructs_are_not_runtime_builtins() {
+        for name in [
+            "zero",
+            "nonzero",
+            "positive",
+            "negative",
+            "nonnegative",
+            "real",
+            "integer",
+        ] {
+            assert!(!Builtins::NAMES.contains(&name));
+        }
+    }
+
+    #[test]
     fn builtin_metadata_respects_registry_invariants() {
         let builtins = Builtins::new();
         let mut names = std::collections::HashSet::new();
@@ -1921,13 +1929,6 @@ mod tests {
             (BuiltinEnum::Fraction, "1 2"),
             (BuiltinEnum::Fractionl, "1"),
             (BuiltinEnum::Eq, "2"),
-            (BuiltinEnum::Zero, "1"),
-            (BuiltinEnum::Nonzero, "1"),
-            (BuiltinEnum::Positive, "1"),
-            (BuiltinEnum::Negative, "1"),
-            (BuiltinEnum::Nonnegative, "1"),
-            (BuiltinEnum::Real, "1"),
-            (BuiltinEnum::Integer, "1"),
             (BuiltinEnum::Simplify, "1"),
             (BuiltinEnum::Rewrite, "1"),
             (BuiltinEnum::Numeric, "1"),

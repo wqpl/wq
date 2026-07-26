@@ -12,12 +12,11 @@ use super::{
     eval_numeric_call, eval_numeric_cas, expand_expr, extract_algebraic_content,
     extract_linear_coefficients, factor_expr, numeric_add, numeric_is_negative, numeric_is_one,
     numeric_is_zero, numeric_mul, numeric_pow, poly_add, poly_degree, poly_divide, poly_from_expr,
-    poly_gcd, poly_is_zero, poly_mul, poly_to_expr, poly_trim, resolve_cas_root, sort_canonical,
-    split_off_results, square_free_factor, try_cancel_affine_over_factor,
-    try_eval_with_const_resolve, try_exact_polynomial_division,
+    poly_gcd, poly_is_zero, poly_mul, poly_to_expr, poly_trim, sort_canonical, split_off_results,
+    square_free_factor, try_cancel_affine_over_factor, try_exact_polynomial_division,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::{CasConst, CasFunction, CasOp, CasSymbol};
+use crate::value::cas::{CasConst, CasFunction, CasOp, CasScope, CasSymbol};
 use crate::value::{Value, WqResult};
 
 /// Stack frame for iterative simplify.
@@ -40,8 +39,12 @@ enum SimplifyFrame {
     NamedArg {
         name: CasSymbol,
     },
+    Integral {
+        hint: CasSymbol,
+        has_bounds: bool,
+    },
     Limit {
-        var: Value,
+        hint: CasSymbol,
         direction: Option<crate::cas::limit::LimitDirection>,
     },
     Eq,
@@ -285,15 +288,77 @@ fn exact_function_value(function: CasFunction, args: &[Value]) -> Option<Value> 
     };
     match function {
         CasFunction::Sin | CasFunction::Cos | CasFunction::Tan => exact_trig_value(function, arg),
+        CasFunction::Abs if arg.rational_parts().is_some() => arg.abs().ok(),
+        CasFunction::Sgn if arg.rational_parts().is_some() => {
+            Some(Value::Int(if numeric_is_zero(arg) {
+                0
+            } else if numeric_is_negative(arg) {
+                -1
+            } else {
+                1
+            }))
+        }
+        CasFunction::Heaviside if arg.rational_parts().is_some() => Some(if numeric_is_zero(arg) {
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
+        } else if numeric_is_negative(arg) {
+            Value::Int(0)
+        } else {
+            Value::Int(1)
+        }),
+        CasFunction::Erf if numeric_is_zero(arg) => Some(Value::Int(0)),
+        CasFunction::Erfc if numeric_is_zero(arg) => Some(Value::Int(1)),
+        CasFunction::Gamma => exact_gamma_integer(arg),
+        CasFunction::Log2 => exact_rational_log(arg, 2),
+        CasFunction::Log10 => exact_rational_log(arg, 10),
+        CasFunction::Floor if arg.rational_parts().is_some() => arg.floor().ok(),
+        CasFunction::Ceil if arg.rational_parts().is_some() => arg.ceil().ok(),
+        CasFunction::Round if arg.rational_parts().is_some() => arg.round().ok(),
         _ => None,
     }
 }
 
-fn should_keep_exact_function_symbolic(function: CasFunction, args: &[Value]) -> bool {
-    matches!(
-        function,
-        CasFunction::Sin | CasFunction::Cos | CasFunction::Tan
-    ) && matches!(args, [arg] if exact_pi_multiple(arg).is_some())
+fn exact_gamma_integer(arg: &Value) -> Option<Value> {
+    let value = arg.exact_int()?;
+    if !value.is_positive() {
+        return None;
+    }
+    let value = value.to_u32()?;
+    if value > 10_000 {
+        return None;
+    }
+    let mut factorial = BigInt::one();
+    for factor in 2..value {
+        factorial *= factor;
+    }
+    Some(Value::from_bigint(factorial))
+}
+
+fn exact_rational_log(arg: &Value, base: i64) -> Option<Value> {
+    fn integer_log(mut value: BigInt, base: i64) -> Option<i64> {
+        if value <= BigInt::zero() {
+            return None;
+        }
+        let base = BigInt::from(base);
+        let mut exponent = 0i64;
+        while value != BigInt::one() {
+            if (&value % &base) != BigInt::zero() {
+                return None;
+            }
+            value /= &base;
+            exponent += 1;
+        }
+        Some(exponent)
+    }
+
+    let (numerator, denominator) = arg.rational_parts()?;
+    let numerator_log = integer_log(numerator, base)?;
+    let denominator_log = integer_log(denominator, base)?;
+    Some(Value::Int(numerator_log - denominator_log))
+}
+
+fn has_approximate_input(args: &[Value]) -> bool {
+    args.iter()
+        .any(|arg| matches!(arg, Value::Float(_) | Value::Complex(_)))
 }
 
 /// Find the greatest common numeric divisor of all terms in a sum.
@@ -2220,18 +2285,26 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     continue;
                 }
 
-                if let Some((inner, var, point, direction)) = expr.cas_limit_parts() {
-                    stack.push(SimplifyFrame::Limit {
-                        var: var.clone(),
-                        direction,
+                if let Some((scope, bounds)) = expr.cas_integral_parts() {
+                    stack.push(SimplifyFrame::Integral {
+                        hint: scope.hint().clone(),
+                        has_bounds: bounds.is_some(),
                     });
-                    stack.push(SimplifyFrame::Expr(point.clone()));
-                    stack.push(SimplifyFrame::Expr(inner.clone()));
+                    if let Some((lower, upper)) = bounds {
+                        stack.push(SimplifyFrame::Expr(upper.clone()));
+                        stack.push(SimplifyFrame::Expr(lower.clone()));
+                    }
+                    stack.push(SimplifyFrame::Expr(scope.body().clone()));
                     continue;
                 }
 
-                if let Some(root) = resolve_cas_root(&expr)? {
-                    results.push(root);
+                if let Some((scope, point, direction)) = expr.cas_limit_parts() {
+                    stack.push(SimplifyFrame::Limit {
+                        hint: scope.hint().clone(),
+                        direction,
+                    });
+                    stack.push(SimplifyFrame::Expr(point.clone()));
+                    stack.push(SimplifyFrame::Expr(scope.body().clone()));
                     continue;
                 }
 
@@ -2289,7 +2362,8 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     )?);
                 } else if let Some(value) = exact_function_value(function, &args) {
                     results.push(value);
-                } else if args.iter().all(|arg| !arg.is_cas_expr())
+                } else if has_approximate_input(&args)
+                    && args.iter().all(|arg| !arg.is_cas_expr())
                     && let Some(value) = eval_numeric_call(function, &args)?
                 {
                     results.push(value);
@@ -2328,10 +2402,6 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     } else {
                         results.push(Value::from_cas_function(CasFunction::Abs, args));
                     }
-                } else if should_keep_exact_function_symbolic(function, &args) {
-                    results.push(Value::from_cas_function(function, args));
-                } else if let Some(value) = try_eval_with_const_resolve(function, &args)? {
-                    results.push(value);
                 } else {
                     results.push(Value::from_cas_function(function, args));
                 }
@@ -2346,14 +2416,35 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
                 results.push(Value::from_cas_named_arg(name.as_str(), value));
             }
-            SimplifyFrame::Limit { var, direction } => {
+            SimplifyFrame::Integral { hint, has_bounds } => {
+                let bounds = if has_bounds {
+                    let upper = results
+                        .pop()
+                        .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
+                    let lower = results
+                        .pop()
+                        .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
+                    Some((lower, upper))
+                } else {
+                    None
+                };
+                let body = results
+                    .pop()
+                    .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
+                results.push(Value::from_cas_integral(CasScope::new(body, hint), bounds));
+            }
+            SimplifyFrame::Limit { hint, direction } => {
                 let point = results
                     .pop()
                     .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
-                let inner = results
+                let body = results
                     .pop()
                     .ok_or_else(|| cas_internal_err("simplifying a symbolic expression"))?;
-                results.push(Value::from_cas_limit(inner, var, point, direction));
+                results.push(Value::from_cas_limit(
+                    CasScope::new(body, hint),
+                    point,
+                    direction,
+                ));
             }
             SimplifyFrame::Eq => {
                 let rhs = results
@@ -2429,24 +2520,32 @@ pub(super) fn var_name_from_value(value: &Value) -> WqResult<String> {
 }
 
 pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<Value> {
+    substitute_expr_with(expr, &|name| (name == var).then(|| val.clone()))
+}
+
+fn substitute_expr_with(
+    expr: &Value,
+    replacement: &impl Fn(&str) -> Option<Value>,
+) -> WqResult<Value> {
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
         return Ok(Value::from_cas_eq(
-            substitute_expr(lhs, var, val)?,
-            substitute_expr(rhs, var, val)?,
+            substitute_expr_with(lhs, replacement)?,
+            substitute_expr_with(rhs, replacement)?,
         ));
     }
     if let Some(name) = expr.cas_var_name() {
-        return Ok(if name == var {
-            val.clone()
-        } else {
-            expr.clone()
-        });
+        return Ok(replacement(name).unwrap_or_else(|| expr.clone()));
+    }
+    if expr.cas_bound_var().is_some() {
+        return Ok(expr.clone());
     }
     if expr.cas_const_name().is_some() {
         return Ok(expr.clone());
     }
-    if expr.cas_root_parts().is_some() {
-        return Ok(expr.clone());
+    if let Some(predicate) = expr.cas_predicate() {
+        return Ok(Value::from_cas_predicate(
+            predicate.with_expr(substitute_expr_with(predicate.expr(), replacement)?),
+        ));
     }
     if !expr.is_cas_expr() {
         return Ok(expr.clone());
@@ -2456,20 +2555,20 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
             (CasOp::Add, args) => {
                 let mut out = Vec::with_capacity(args.len());
                 for arg in args {
-                    out.push(substitute_expr(arg, var, val)?);
+                    out.push(substitute_expr_with(arg, replacement)?);
                 }
                 cas_add(out)
             }
             (CasOp::Multiply, args) => {
                 let mut out = Vec::with_capacity(args.len());
                 for arg in args {
-                    out.push(substitute_expr(arg, var, val)?);
+                    out.push(substitute_expr_with(arg, replacement)?);
                 }
                 cas_mul(out)
             }
             (CasOp::Power, [base, exp]) => cas_pow(
-                substitute_expr(base, var, val)?,
-                substitute_expr(exp, var, val)?,
+                substitute_expr_with(base, replacement)?,
+                substitute_expr_with(exp, replacement)?,
             ),
             _ => Ok(expr.clone()),
         };
@@ -2477,38 +2576,43 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
     if let Some((function, args)) = expr.cas_function_parts() {
         let mut out = Vec::with_capacity(args.len());
         for arg in args {
-            out.push(substitute_expr(arg, var, val)?);
+            out.push(substitute_expr_with(arg, replacement)?);
         }
         return simplify_cas_value(&Value::from_cas_function(function, out));
     }
     if let Some((name, args)) = expr.cas_apply_parts() {
         let mut out = Vec::with_capacity(args.len());
         for arg in args {
-            out.push(substitute_expr(arg, var, val)?);
+            out.push(substitute_expr_with(arg, replacement)?);
         }
         return simplify_cas_value(&Value::from_cas_apply(name.as_str(), out));
     }
     if let Some((name, value)) = expr.cas_named_arg_parts() {
         return Ok(Value::from_cas_named_arg(
             name.as_str(),
-            substitute_expr(value, var, val)?,
+            substitute_expr_with(value, replacement)?,
         ));
     }
-    if let Some((inner, limit_var, point, direction)) = expr.cas_limit_parts() {
-        let substituted_point = substitute_expr(point, var, val)?;
-        let substituted_inner = match limit_var.cas_var_name() {
-            Some(bound) if bound == var => inner.clone(),
-            Some(bound) if contains_cas_var(val, bound) && contains_cas_var(inner, var) => {
-                return Err(cas_err(format!(
-                    "substitute would capture bound limit variable '{bound}'"
+    if let Some((scope, bounds)) = expr.cas_integral_parts() {
+        let body = substitute_expr_with(scope.body(), replacement)?;
+        let bounds = bounds
+            .map(|(lower, upper)| {
+                Ok((
+                    substitute_expr_with(lower, replacement)?,
+                    substitute_expr_with(upper, replacement)?,
                 ))
-                .got1(expr));
-            }
-            _ => substitute_expr(inner, var, val)?,
-        };
+            })
+            .transpose()?;
+        return Ok(Value::from_cas_integral(
+            CasScope::new(body, scope.hint().clone()),
+            bounds,
+        ));
+    }
+    if let Some((scope, point, direction)) = expr.cas_limit_parts() {
+        let substituted_point = substitute_expr_with(point, replacement)?;
+        let substituted_inner = substitute_expr_with(scope.body(), replacement)?;
         return Ok(Value::from_cas_limit(
-            substituted_inner,
-            limit_var.clone(),
+            CasScope::new(substituted_inner, scope.hint().clone()),
             substituted_point,
             direction,
         ));
@@ -2532,11 +2636,99 @@ pub(crate) fn substitute_cas_bindings(
     expr: &Value,
     bindings: &[(Arc<str>, Value)],
 ) -> WqResult<Value> {
-    let mut result = expr.clone();
-    for (name, value) in bindings {
-        result = substitute_cas(&result, &Value::from_cas_var(name.as_ref()), value)?;
+    for (_, value) in bindings {
+        if value.is_cas_equation() {
+            return Err(cas_err(
+                "'substitute' expects replacement expressions or values, got equation",
+            )
+            .got1(value));
+        }
     }
-    Ok(result)
+    let expr = simplify_cas_value(expr)?;
+    let substituted = substitute_expr_with(&expr, &|name| {
+        bindings
+            .iter()
+            .find(|(binding, _)| binding.as_ref() == name)
+            .map(|(_, value)| value.clone())
+    })?;
+    simplify_cas_value(&substituted)
+}
+
+#[cfg(test)]
+mod exact_call_tests {
+    use super::*;
+
+    #[test]
+    fn exact_quoted_calls_remain_symbolic_without_an_exact_rule() {
+        let cases = [
+            Value::from_cas_function(CasFunction::Sin, vec![Value::Int(1)]),
+            Value::from_cas_function(CasFunction::Sin, vec![Value::from_cas_const(CasConst::E)]),
+            Value::from_cas_function(
+                CasFunction::Gamma,
+                vec![Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))],
+            ),
+        ];
+
+        for case in cases {
+            let simplified = simplify_cas_value(&case).expect("symbolic simplification");
+            assert_eq!(simplified, case);
+            assert!(!matches!(simplified, Value::Float(_) | Value::Complex(_)));
+        }
+    }
+
+    #[test]
+    fn float_tainted_quoted_call_can_evaluate_numerically() {
+        let call = Value::from_cas_function(CasFunction::Sin, vec![Value::float(1.0)]);
+
+        assert!(matches!(
+            simplify_cas_value(&call).expect("float evaluation"),
+            Value::Float(_)
+        ));
+    }
+
+    #[test]
+    fn exact_rational_rounding_calls_remain_exact() {
+        let three_halves = Value::from_fraction_parts(BigInt::from(3), BigInt::from(2));
+
+        assert_eq!(
+            simplify_cas_value(&Value::from_cas_function(
+                CasFunction::Floor,
+                vec![three_halves.clone()],
+            ))
+            .expect("exact floor"),
+            Value::Int(1)
+        );
+        assert_eq!(
+            simplify_cas_value(&Value::from_cas_function(
+                CasFunction::Ceil,
+                vec![three_halves.clone()],
+            ))
+            .expect("exact ceiling"),
+            Value::Int(2)
+        );
+        assert_eq!(
+            simplify_cas_value(&Value::from_cas_function(
+                CasFunction::Round,
+                vec![three_halves],
+            ))
+            .expect("exact rounding"),
+            Value::Int(2)
+        );
+    }
+
+    #[test]
+    fn substitution_descends_into_cas_predicates() {
+        let predicate = Value::from_cas_predicate(crate::value::cas::CasPredicate::Integer(
+            Value::from_cas_var("x"),
+        ));
+
+        assert_eq!(
+            substitute_expr(&predicate, "x", &Value::Int(2))
+                .expect("predicate substitution")
+                .to_string(),
+            "integer[2]"
+        );
+    }
 }
 
 #[cfg(test)]

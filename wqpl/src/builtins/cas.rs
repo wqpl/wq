@@ -4,14 +4,15 @@ use crate::builtins::{
 };
 use crate::cas::diff::diff_cas_with_debug;
 use crate::cas::integrate::{definite_integrate_cas_with_debug, integrate_cas_with_debug};
-use crate::cas::limit::{limit_cas_with_debug, parse_limit_direction};
+use crate::cas::limit::limit_cas_with_debug;
 use crate::cas::{
     CasAssumptions, CasDebug, SolveDomain, eval_numeric_cas, expand_cas_with_debug, factor_cas,
-    infer_single_cas_var, normalize_root_objective_cas, rewrite_cas_with_debug,
-    simplify_cas_value_with_debug, solve_cas_with_options, solve_system_cas_with_assumptions,
-    solve_system_infer_cas_with_assumptions, substitute_cas, substitute_cas_bindings,
+    infer_single_cas_var, normalize_root_objective_cas, parse_integral_spec, parse_limit_spec,
+    rewrite_cas_with_debug, simplify_cas_value_with_debug, solve_cas_with_options,
+    solve_system_cas_with_assumptions, solve_system_infer_cas_with_assumptions, substitute_cas,
+    substitute_cas_bindings,
 };
-use crate::value::cas::{CasOp, CasPredicate};
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -21,53 +22,6 @@ pub(super) fn eq(args: BuiltinFnArgs) -> WqResult<Value> {
     let a = iter.next().unwrap();
     let b = iter.next().unwrap();
     Ok(Value::from_cas_eq(a, b))
-}
-
-fn predicate(
-    args: BuiltinFnArgs,
-    builtin: BuiltinEnum,
-    make: impl FnOnce(Value) -> CasPredicate,
-) -> WqResult<Value> {
-    check_arity(builtin, [1], &args)?;
-    let expr = &args[0];
-    if expr.is_cas_equation() || expr.cas_predicate().is_some() {
-        return Err(WqError::new(WqErrorType::Domain)
-            .src(builtin)
-            .msg(format!(
-                "'{}' expects a numeric or symbolic expression",
-                builtin.name()
-            ))
-            .got1(expr));
-    }
-    Ok(Value::from_cas_predicate(make(expr.clone())))
-}
-
-pub(super) fn zero(args: BuiltinFnArgs) -> WqResult<Value> {
-    predicate(args, BuiltinEnum::Zero, CasPredicate::Zero)
-}
-
-pub(super) fn nonzero(args: BuiltinFnArgs) -> WqResult<Value> {
-    predicate(args, BuiltinEnum::Nonzero, CasPredicate::NonZero)
-}
-
-pub(super) fn positive(args: BuiltinFnArgs) -> WqResult<Value> {
-    predicate(args, BuiltinEnum::Positive, CasPredicate::Positive)
-}
-
-pub(super) fn negative(args: BuiltinFnArgs) -> WqResult<Value> {
-    predicate(args, BuiltinEnum::Negative, CasPredicate::Negative)
-}
-
-pub(super) fn nonnegative(args: BuiltinFnArgs) -> WqResult<Value> {
-    predicate(args, BuiltinEnum::Nonnegative, CasPredicate::NonNegative)
-}
-
-pub(super) fn real(args: BuiltinFnArgs) -> WqResult<Value> {
-    predicate(args, BuiltinEnum::Real, CasPredicate::Real)
-}
-
-pub(super) fn integer(args: BuiltinFnArgs) -> WqResult<Value> {
-    predicate(args, BuiltinEnum::Integer, CasPredicate::Integer)
 }
 
 pub(super) fn simplify(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -163,45 +117,12 @@ pub(super) fn factor_common(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn integrate(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Integrate, [1, 2, 4], &args)?;
+    let spec = parse_integral_spec(&args).map_err(|error| error.src(BuiltinEnum::Integrate))?;
     let debug = CasDebug::from_context(context);
-    if args.len() >= 4 {
-        return definite_integrate_cas_with_debug(&args[0], &args[1], &args[2], &args[3], debug);
+    if let Some((lower, upper)) = spec.bounds {
+        return definite_integrate_cas_with_debug(&spec.expr, &spec.var, &lower, &upper, debug);
     }
-    let n = args.len();
-    let mut iter = args.into_iter();
-    let expr = iter.next().unwrap();
-    let var = if n == 1 {
-        let inferred = infer_single_cas_var(&expr).map_err(|e| e.src(BuiltinEnum::Integrate))?;
-        Value::from_cas_var(inferred)
-    } else {
-        iter.next().unwrap()
-    };
-    integrate_cas_with_debug(&expr, &var, debug)
-}
-
-fn inferred_limit_var(expr: &Value) -> WqResult<Value> {
-    let inferred = infer_single_cas_var(expr).map_err(|e| e.src(BuiltinEnum::Limit))?;
-    Ok(Value::from_cas_var(inferred))
-}
-
-fn required_limit_var(value: Value) -> WqResult<Value> {
-    if value.cas_var_name().is_some() && parse_limit_direction(&value).is_none() {
-        Ok(value)
-    } else {
-        Err(WqError::new(WqErrorType::Domain)
-            .src(BuiltinEnum::Limit)
-            .msg("'limit' target must be a symbolic variable")
-            .got1(&value))
-    }
-}
-
-fn required_limit_direction(value: &Value) -> WqResult<crate::cas::limit::LimitDirection> {
-    parse_limit_direction(value).ok_or_else(|| {
-        WqError::new(WqErrorType::Domain)
-            .src(BuiltinEnum::Limit)
-            .msg("'limit' direction must be '@s+' or '@s-'")
-            .got1(value)
-    })
+    integrate_cas_with_debug(&spec.expr, &spec.var, debug)
 }
 
 pub(super) fn limit(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -210,42 +131,16 @@ pub(super) fn limit(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> Wq
     // Additional args come in (var, point) pairs. The named argument `direction`
     // supplies the final direction.
     check_registered_named_args(&args, BuiltinEnum::Limit)?;
-    let direction = args
-        .named("direction")
-        .map(required_limit_direction)
-        .transpose()?;
+    let named = args
+        .named_items()
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.clone()))
+        .collect::<Vec<_>>();
+    let spec = parse_limit_spec(&args, &named).map_err(|error| error.src(BuiltinEnum::Limit))?;
     let debug = CasDebug::from_context(context);
-    let argc = args.len();
-    if argc < 2 {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BuiltinEnum::Limit)
-            .msg("'limit' expects at least 2 arguments: 'limit[expr;point]'"));
-    }
-    let mut iter = args.into_iter();
-    let mut result = iter.next().unwrap();
-
-    if argc == 2 {
-        let point = iter.next().unwrap();
-        let var = inferred_limit_var(&result)?;
-        return limit_cas_with_debug(&result, &var, &point, direction, debug);
-    }
-
-    let n = argc - 1;
-    if !n.is_multiple_of(2) {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BuiltinEnum::Limit)
-            .msg(
-                "'limit' expects 'limit[expr;point]' or 'limit[expr;var;point]', optionally followed by additional 'var;point' pairs",
-            ));
-    }
-
-    let n_pairs = n / 2;
-
-    for i in 0..n_pairs {
-        let var = required_limit_var(iter.next().unwrap())?;
-        let point = iter.next().unwrap();
-        let dir = if i == n_pairs - 1 { direction } else { None };
-        result = limit_cas_with_debug(&result, &var, &point, dir, debug)?;
+    let mut result = spec.expr;
+    for step in spec.steps {
+        result = limit_cas_with_debug(&result, &step.var, &step.point, step.direction, debug)?;
     }
     Ok(result)
 }
@@ -900,8 +795,11 @@ mod tests {
 
     #[test]
     fn limit_direction_error_quotes_symbolic_forms() {
-        let err = required_limit_direction(&Value::from_cas_var("x"))
-            .expect_err("ordinary symbolic variable is not a direction");
+        let err = parse_limit_spec(
+            &[Value::from_cas_var("x"), Value::Int(0)],
+            &[("direction".to_string(), Value::from_cas_var("x"))],
+        )
+        .expect_err("ordinary symbolic variable is not a direction");
 
         assert_eq!(
             err.msg.as_deref(),

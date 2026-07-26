@@ -8,8 +8,10 @@ mod poly;
 mod quote;
 mod rewrite;
 mod root;
+mod scope;
 mod simplify;
 mod solve;
+mod special;
 #[cfg(test)]
 mod tests;
 mod value_ext;
@@ -23,12 +25,12 @@ use expand_factor::{
 };
 pub(crate) use expand_factor::{expand_cas_with_debug, factor_cas};
 use format::{format_cas_equation, format_cas_value, sort_canonical};
+use numeric::eval_numeric_call;
 pub(crate) use numeric::{
     CasExprContext, cas_err, cas_internal_err, ensure_expr_arg, eval_exact_numeric_div,
     eval_numeric_binary, eval_numeric_cas, numeric_add, numeric_div, numeric_is_negative,
     numeric_is_one, numeric_is_zero, numeric_mul, numeric_pow, numeric_sub,
 };
-use numeric::{eval_numeric_call, try_eval_with_const_resolve};
 use poly::{collect_single_poly_var, try_exact_polynomial_division};
 pub(crate) use poly::{
     extract_linear_coefficients, extract_linear_coefficients_with_params, poly_add, poly_const_mul,
@@ -46,7 +48,7 @@ pub(crate) use rewrite::{
     cas_product, contains_cas_var, infer_single_cas_var, normalize_root_objective_cas,
     rewrite_cas_with_debug, rewrite_loop_with_debug,
 };
-pub(crate) use root::resolve_cas_root;
+pub(crate) use scope::{close_cas_scope, fresh_name, open_cas_scope, open_cas_scope_with_value};
 pub(crate) use simplify::{
     cas_add, cas_binary_expr, cas_call_expr, cas_div, cas_mul, cas_neg, cas_pow, cas_sub,
     cas_unary_expr, extract_perfect_power_factor, simplify_cas_value,
@@ -62,6 +64,9 @@ pub(crate) use solve::{
 };
 #[cfg(test)]
 pub(crate) use solve::{solve_cas_with_assumptions, solve_system_cas, solve_system_infer_cas};
+pub(crate) use special::{
+    CasNamedArg, ensure_cas_math_expr, parse_integral_spec, parse_limit_spec,
+};
 
 pub(crate) mod diff;
 pub(crate) mod integrate;

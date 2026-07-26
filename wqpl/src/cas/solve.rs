@@ -12,7 +12,7 @@ use super::{
     eval_exact_numeric_div, eval_numeric_binary, numeric_is_negative, numeric_is_zero, poly_degree,
     poly_from_expr, poly_from_expr_with_params, simplify_cas_value, var_name_from_value,
 };
-use crate::value::cas::{CasOp, CasPredicate};
+use crate::value::cas::{CasConst, CasFunction, CasOp, CasPredicate};
 use crate::value::{Value, WqResult, expected_numeric1};
 use crate::wqerror::WqError;
 
@@ -62,6 +62,76 @@ fn solve_monomial_polynomial(coeffs: &[Value], degree: usize) -> WqResult<Vec<Va
         })
         .collect();
     Ok(roots)
+}
+
+fn solve_exact_monomial_polynomial(
+    coeffs: &[Value],
+    degree: usize,
+    domain: SolveDomain,
+) -> WqResult<Option<Vec<Value>>> {
+    if !coefficients_are_exact_real(coeffs)
+        || degree >= coeffs.len()
+        || coeffs[1..degree]
+            .iter()
+            .any(|coeff| !numeric_is_zero(coeff))
+    {
+        return Ok(None);
+    }
+
+    let target = eval_exact_numeric_div(
+        &coeffs[0].neg().map_err(|error| error.src("cas"))?,
+        &coeffs[degree],
+    )?;
+    if numeric_is_zero(&target) {
+        return Ok(Some(vec![Value::Int(0)]));
+    }
+
+    let negative = numeric_is_negative(&target);
+    let magnitude = if negative { cas_neg(target)? } else { target };
+    let degree_value = BigInt::from(degree);
+    let radius = cas_pow(
+        magnitude,
+        Value::from_fraction_parts(BigInt::from(1), degree_value.clone()),
+    )?;
+
+    if domain == SolveDomain::Real {
+        if negative && degree.is_multiple_of(2) {
+            return Ok(Some(Vec::new()));
+        }
+        let principal = if negative {
+            cas_neg(radius.clone())?
+        } else {
+            radius.clone()
+        };
+        if !negative && degree.is_multiple_of(2) {
+            return Ok(Some(vec![principal, cas_neg(radius)?]));
+        }
+        return Ok(Some(vec![principal]));
+    }
+
+    let imaginary_unit = Value::from_cas_op(
+        CasOp::Power,
+        vec![
+            Value::Int(-1),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        ],
+    );
+    let mut roots = Vec::with_capacity(degree);
+    for index in 0..degree {
+        let angle_numerator = if negative { 2 * index + 1 } else { 2 * index };
+        let angle = cas_mul(vec![
+            Value::from_fraction_parts(BigInt::from(angle_numerator), degree_value.clone()),
+            Value::from_cas_const(CasConst::Pi),
+        ])?;
+        let cosine = simplify_cas_value(&Value::from_cas_function(
+            CasFunction::Cos,
+            vec![angle.clone()],
+        ))?;
+        let sine = simplify_cas_value(&Value::from_cas_function(CasFunction::Sin, vec![angle]))?;
+        let unit = cas_add(vec![cosine, cas_mul(vec![imaginary_unit.clone(), sine])?])?;
+        roots.push(simplify_cas_value(&cas_mul(vec![radius.clone(), unit])?)?);
+    }
+    Ok(Some(roots))
 }
 
 fn linear_coefficients_from_expr(expr: &Value, vars: &[String]) -> WqResult<(Vec<Value>, Value)> {
@@ -546,9 +616,15 @@ fn collect_cas_vars(expr: &Value, vars: &mut BTreeSet<String>) {
     if let Some((_name, value)) = expr.cas_named_arg_parts() {
         collect_cas_vars(value, vars);
     }
-    if let Some((inner, limit_var, point, _direction)) = expr.cas_limit_parts() {
-        collect_cas_vars(inner, vars);
-        collect_cas_vars(limit_var, vars);
+    if let Some((scope, bounds)) = expr.cas_integral_parts() {
+        collect_cas_vars(scope.body(), vars);
+        if let Some((lower, upper)) = bounds {
+            collect_cas_vars(lower, vars);
+            collect_cas_vars(upper, vars);
+        }
+    }
+    if let Some((scope, point, _direction)) = expr.cas_limit_parts() {
+        collect_cas_vars(scope.body(), vars);
         collect_cas_vars(point, vars);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
@@ -703,6 +779,27 @@ fn solve_numeric_quadratic(
     }
 }
 
+fn solve_exact_complex_quadratic(coeffs: &[Value], disc: Value) -> WqResult<RootSolution> {
+    let sqrt_disc = simplify_cas_value(&Value::from_cas_op(
+        CasOp::Power,
+        vec![
+            disc,
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        ],
+    ))?;
+    let neg_b = coeffs[1].neg().map_err(|error| error.src("cas"))?;
+    let denominator = cas_mul(vec![Value::Int(2), coeffs[2].clone()])?;
+    let first = cas_div(
+        cas_add(vec![neg_b.clone(), sqrt_disc.clone()])?,
+        denominator.clone(),
+    )?;
+    let second = cas_div(cas_sub(neg_b, sqrt_disc)?, denominator)?;
+    Ok(RootSolution::Finite(vec![
+        simplify_cas_value(&first)?,
+        simplify_cas_value(&second)?,
+    ]))
+}
+
 fn solve_numeric_polynomial(coeffs: &[Value], domain: SolveDomain) -> WqResult<RootSolution> {
     let degree = poly_degree(coeffs);
     match degree {
@@ -718,13 +815,24 @@ fn solve_numeric_polynomial(coeffs: &[Value], domain: SolveDomain) -> WqResult<R
         )?])),
         2 => {
             let disc = quadratic_discriminant(coeffs)?;
-            if coefficients_are_exact_real(coeffs) && !numeric_is_negative(&disc) {
-                solve_parameterized_polynomial(coeffs, &CasAssumptions::default(), domain, 8)
+            if coefficients_are_exact_real(coeffs) {
+                if numeric_is_negative(&disc) {
+                    if domain == SolveDomain::Real {
+                        Ok(RootSolution::Empty)
+                    } else {
+                        solve_exact_complex_quadratic(coeffs, disc)
+                    }
+                } else {
+                    solve_parameterized_polynomial(coeffs, &CasAssumptions::default(), domain, 8)
+                }
             } else {
                 solve_numeric_quadratic(coeffs, disc, domain)
             }
         }
         _ => {
+            if let Some(roots) = solve_exact_monomial_polynomial(coeffs, degree, domain)? {
+                return Ok(RootSolution::Finite(roots));
+            }
             let roots = solve_monomial_polynomial(coeffs, degree)?;
             if domain == SolveDomain::Real {
                 let roots = roots
@@ -1020,6 +1128,93 @@ pub(crate) fn solve_system_infer_cas_with_assumptions(
     let var_names = infer_system_var_names(&equations)?;
 
     solve_normalized_system(&equations, &var_names, assumptions)
+}
+
+#[cfg(test)]
+mod exact_monomial_tests {
+    use super::*;
+
+    #[test]
+    fn exact_cubic_roots_do_not_use_complex64() {
+        let x = Value::from_cas_var("x");
+        let equation = cas_sub(
+            cas_pow(x.clone(), Value::Int(3)).expect("x cubed"),
+            Value::Int(2),
+        )
+        .expect("cubic equation");
+        let Value::List(roots) = solve_cas(&equation, &x).expect("cubic roots") else {
+            unreachable!("solve returns a list");
+        };
+
+        assert_eq!(roots.len(), 3);
+        assert_eq!(roots[0].to_string(), "2^(1/3)");
+        assert!(
+            roots
+                .iter()
+                .all(|root| !matches!(root, Value::Float(_) | Value::Complex(_)))
+        );
+    }
+
+    #[test]
+    fn exact_quintic_includes_exact_unit_root() {
+        let x = Value::from_cas_var("x");
+        let equation = cas_sub(
+            cas_pow(x.clone(), Value::Int(5)).expect("x fifth"),
+            Value::Int(1),
+        )
+        .expect("quintic equation");
+        let Value::List(roots) = solve_cas(&equation, &x).expect("quintic roots") else {
+            unreachable!("solve returns a list");
+        };
+
+        assert_eq!(roots.first(), Some(&Value::Int(1)));
+    }
+
+    #[test]
+    fn exact_quadratic_complex_roots_do_not_use_complex64() {
+        let x = Value::from_cas_var("x");
+        let equation = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(2)).expect("x squared"),
+            x.clone(),
+            Value::Int(1),
+        ])
+        .expect("quadratic equation");
+        let Value::List(roots) = solve_cas(&equation, &x).expect("quadratic roots") else {
+            unreachable!("solve returns a list");
+        };
+
+        assert_eq!(roots.len(), 2);
+        assert!(
+            roots
+                .iter()
+                .all(|root| !matches!(root, Value::Float(_) | Value::Complex(_)))
+        );
+    }
+
+    #[test]
+    fn exact_algebraic_monomial_coefficients_do_not_use_complex64() {
+        let x = Value::from_cas_var("x");
+        let sqrt_two = cas_pow(
+            Value::Int(2),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .expect("exact square root");
+        let equation = cas_sub(
+            cas_pow(x.clone(), Value::Int(3)).expect("x cubed"),
+            sqrt_two,
+        )
+        .expect("algebraic monomial equation");
+        let Value::List(roots) = solve_cas(&equation, &x).expect("algebraic monomial roots") else {
+            unreachable!("solve returns a list");
+        };
+
+        assert_eq!(roots.len(), 3);
+        assert!(
+            roots
+                .iter()
+                .all(|root| !matches!(root, Value::Float(_) | Value::Complex(_)))
+        );
+    }
 }
 
 #[cfg(test)]

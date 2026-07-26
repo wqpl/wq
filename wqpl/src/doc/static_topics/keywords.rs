@@ -49,8 +49,13 @@ const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Quote an opaque algebraic root",
-        code: "@s root[_^3-_-1;1;2]",
-        expectation: ExampleExpectation::ResultContains("root[_^3 - _ - 1;1;2]"),
+        code: "@s root[t^3-t-1;t;1;2]",
+        expectation: ExampleExpectation::ResultContains("root[t^3-t-1;t;1;2]"),
+    },
+    DocExample {
+        title: "Quote symbolic assumptions",
+        code: "@s (integer[n];nonnegative[n])",
+        expectation: ExampleExpectation::ResultContains("integer[n]"),
     },
 ];
 
@@ -58,20 +63,20 @@ const AT_SYMBOLIC_DETAILS: &str = "Use `@s` once at the start of a CAS expressio
 Bare arithmetic without `@s` is normal evaluation.
 Inside `@s`, `/.` and `^.` normalize to symbolic division and power.
 Single-variable CAS expressions can be called with one positional argument, while named arguments bind symbols by name.
-CAS-only special forms such as `root[...]` are recognized inside `@s` quoting and are not ordinary builtins.
-`root[poly;lo;hi]` requires finite bounds that strictly contain exactly one distinct real root; an endpoint cannot itself be a root.
+CAS-only special forms are recognized inside `@s` quoting. Predicates such as `integer[...]` and quoted calculus forms do not become ordinary runtime calls. Predicate arguments must be numeric or symbolic expressions; bools, strings, and containers are rejected.
+`root[poly;var;lo;hi]` requires finite bounds that strictly contain exactly one distinct real root; `var` names the polynomial variable and an endpoint cannot itself be a root. The shorter `root[poly;lo;hi]` form infers the only symbolic variable.
 Use an irreducible polynomial for full exact field arithmetic.
 Rational factors outside the selected interval are removed, and division reports an error when an element has no inverse.
+Exact quoted function calls stay symbolic unless an exact identity applies. Use `numeric[...]` when an approximate result is wanted.
 
 
 Reserved symbolic constants are `pi`, `e`, `inf` and its alias `oo`, `-inf` and its aliases `-oo` and `_oo`, and `undef`.
 Reserved predicates are `zero`, `nonzero`, `positive`, `negative`, `nonnegative`, `real`, and `integer`.
-Reserved special-forms are `limit` and `root`.
+Reserved special forms are `integrate`, `limit`, and `root`.
 
 
 Reserved unary functions are `abs`, `sgn`, `sin`, `cos`, `tan`, `sec`, `csc`, `cot`, `erf`, `erfc`, `gamma`, `lngamma`, `si`, `ci`, `ei`, `ellpk`, `ellpe`, `heaviside`, `delta`, `exp`, `ln`, `log2`, `log10`, `sqrt`, `arcsin`, `arccos`, `arctan`, `sinh`, `cosh`, `tanh`, `arcsinh`, `arccosh`, `arctanh`, `floor`, `ceil`, and `round`.
 The binary functions are `en`, `ellik`, `ellie`, `log`, and `arctan2`.
-`integrate` accepts one, two, or four arguments.
 These builtin-functions and predicates do not accept named arguments inside `@s`.
 Other identifiers remain ordinary symbolic variables, and other call heads remain uninterpreted symbolic applications.";
 

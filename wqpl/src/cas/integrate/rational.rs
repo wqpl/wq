@@ -2085,22 +2085,7 @@ fn algebraic_sqrt_of_rational(value: &Value) -> Option<Value> {
 }
 
 fn sqrt_of_value(value: &Value) -> Option<Value> {
-    use num_traits::ToPrimitive;
-
     match value {
-        Value::Int(n) => {
-            let f = (*n as f64).sqrt();
-            if (f - f.round()).abs() < 1e-12 {
-                Some(Value::Int(f.round() as i64))
-            } else if f.is_finite() {
-                Some(Value::from_cas_function(
-                    CasFunction::Sqrt,
-                    vec![value.clone()],
-                ))
-            } else {
-                None
-            }
-        }
         Value::Float(f) => {
             let sqrt = f.sqrt();
             if sqrt.is_finite() {
@@ -2109,34 +2094,11 @@ fn sqrt_of_value(value: &Value) -> Option<Value> {
                 None
             }
         }
-        Value::BigInt(n) => {
-            let f = n.to_f64()?.sqrt();
-            if (f - f.round()).abs() < 1e-12 {
-                Some(Value::Int(f.round() as i64))
-            } else if f.is_finite() {
-                Some(Value::from_cas_function(
-                    CasFunction::Sqrt,
-                    vec![value.clone()],
-                ))
-            } else {
-                None
-            }
-        }
-        Value::Fraction(fr) => {
-            let numer = fr.numer().to_f64()?;
-            let denom = fr.denom().to_f64()?;
-            let f = (numer / denom).sqrt();
-            if (f - f.round()).abs() < 1e-12 {
-                Some(Value::Int(f.round() as i64))
-            } else if f.is_finite() {
-                Some(Value::from_cas_function(
-                    CasFunction::Sqrt,
-                    vec![value.clone()],
-                ))
-            } else {
-                None
-            }
-        }
+        _ if value.rational_parts().is_some() && !numeric_is_negative(value) => cas_pow(
+            value.clone(),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .ok(),
         _ => None,
     }
 }
@@ -2804,6 +2766,22 @@ mod tests {
         assert!(
             !s.contains("1/2^(-1/2)"),
             "expected reciprocal radical to simplify, got: {s}"
+        );
+    }
+
+    #[test]
+    fn sqrt_of_exact_rational_never_uses_float_approximation() {
+        let square_root = sqrt_of_value(&Value::Int(2)).expect("exact square root");
+        let perfect_square = sqrt_of_value(&Value::from_fraction_parts(
+            BigInt::from(9),
+            BigInt::from(4),
+        ))
+        .expect("exact perfect-square root");
+
+        assert_eq!(square_root.to_string(), "2^(1/2)");
+        assert_eq!(
+            perfect_square,
+            Value::from_fraction_parts(BigInt::from(3), BigInt::from(2))
         );
     }
 }

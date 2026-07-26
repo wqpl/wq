@@ -3,8 +3,10 @@ use num_traits::{Signed, Zero};
 
 use crate::cas::diff::diff_expr_with_debug;
 use crate::cas::{
-    CasDebug, cas_div, cas_product, contains_cas_var, numeric_is_negative, numeric_is_zero,
-    poly_degree, poly_from_expr, simplify_cas_value, substitute_cas,
+    CasDebug, cas_div, cas_product, close_cas_scope, contains_cas_var, numeric_add,
+    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub, poly_degree,
+    poly_derivative, poly_evaluate, poly_from_expr, simplify_cas_value, substitute_cas,
+    var_name_from_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -193,7 +195,9 @@ fn limit_cas_inner(
     );
 
     // Fallback: unevaluated limit node
-    let fallback = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), direction);
+    let var_name = var_name_from_value(var)?;
+    let fallback =
+        Value::from_cas_limit(close_cas_scope(expr, &var_name), point.clone(), direction);
     cas_trace_depth!(
         debug,
         DebugLogFlags::CAS_VERBOSE,
@@ -311,7 +315,7 @@ fn try_finite_function_limit(
                 return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
             }
             if numeric_is_zero(&inner_limit) {
-                return match probe_expression_approach_sign(arg, var, point, direction)? {
+                return match expression_approach_sign(arg, var, point, direction)? {
                     Some(ApproachSign::Positive) => {
                         Ok(Some(Value::from_cas_const(CasConst::NegInfinity)))
                     }
@@ -330,9 +334,9 @@ fn try_finite_function_limit(
                 return Ok(None);
             };
             Ok(Some(match sign {
-                ApproachSign::Positive => Value::float(1.0),
-                ApproachSign::Negative => Value::float(-1.0),
-                ApproachSign::Zero => Value::float(0.0),
+                ApproachSign::Positive => Value::Int(1),
+                ApproachSign::Negative => Value::Int(-1),
+                ApproachSign::Zero => Value::Int(0),
                 ApproachSign::Mixed => Value::from_cas_const(CasConst::Undefined),
             }))
         }
@@ -341,9 +345,9 @@ fn try_finite_function_limit(
                 return Ok(None);
             };
             Ok(Some(match sign {
-                ApproachSign::Positive => Value::float(1.0),
-                ApproachSign::Negative => Value::float(0.0),
-                ApproachSign::Zero => Value::float(0.5),
+                ApproachSign::Positive => Value::Int(1),
+                ApproachSign::Negative => Value::Int(0),
+                ApproachSign::Zero => Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
                 ApproachSign::Mixed => Value::from_cas_const(CasConst::Undefined),
             }))
         }
@@ -378,7 +382,7 @@ fn try_finite_power_domain_limit(
     if !numeric_is_zero(&base_limit) {
         return Ok(None);
     }
-    let Some(sign) = probe_expression_approach_sign(base, var, point, direction)? else {
+    let Some(sign) = expression_approach_sign(base, var, point, direction)? else {
         return Ok(None);
     };
     match sign {
@@ -418,7 +422,7 @@ fn limit_approach_sign(
         return Ok(Some(ApproachSign::Zero));
     }
 
-    probe_expression_approach_sign(expr, var, point, direction)
+    expression_approach_sign(expr, var, point, direction)
 }
 
 fn try_quotient_limit(
@@ -511,7 +515,7 @@ fn try_lhopital(
 /// Check whether `expr` evaluates to zero when `var = point`.
 fn is_zero_at(expr: &Value, var: &Value, point: &Value) -> WqResult<bool> {
     match substitute_cas(expr, var, point) {
-        Ok(v) => Ok(v.as_f64().map(|f| f == 0.0).unwrap_or(false) || matches!(v, Value::Int(0))),
+        Ok(value) => Ok(numeric_is_zero(&value)),
         Err(_) => Ok(false),
     }
 }
@@ -594,17 +598,15 @@ fn split_inf_times_zero_product(expr: &Value, var_name: &str) -> Option<(Value, 
             // Invert: e^(k*x) in denominator, so denominator = e^(-k*x)
             // For e^(-x): exp = (* -1 x), inverted denom = (^ e x) = e^x
             let (coeff, _) = extract_linear_coeff(exp, var_name);
-            if coeff.as_f64().map(|c| c < 0.0).unwrap_or(false) {
+            if numeric_is_negative(&coeff) {
                 // Build e^(-coeff * x) as denominator
-                let pos_exp = if coeff.as_f64() == Some(-1.0) {
+                let positive_coeff = numeric_mul(&Value::Int(-1), &coeff).ok()?;
+                let pos_exp = if numeric_is_one(&positive_coeff) {
                     Value::from_cas_var(var_name)
                 } else {
                     Value::from_cas_op(
                         CasOp::Multiply,
-                        vec![
-                            Value::float(-coeff.as_f64().unwrap()),
-                            Value::from_cas_var(var_name),
-                        ],
+                        vec![positive_coeff, Value::from_cas_var(var_name)],
                     )
                 };
                 denom_inner = Some(Value::from_cas_op(
@@ -662,23 +664,31 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
         && !base.is_cas_expr()
     {
         // a^(k*x) as x->inf: a>1 -> inf, 0<a<1 -> 0
-        let a = base.as_f64().unwrap_or(2.0);
-        if a > 1.0 {
-            let (coeff, _) = extract_linear_coeff(exp_arg, var_name);
-            let c = coeff.as_f64().unwrap_or(0.0);
-            let exponent_direction = c * f64::from(sign);
-            if exponent_direction > 0.0 {
+        let Some(base_sign) = numeric_sign(base) else {
+            return Ok(None);
+        };
+        if base_sign <= 0 {
+            return Ok(None);
+        }
+        let base_relative_to_one = numeric_sub(base, &Value::Int(1))?;
+        let Some(base_cmp) = numeric_sign(&base_relative_to_one) else {
+            return Ok(None);
+        };
+        let (coeff, _) = extract_linear_coeff(exp_arg, var_name);
+        let Some(coeff_sign) = numeric_sign(&coeff) else {
+            return Ok(None);
+        };
+        let exponent_direction = coeff_sign * sign;
+        if base_cmp > 0 {
+            if exponent_direction > 0 {
                 return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
-            } else if exponent_direction < 0.0 {
+            } else if exponent_direction < 0 {
                 return Ok(Some(Value::Int(0)));
             }
-        } else if a > 0.0 && a < 1.0 {
-            let (coeff, _) = extract_linear_coeff(exp_arg, var_name);
-            let c = coeff.as_f64().unwrap_or(0.0);
-            let exponent_direction = c * f64::from(sign);
-            if exponent_direction > 0.0 {
+        } else if base_cmp < 0 {
+            if exponent_direction > 0 {
                 return Ok(Some(Value::Int(0)));
-            } else if exponent_direction < 0.0 {
+            } else if exponent_direction < 0 {
                 return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
             }
         }
@@ -758,7 +768,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
                 return Ok(None);
             }
         }
-        match combine_product_limits(&limits) {
+        match combine_product_limits(&limits)? {
             ProductResult::Determinate(v) => return Ok(Some(v)),
             ProductResult::InfTimesZero => {
                 // inf*0: dominated by exponential decay -> 0.
@@ -796,7 +806,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
             }
         });
         if has_one && has_recip && is_pos_inf {
-            return Ok(Some(Value::float(std::f64::consts::E)));
+            return Ok(Some(Value::from_cas_const(CasConst::E)));
         }
     }
 
@@ -823,11 +833,11 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
             }
         }
         if sign > 0
-            && let Some(n) = exp.as_f64()
+            && let Some(exp_sign) = numeric_sign(exp)
         {
-            if n > 0.0 {
+            if exp_sign > 0 {
                 return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
-            } else if n < 0.0 {
+            } else if exp_sign < 0 {
                 return Ok(Some(Value::Int(0)));
             }
         }
@@ -840,12 +850,15 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
 fn asymp_at_infinity(name: CasFunction, inf_val: &Value) -> Option<Value> {
     let is_pos = inf_val.cas_const() == Some(CasConst::Infinity);
     match name {
-        CasFunction::ArcTan => Some(Value::float(if is_pos {
-            std::f64::consts::FRAC_PI_2
-        } else {
-            -std::f64::consts::FRAC_PI_2
-        })),
-        CasFunction::Tanh => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
+        CasFunction::ArcTan => {
+            let half_pi = cas_div(Value::from_cas_const(CasConst::Pi), Value::Int(2)).ok()?;
+            Some(if is_pos {
+                half_pi
+            } else {
+                numeric_mul(&Value::Int(-1), &half_pi).ok()?
+            })
+        }
+        CasFunction::Tanh => Some(Value::Int(if is_pos { 1 } else { -1 })),
         CasFunction::ArcTanh => None, // arctanh domain is (-1,1), undefined at inf
         CasFunction::ArcCosh => Some(inf_val.clone()), // arccosh(inf) = inf
         CasFunction::ArcSinh => Some(inf_val.clone()), // arcsinh(inf) = inf
@@ -859,10 +872,10 @@ fn asymp_at_infinity(name: CasFunction, inf_val: &Value) -> Option<Value> {
         } else {
             Value::from_cas_const(CasConst::Undefined)
         }),
-        CasFunction::Sgn => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
-        CasFunction::Heaviside => Some(Value::float(if is_pos { 1.0 } else { 0.0 })),
-        CasFunction::Erf => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
-        CasFunction::Erfc => Some(Value::float(if is_pos { 0.0 } else { 2.0 })),
+        CasFunction::Sgn => Some(Value::Int(if is_pos { 1 } else { -1 })),
+        CasFunction::Heaviside => Some(Value::Int(if is_pos { 1 } else { 0 })),
+        CasFunction::Erf => Some(Value::Int(if is_pos { 1 } else { -1 })),
+        CasFunction::Erfc => Some(Value::Int(if is_pos { 0 } else { 2 })),
         _ => None,
     }
 }
@@ -897,70 +910,55 @@ enum ProductResult {
 }
 
 /// Combine limits of product factors at infinity.
-fn combine_product_limits(factors: &[(Value, Value)]) -> ProductResult {
+fn combine_product_limits(factors: &[(Value, Value)]) -> WqResult<ProductResult> {
     let mut has_zero = false;
     let mut has_inf = false;
-    let mut inf_sign: Option<CasConst> = None;
+    let mut negative_parity = false;
     let mut finite: Option<Value> = None;
 
     for (_, lim) in factors {
-        if lim.as_f64().map(|f| f == 0.0).unwrap_or(false) || matches!(lim, Value::Int(0)) {
+        if numeric_is_zero(lim) {
             has_zero = true;
         } else if matches!(
             lim.cas_const(),
             Some(CasConst::Infinity | CasConst::NegInfinity)
         ) {
             has_inf = true;
-            let lim_sign = if lim.cas_const() == Some(CasConst::Infinity) {
-                CasConst::Infinity
-            } else {
-                CasConst::NegInfinity
-            };
-            if inf_sign.is_none() {
-                inf_sign = Some(lim_sign);
-            } else if inf_sign != Some(lim_sign) {
-                inf_sign = Some(CasConst::NegInfinity);
+            if lim.cas_const() == Some(CasConst::NegInfinity) {
+                negative_parity = !negative_parity;
             }
-        } else if !lim.is_cas_expr() {
+        } else if numeric_sign(lim).is_some() {
             finite = Some(match finite.take() {
                 None => lim.clone(),
-                Some(prev) => {
-                    Value::float(prev.as_f64().unwrap_or(1.0) * lim.as_f64().unwrap_or(1.0))
-                }
+                Some(prev) => numeric_mul(&prev, lim)?,
             });
         } else {
-            return ProductResult::Indeterminate;
+            return Ok(ProductResult::Indeterminate);
         }
     }
 
     if has_zero && has_inf {
-        return ProductResult::InfTimesZero;
+        return Ok(ProductResult::InfTimesZero);
     }
     if has_inf {
-        let sign = inf_sign.unwrap_or(CasConst::Infinity);
-        let neg_coeff = finite
-            .as_ref()
-            .and_then(|f| f.as_f64())
-            .map(|v| v < 0.0)
-            .unwrap_or(false);
-        if neg_coeff {
-            return ProductResult::Determinate(Value::from_cas_const(
-                if sign == CasConst::Infinity {
-                    CasConst::NegInfinity
-                } else {
-                    CasConst::Infinity
-                },
-            ));
+        if finite.as_ref().is_some_and(numeric_is_negative) {
+            negative_parity = !negative_parity;
         }
-        return ProductResult::Determinate(Value::from_cas_const(sign));
+        return Ok(ProductResult::Determinate(Value::from_cas_const(
+            if negative_parity {
+                CasConst::NegInfinity
+            } else {
+                CasConst::Infinity
+            },
+        )));
     }
-    if has_zero {
+    Ok(if has_zero {
         ProductResult::Determinate(Value::Int(0))
     } else if let Some(f) = finite {
         ProductResult::Determinate(f)
     } else {
         ProductResult::Indeterminate
-    }
+    })
 }
 
 /// Check whether any factor in the product represents exponential decay
@@ -973,7 +971,7 @@ fn has_exp_decay(args: &[Value], var_name: &str) -> bool {
         {
             // Check exponent is negative as var -> inf
             let (coeff, _) = extract_linear_coeff(exp, var_name);
-            coeff.as_f64().map(|c| c < 0.0).unwrap_or(false)
+            numeric_is_negative(&coeff)
         } else {
             false
         }
@@ -986,11 +984,13 @@ fn limit_exp_at_infinity(arg: &Value, var_name: &str, sign: i32) -> WqResult<Opt
     // Look for linear arg: a*x + b. exp(a*x + b): a>0 -> inf as x->inf; a<0 -> 0 as
     // x->inf
     let (coeff, _) = extract_linear_coeff(arg, var_name);
-    let a = coeff.as_f64().unwrap_or(0.0);
-    if a == 0.0 {
+    let Some(coeff_sign) = numeric_sign(&coeff) else {
+        return Ok(None);
+    };
+    if coeff_sign == 0 {
         return Ok(None);
     }
-    let effective_sign = if a * (sign as f64) > 0.0 { 1 } else { -1 };
+    let effective_sign = coeff_sign * sign;
     if effective_sign > 0 {
         Ok(Some(Value::from_cas_const(CasConst::Infinity)))
     } else {
@@ -1016,7 +1016,10 @@ fn extract_linear_coeff(expr: &Value, var_name: &str) -> (Value, Value) {
             if arg.cas_var_name() == Some(var_name) {
                 var_count += 1;
             } else if !arg.is_cas_expr() {
-                coeff = Value::float(coeff.as_f64().unwrap_or(1.0) * arg.as_f64().unwrap_or(1.0));
+                let Ok(product) = numeric_mul(&coeff, arg) else {
+                    return (Value::Int(0), Value::Int(0));
+                };
+                coeff = product;
             }
         }
         if var_count == 1 {
@@ -1031,9 +1034,10 @@ fn extract_linear_coeff(expr: &Value, var_name: &str) -> (Value, Value) {
                 let mut const_term = b;
                 for other in args {
                     if other != arg && !other.is_cas_expr() {
-                        const_term = Value::float(
-                            const_term.as_f64().unwrap_or(0.0) + other.as_f64().unwrap_or(0.0),
-                        );
+                        let Ok(sum) = numeric_add(&const_term, other) else {
+                            return (Value::Int(0), Value::Int(0));
+                        };
+                        const_term = sum;
                     }
                 }
                 return (a, const_term);
@@ -1171,9 +1175,7 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
             {
                 // Check other term is -1
                 let other = if args[0] == *arg { &args[1] } else { &args[0] };
-                if matches!(other, Value::Int(-1))
-                    || (other.as_f64().map(|f| f == -1.0).unwrap_or(false))
-                {
+                if numeric_add(other, &Value::Int(1)).is_ok_and(|sum| numeric_is_zero(&sum)) {
                     return Ok(Some(Value::Int(1)));
                 }
             }
@@ -1197,51 +1199,74 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
 
 // === Strategy 5: series expansion at x=0 ===
 
-/// Known Taylor series at x=0, up to order 6.  Coefficients are indexed by
+/// Known exact Taylor series at x=0, up to order 6. Coefficients are indexed by
 /// degree: `coeffs[i]` is the coefficient of `x^i`.
-fn taylor_series(name: CasFunction) -> Option<Vec<f64>> {
+fn taylor_series(name: CasFunction) -> Option<Vec<Value>> {
+    let fraction =
+        |numer, denom| Value::from_fraction_parts(BigInt::from(numer), BigInt::from(denom));
     match name {
-        CasFunction::Sin => Some(vec![0.0, 1.0, 0.0, -1.0 / 6.0, 0.0, 1.0 / 120.0, 0.0]),
-        CasFunction::Cos => Some(vec![1.0, 0.0, -1.0 / 2.0, 0.0, 1.0 / 24.0, 0.0]),
-        CasFunction::Tan => Some(vec![0.0, 1.0, 0.0, 1.0 / 3.0, 0.0, 2.0 / 15.0]),
-        CasFunction::Exp => Some(vec![
-            1.0,
-            1.0,
-            1.0 / 2.0,
-            1.0 / 6.0,
-            1.0 / 24.0,
-            1.0 / 120.0,
+        CasFunction::Sin => Some(vec![
+            Value::Int(0),
+            Value::Int(1),
+            Value::Int(0),
+            fraction(-1, 6),
+            Value::Int(0),
+            fraction(1, 120),
+            Value::Int(0),
         ]),
-        CasFunction::Ln => Some(vec![0.0, 1.0, -1.0 / 2.0, 1.0 / 3.0, -1.0 / 4.0, 1.0 / 5.0]),
-        CasFunction::Sqrt => Some(vec![0.0, 1.0]),
+        CasFunction::Cos => Some(vec![
+            Value::Int(1),
+            Value::Int(0),
+            fraction(-1, 2),
+            Value::Int(0),
+            fraction(1, 24),
+            Value::Int(0),
+        ]),
+        CasFunction::Tan => Some(vec![
+            Value::Int(0),
+            Value::Int(1),
+            Value::Int(0),
+            fraction(1, 3),
+            Value::Int(0),
+            fraction(2, 15),
+        ]),
+        CasFunction::Exp => Some(vec![
+            Value::Int(1),
+            Value::Int(1),
+            fraction(1, 2),
+            fraction(1, 6),
+            fraction(1, 24),
+            fraction(1, 120),
+        ]),
+        CasFunction::Ln => Some(vec![
+            Value::Int(0),
+            Value::Int(1),
+            fraction(-1, 2),
+            fraction(1, 3),
+            fraction(-1, 4),
+            fraction(1, 5),
+        ]),
+        CasFunction::Sqrt => Some(vec![Value::Int(0), Value::Int(1)]),
         _ => None,
     }
 }
 
 /// Build a truncated Taylor series for `expr` around x=0, up to `order`.
-/// Returns coefficients as `Vec<f64>` where index = degree, or `None` if the
+/// Returns exact coefficients where index = degree, or `None` if the
 /// expression can't be handled.
-fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>> {
+fn expand_series(expr: &Value, var_name: &str, order: usize) -> WqResult<Option<Vec<Value>>> {
     // Constant
-    if let Some(f) = expr.as_f64() {
-        let mut c = vec![0.0; order + 1];
-        c[0] = f;
-        return Some(c);
-    }
-    if matches!(expr, Value::Int(0)) {
-        return Some(vec![0.0; order + 1]);
-    }
-    if let Some(n) = expr.as_i64() {
-        let mut c = vec![0.0; order + 1];
-        c[0] = n as f64;
-        return Some(c);
+    if !expr.is_cas_expr() && numeric_sign(expr).is_some() {
+        let mut coefficients = vec![Value::Int(0); order + 1];
+        coefficients[0] = expr.clone();
+        return Ok(Some(coefficients));
     }
 
     // Variable: x -> series [0, 1, 0, 0, ...]
     if expr.cas_var_name() == Some(var_name) {
-        let mut c = vec![0.0; order + 1];
-        c[1] = 1.0;
-        return Some(c);
+        let mut coefficients = vec![Value::Int(0); order + 1];
+        coefficients[1] = Value::Int(1);
+        return Ok(Some(coefficients));
     }
 
     // x^n
@@ -1250,63 +1275,80 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
         && let Some(n) = exp.as_i64()
         && n >= 0
     {
-        let n = usize::try_from(n).ok()?;
+        let Ok(n) = usize::try_from(n) else {
+            return Ok(None);
+        };
         if n <= order {
-            let mut c = vec![0.0; order + 1];
-            c[n] = 1.0;
-            return Some(c);
+            let mut coefficients = vec![Value::Int(0); order + 1];
+            coefficients[n] = Value::Int(1);
+            return Ok(Some(coefficients));
         }
     }
 
     // Sum: f + g
     if let Some((CasOp::Add, args)) = expr.cas_op_parts() {
-        let mut total = vec![0.0; order + 1];
+        let mut total = vec![Value::Int(0); order + 1];
         for arg in args {
-            let s = expand_series(arg, var_name, order)?;
+            let Some(series) = expand_series(arg, var_name, order)? else {
+                return Ok(None);
+            };
             for i in 0..=order {
-                total[i] += s[i];
+                total[i] = numeric_add(&total[i], &series[i])?;
             }
         }
-        return Some(total);
+        return Ok(Some(total));
     }
 
     // Negation: -f
     if let Some((CasOp::Subtract, [arg])) = expr.cas_op_parts() {
-        let s = expand_series(arg, var_name, order)?;
-        return Some(s.iter().map(|c| -c).collect());
+        let Some(series) = expand_series(arg, var_name, order)? else {
+            return Ok(None);
+        };
+        return series
+            .iter()
+            .map(|coefficient| numeric_mul(&Value::Int(-1), coefficient))
+            .collect::<WqResult<Vec<_>>>()
+            .map(Some);
     }
 
     // Subtraction: f - g
     if let Some((CasOp::Subtract, [lhs, rhs])) = expr.cas_op_parts() {
-        let a = expand_series(lhs, var_name, order)?;
-        let b = expand_series(rhs, var_name, order)?;
-        let mut c = vec![0.0; order + 1];
+        let Some(a) = expand_series(lhs, var_name, order)? else {
+            return Ok(None);
+        };
+        let Some(b) = expand_series(rhs, var_name, order)? else {
+            return Ok(None);
+        };
+        let mut coefficients = vec![Value::Int(0); order + 1];
         for i in 0..=order {
-            c[i] = a[i] - b[i];
+            coefficients[i] = numeric_sub(&a[i], &b[i])?;
         }
-        return Some(c);
+        return Ok(Some(coefficients));
     }
 
     // Product: f * g (truncated convolution)
     if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
-        let series: Vec<Vec<f64>> = args
-            .iter()
-            .map(|a| expand_series(a, var_name, order))
-            .collect::<Option<_>>()?;
+        let mut series = Vec::with_capacity(args.len());
+        for arg in args {
+            let Some(expanded) = expand_series(arg, var_name, order)? else {
+                return Ok(None);
+            };
+            series.push(expanded);
+        }
         // Multiply all series
-        let mut result = vec![1.0]; // 1 (empty product)
-        result.resize(order + 1, 0.0);
-        result[0] = 1.0;
+        let mut result = vec![Value::Int(0); order + 1];
+        result[0] = Value::Int(1);
         for s in &series {
-            let mut next = vec![0.0; order + 1];
+            let mut next = vec![Value::Int(0); order + 1];
             for i in 0..=order {
                 for j in 0..=order - i {
-                    next[i + j] += result[i] * s[j];
+                    let product = numeric_mul(&result[i], &s[j])?;
+                    next[i + j] = numeric_add(&next[i + j], &product)?;
                 }
             }
             result = next;
         }
-        return Some(result);
+        return Ok(Some(result));
     }
 
     // Power: f^n for integer n >= 0
@@ -1314,43 +1356,50 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
         && let Some(n) = exp.as_i64()
         && (0..=6).contains(&n)
     {
-        let b = expand_series(base, var_name, order)?;
-        let mut result = vec![1.0]; // identity
-        result.resize(order + 1, 0.0);
+        let Some(base_series) = expand_series(base, var_name, order)? else {
+            return Ok(None);
+        };
+        let mut result = vec![Value::Int(0); order + 1];
+        result[0] = Value::Int(1);
         let n = usize::try_from(n).expect("small non-negative exponent fits in usize");
         for _ in 0..n {
-            let mut next = vec![0.0; order + 1];
+            let mut next = vec![Value::Int(0); order + 1];
             for i in 0..=order {
                 for j in 0..=order - i {
-                    next[i + j] += result[i] * b[j];
+                    let product = numeric_mul(&result[i], &base_series[j])?;
+                    next[i + j] = numeric_add(&next[i + j], &product)?;
                 }
             }
             result = next;
         }
-        return Some(result);
+        return Ok(Some(result));
     }
 
     // Known function calls
     if let Some((name, args)) = expr.cas_function_parts() {
-        let mut table = taylor_series(name)?;
+        let Some(mut table) = taylor_series(name) else {
+            return Ok(None);
+        };
         // Pad to order+1 if the table is shorter
-        table.resize(order + 1, 0.0);
+        table.resize(order + 1, Value::Int(0));
         // For ln(1+x): arg is (+ 1 x)
         if name == CasFunction::Ln && args.len() == 1 {
-            let inner = expand_series(&args[0], var_name, order)?;
-            if (inner[0] - 1.0).abs() < 1e-12 {
-                return Some(table);
+            let Some(inner) = expand_series(&args[0], var_name, order)? else {
+                return Ok(None);
+            };
+            if numeric_is_one(&inner[0]) {
+                return Ok(Some(table));
             }
-            return None;
+            return Ok(None);
         }
         // For exp(x), sin(x), cos(x), tan(x): arg must be just x
         if args.len() == 1 && args[0].cas_var_name() == Some(var_name) {
-            return Some(table);
+            return Ok(Some(table));
         }
-        return None;
+        return Ok(None);
     }
 
-    None
+    Ok(None)
 }
 
 /// Strategy 5: series expansion at x=0.
@@ -1373,27 +1422,34 @@ fn try_series_expansion(expr: &Value, var: &Value) -> WqResult<Option<Value>> {
     }
 
     // Expand both up to order 6
-    let num_series = match expand_series(&num, var_name, 6) {
+    let num_series = match expand_series(&num, var_name, 6)? {
         Some(s) => s,
         None => return Ok(None),
     };
-    let den_series = match expand_series(&den, var_name, 6) {
+    let den_series = match expand_series(&den, var_name, 6)? {
         Some(s) => s,
         None => return Ok(None),
     };
 
     // Find lowest non-zero term in each
-    let num_start = num_series.iter().position(|&c| c.abs() > 1e-12);
-    let den_start = den_series.iter().position(|&c| c.abs() > 1e-12);
+    let num_start = num_series
+        .iter()
+        .position(|coefficient| !numeric_is_zero(coefficient));
+    let den_start = den_series
+        .iter()
+        .position(|coefficient| !numeric_is_zero(coefficient));
 
     match (num_start, den_start) {
         (Some(ni), Some(di)) if ni >= di => {
             // Cancel x^di: limit = num_coeff[ni] / den_coeff[di] if ni == di,
             // or 0 if ni > di
             if ni == di {
-                Ok(Some(Value::float(num_series[ni] / den_series[di])))
+                Ok(Some(cas_div(
+                    num_series[ni].clone(),
+                    den_series[di].clone(),
+                )?))
             } else {
-                Ok(Some(Value::float(0.0)))
+                Ok(Some(Value::Int(0)))
             }
         }
         (Some(_), Some(_)) => {
@@ -1402,7 +1458,7 @@ fn try_series_expansion(expr: &Value, var: &Value) -> WqResult<Option<Value>> {
         }
         (None, Some(_)) => {
             // num is identically 0 -> limit = 0
-            Ok(Some(Value::float(0.0)))
+            Ok(Some(Value::Int(0)))
         }
         _ => Ok(None),
     }
@@ -1443,8 +1499,7 @@ fn try_pole_limit(
         return Ok(None);
     }
 
-    // Probe denominator sign near the point using a small epsilon.
-    let den_sign = probe_denominator_sign(&den, var, point, direction)?;
+    let den_sign = denominator_approach_sign(&den, var, point, direction)?;
     let den_sign = match den_sign {
         Some(s) => s,
         None => return Ok(None),
@@ -1462,87 +1517,67 @@ fn try_pole_limit(
     }))
 }
 
-fn probe_expression_approach_sign(
+fn expression_approach_sign(
     expr: &Value,
     var: &Value,
     point: &Value,
     direction: Option<LimitDirection>,
 ) -> WqResult<Option<ApproachSign>> {
-    let Some(base) = point.as_f64() else {
+    if let Some((CasFunction::Abs, [inner])) = expr.cas_function_parts() {
+        return Ok(expression_approach_sign(inner, var, point, direction)?.map(
+            |sign| match sign {
+                ApproachSign::Zero => ApproachSign::Zero,
+                ApproachSign::Negative | ApproachSign::Positive | ApproachSign::Mixed => {
+                    ApproachSign::Positive
+                }
+            },
+        ));
+    }
+
+    let var_name = var_name_from_value(var)?;
+    let Ok(mut coefficients) = poly_from_expr(expr, &var_name) else {
         return Ok(None);
     };
-    let eps = 1e-10_f64.max(base.abs() * 1e-10);
 
-    let sign_at = |offset: f64| -> Option<i32> {
-        let probe = Value::float(base + offset);
-        let value = substitute_cas(expr, var, &probe).ok()?;
-        let value = simplify_cas_value(&value).ok()?;
-        numeric_sign(&value)
-    };
-
-    let result = match direction {
-        None => {
-            let right = sign_at(eps);
-            let left = sign_at(-eps);
-            match (right, left) {
-                (Some(r), Some(l)) if r == l => Some(ApproachSign::from_numeric(r)),
-                (Some(_), Some(_)) => Some(ApproachSign::Mixed),
-                _ => None,
-            }
+    let mut order = 0usize;
+    loop {
+        if coefficients.iter().all(numeric_is_zero) {
+            return Ok(Some(ApproachSign::Zero));
         }
-        Some(LimitDirection::Right) => sign_at(eps).map(ApproachSign::from_numeric),
-        Some(LimitDirection::Left) => sign_at(-eps).map(ApproachSign::from_numeric),
-    };
-    Ok(result)
+
+        let value_at_point = poly_evaluate(&coefficients, point)?;
+        let Some(sign) = numeric_sign(&value_at_point) else {
+            return Ok(None);
+        };
+        if sign != 0 {
+            let right = ApproachSign::from_numeric(sign);
+            let left =
+                ApproachSign::from_numeric(if order.is_multiple_of(2) { sign } else { -sign });
+            return Ok(Some(match direction {
+                None if left != right => ApproachSign::Mixed,
+                None | Some(LimitDirection::Right) => right,
+                Some(LimitDirection::Left) => left,
+            }));
+        }
+
+        coefficients = poly_derivative(&coefficients);
+        order += 1;
+    }
 }
 
-/// Probe the sign of `den(var)` as `var` approaches `point` from the given
-/// direction.  Returns `Some(sign)` where sign is 1 or -1, or `None` if the
-/// probing failed (e.g. the limit point is not a float).
-///
-/// Uses a small epsilon (1e-10) to evaluate the denominator near the point.
-fn probe_denominator_sign(
+fn denominator_approach_sign(
     den: &Value,
     var: &Value,
     point: &Value,
     direction: Option<LimitDirection>,
 ) -> WqResult<Option<i32>> {
-    let base = match point.as_f64() {
-        Some(f) => f,
-        None => return Ok(None), // non-numeric point (e.g. symbolic)
-    };
-    let eps = 1e-10;
-
-    let sign_at = |offset: f64| -> Option<i32> {
-        let probe = Value::float(base + offset);
-        match substitute_cas(den, var, &probe) {
-            Ok(v) => v.as_f64().map(|f| {
-                if f > 0.0 {
-                    1
-                } else if f < 0.0 {
-                    -1
-                } else {
-                    0
-                }
-            }),
-            Err(_) => None,
-        }
-    };
-
-    let result = match direction {
-        None => {
-            let right = sign_at(eps);
-            let left = sign_at(-eps);
-            match (right, left) {
-                (Some(r), Some(l)) if r != l => Some(0),
-                (Some(r), Some(_)) => Some(r),
-                _ => None,
-            }
-        }
-        Some(LimitDirection::Right) => sign_at(eps),
-        Some(LimitDirection::Left) => sign_at(-eps),
-    };
-    Ok(result)
+    Ok(
+        expression_approach_sign(den, var, point, direction)?.map(|sign| match sign {
+            ApproachSign::Positive => 1,
+            ApproachSign::Negative => -1,
+            ApproachSign::Zero | ApproachSign::Mixed => 0,
+        }),
+    )
 }
 
 pub(crate) fn parse_limit_direction(value: &Value) -> Option<LimitDirection> {
@@ -1558,6 +1593,7 @@ mod tests {
     use num_bigint::BigInt;
 
     use super::*;
+    use crate::cas::{cas_add, cas_mul, cas_pow};
 
     fn cas_var(name: &str) -> Value {
         Value::from_cas_var(name)
@@ -1577,6 +1613,15 @@ mod tests {
 
     fn konst(konst: CasConst) -> Value {
         Value::from_cas_const(konst)
+    }
+
+    fn limit_node(
+        expr: Value,
+        var: &str,
+        point: Value,
+        direction: Option<LimitDirection>,
+    ) -> Value {
+        Value::from_cas_limit(close_cas_scope(&expr, var), point, direction)
     }
 
     // === helpers ===
@@ -1707,7 +1752,7 @@ mod tests {
         );
         let expr = cas_div_expr(num, cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
-        assert_eq!(result, Value::float(0.0));
+        assert_eq!(result, Value::Int(0));
     }
 
     #[test]
@@ -2200,9 +2245,14 @@ mod tests {
     fn series_expand_tan() {
         // Sanity check: expand tan(x) as series
         let tan_x = call(CasFunction::Tan, vec![cas_var("x")]);
-        let s = expand_series(&tan_x, "x", 6).unwrap();
-        assert!((s[1] - 1.0).abs() < 1e-12, "tan coeff x^1 = 1");
-        assert!((s[3] - 1.0 / 3.0).abs() < 1e-10, "tan coeff x^3 = 1/3");
+        let series = expand_series(&tan_x, "x", 6)
+            .expect("series expansion")
+            .expect("supported series");
+        assert_eq!(series[1], Value::Int(1));
+        assert_eq!(
+            series[3],
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(3))
+        );
     }
 
     #[test]
@@ -2270,7 +2320,10 @@ mod tests {
         // limit(arctan(x), x->inf) = pi/2
         let expr = call(CasFunction::ArcTan, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &inf(), None).unwrap();
-        assert!((result.as_f64().unwrap() - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
+        assert_eq!(
+            result,
+            cas_div(Value::from_cas_const(CasConst::Pi), Value::Int(2)).expect("exact half pi")
+        );
     }
 
     #[test]
@@ -2329,6 +2382,82 @@ mod tests {
         let expr = cas_div_expr(Value::Int(1), cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::float(f64::INFINITY), None).unwrap();
         assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn approach_sign_uses_local_polynomial_order_not_fixed_sampling() {
+        let x = cas_var("x");
+        let nearby_factor = cas_add(vec![
+            Value::Int(1),
+            cas_mul(vec![
+                Value::from_bigint(BigInt::from(-100_000_000_000_000_000_000_i128)),
+                x.clone(),
+            ])
+            .expect("nearby factor term"),
+        ])
+        .expect("nearby factor");
+        let signed = call(
+            CasFunction::Sgn,
+            vec![cas_mul(vec![x.clone(), nearby_factor]).expect("signed polynomial")],
+        );
+
+        assert_eq!(
+            limit_cas(&signed, &x, &Value::Int(0), None).expect("two-sided limit"),
+            konst(CasConst::Undefined)
+        );
+        assert_eq!(
+            limit_cas(&signed, &x, &Value::Int(0), Some(LimitDirection::Right),)
+                .expect("right limit"),
+            Value::Int(1)
+        );
+        assert_eq!(
+            limit_cas(&signed, &x, &Value::Int(0), Some(LimitDirection::Left),)
+                .expect("left limit"),
+            Value::Int(-1)
+        );
+    }
+
+    #[test]
+    fn product_limit_tracks_negative_infinity_parity() {
+        let x = cas_var("x");
+        let expr =
+            cas_mul(vec![x.clone(), call(CasFunction::ArcSinh, vec![x.clone()])]).expect("product");
+
+        assert_eq!(
+            limit_cas(&expr, &x, &konst(CasConst::NegInfinity), None).expect("product limit"),
+            konst(CasConst::Infinity)
+        );
+    }
+
+    #[test]
+    fn exact_taylor_series_preserves_tiny_leading_coefficient() {
+        let x = cas_var("x");
+        let one_sixth = Value::from_fraction_parts(BigInt::from(1), BigInt::from(6));
+        let tiny = Value::from_fraction_parts(
+            BigInt::from(1),
+            BigInt::from(100_000_000_000_000_000_000_i128),
+        );
+        let coefficient = numeric_add(&one_sixth, &tiny).expect("exact coefficient");
+        let numerator = cas_add(vec![
+            call(CasFunction::Sin, vec![x.clone()]),
+            cas_mul(vec![Value::Int(-1), x.clone()]).expect("-x"),
+            cas_mul(vec![
+                coefficient,
+                cas_pow(x.clone(), Value::Int(3)).expect("x cubed"),
+            ])
+            .expect("cubic term"),
+        ])
+        .expect("numerator");
+        let expression = cas_div(
+            numerator,
+            cas_pow(x.clone(), Value::Int(3)).expect("denominator"),
+        )
+        .expect("quotient");
+
+        assert_eq!(
+            limit_cas(&expression, &x, &Value::Int(0), None).expect("series limit"),
+            tiny
+        );
     }
 
     // === constants and direction parsing ===
@@ -2410,52 +2539,51 @@ mod tests {
     #[test]
     fn from_cas_limit_two_sided() {
         let expr = Value::from_cas_var("x");
-        let var = Value::from_cas_var("x");
         let point = Value::Int(0);
-        let limit = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), None);
-        let (e, v, p, d) = limit.cas_limit_parts().unwrap();
-        assert_eq!(e, &expr);
-        assert_eq!(v, &var);
+        let limit = limit_node(expr, "x", point.clone(), None);
+        let (scope, p, d) = limit.cas_limit_parts().unwrap();
+        assert_eq!(scope.body().cas_bound_var(), Some(0));
+        assert_eq!(scope.hint().as_str(), "x");
         assert_eq!(p, &point);
         assert_eq!(d, None);
     }
 
     #[test]
     fn from_cas_limit_one_sided_right() {
-        let limit = Value::from_cas_limit(
+        let limit = limit_node(
             Value::from_cas_var("x"),
-            Value::from_cas_var("x"),
+            "x",
             Value::Int(0),
             Some(LimitDirection::Right),
         );
-        let (_, _, _, d) = limit.cas_limit_parts().unwrap();
+        let (_, _, d) = limit.cas_limit_parts().unwrap();
         assert_eq!(d, Some(LimitDirection::Right));
     }
 
     #[test]
     fn from_cas_limit_one_sided_left() {
-        let limit = Value::from_cas_limit(
+        let limit = limit_node(
             Value::from_cas_var("x"),
-            Value::from_cas_var("x"),
+            "x",
             Value::Int(0),
             Some(LimitDirection::Left),
         );
-        let (_, _, _, d) = limit.cas_limit_parts().unwrap();
+        let (_, _, d) = limit.cas_limit_parts().unwrap();
         assert_eq!(d, Some(LimitDirection::Left));
     }
 
     #[test]
     fn from_cas_limit_at_infinity() {
-        let limit = Value::from_cas_limit(
+        let limit = limit_node(
             op(CasOp::Divide, vec![Value::Int(1), Value::from_cas_var("x")]),
-            Value::from_cas_var("x"),
+            "x",
             konst(CasConst::Infinity),
             None,
         );
         assert!(limit.is_cas_expr());
-        let (e, v, p, d) = limit.cas_limit_parts().unwrap();
-        assert!(e.is_cas_expr());
-        assert_eq!(v, &Value::from_cas_var("x"));
+        let (scope, p, d) = limit.cas_limit_parts().unwrap();
+        assert!(scope.body().is_cas_expr());
+        assert_eq!(scope.hint().as_str(), "x");
         assert_eq!(p, &konst(CasConst::Infinity));
         assert_eq!(d, None);
     }
@@ -2474,14 +2602,14 @@ mod tests {
 
     #[test]
     fn limit_expression_roundtrips() {
-        let original = Value::from_cas_limit(
+        let original = limit_node(
             call(CasFunction::Sin, vec![Value::from_cas_var("x")]),
-            Value::from_cas_var("x"),
+            "x",
             Value::Int(0),
             Some(LimitDirection::Right),
         );
-        let (expr, var, point, dir) = original.cas_limit_parts().unwrap();
-        let reconstructed = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), dir);
+        let (scope, point, direction) = original.cas_limit_parts().unwrap();
+        let reconstructed = Value::from_cas_limit(scope.clone(), point.clone(), direction);
         assert_eq!(original, reconstructed);
     }
 }

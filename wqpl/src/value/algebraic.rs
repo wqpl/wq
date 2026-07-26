@@ -850,10 +850,8 @@ fn recognize_radical_name(poly: &[BigInt], interval: (f64, f64)) -> Option<Strin
     })
 }
 
-/// Convert a minimal polynomial to a short human-readable string like
-/// `x^3-2*x+1`.
 fn poly_to_short_string(poly: &[BigInt]) -> String {
-    const SYMBOL: &str = "_";
+    const SYMBOL: &str = "t";
     let mut parts = Vec::new();
     for (power, c) in poly.iter().enumerate().rev() {
         if c.is_zero() {
@@ -944,7 +942,7 @@ fn format_algebraic_root_constructor(field: &AlgebraicField) -> String {
     let (lo, hi) = field.interval();
     let lo_str = format_approx_f64(lo);
     let hi_str = format_approx_f64(hi);
-    format!("@s root[{poly_str};{lo_str};{hi_str}]")
+    format!("@s root[{poly_str};t;{lo_str};{hi_str}]")
 }
 
 fn write_algebraic_with_generator_name<W: fmt::Write>(
@@ -1376,7 +1374,7 @@ pub(crate) fn algebraic_rational_pow(
     // alpha^alpha_quot = field_const^q * alpha^r
 
     // field_const^q = (const_num / const_den)^q, computed exactly.
-    let const_factor = rational_integer_pow(&const_num, &const_den, &q);
+    let const_factor = rational_integer_pow(&const_num, &const_den, &q)?;
 
     let final_coeff = crate::cas::numeric_mul(&c_pow, &const_factor)
         .map_err(|_| algebraic_err("could not multiply algebraic power coefficients"))?;
@@ -1405,28 +1403,26 @@ fn euclidean_div_rem(a: &BigInt, b: &BigInt) -> (BigInt, BigInt) {
 
 /// Compute `(numer/denom)^exp` exactly, returning an Int or Fraction.
 /// `exp` may be negative.
-fn rational_integer_pow(numer: &BigInt, denom: &BigInt, exp: &BigInt) -> Value {
+fn rational_integer_pow(numer: &BigInt, denom: &BigInt, exp: &BigInt) -> WqResult<Value> {
     if exp.is_zero() {
-        return Value::Int(1);
+        return Ok(Value::Int(1));
     }
     if exp.is_negative() {
         let pos_exp = -exp;
-        let p = pos_exp.to_u32().unwrap_or(0);
-        if p == 0 {
-            return Value::float(0.0); // fallback, shouldn't happen
-        }
-        return Value::from_fraction_parts(denom.pow(p), numer.pow(p));
+        let p = pos_exp
+            .to_u32()
+            .ok_or_else(|| algebraic_err("integer exponent is too large"))?;
+        return Ok(Value::from_fraction_parts(denom.pow(p), numer.pow(p)));
     }
-    let p = exp.to_u32().unwrap_or(0);
-    if p == 0 {
-        return Value::float(0.0);
-    }
+    let p = exp
+        .to_u32()
+        .ok_or_else(|| algebraic_err("integer exponent is too large"))?;
     let pow_num = numer.pow(p);
     let pow_den = denom.pow(p);
     if pow_den.is_one() {
-        Value::from_bigint(pow_num)
+        Ok(Value::from_bigint(pow_num))
     } else {
-        Value::from_fraction_parts(pow_num, pow_den)
+        Ok(Value::from_fraction_parts(pow_num, pow_den))
     }
 }
 
@@ -1440,7 +1436,7 @@ fn rational_pow(value: &Value, numer: &BigInt, denom: &BigInt) -> WqResult<Value
             return Ok(Value::Int(1));
         }
         if let Some((n, d)) = value.rational_parts() {
-            return Ok(rational_integer_pow(&n, &d, numer));
+            return rational_integer_pow(&n, &d, numer);
         }
         // Non-rational value (shouldn't happen for our use case)
         let exp = Value::from_bigint(numer.clone());
@@ -2071,7 +2067,7 @@ mod tests {
             vec![Value::Int(0), Value::Int(1), Value::Int(0)],
         );
         let v = Value::Algebraic(Arc::new(a));
-        assert_eq!(v.to_string(), "@s root[_^3-_-1;1;2]");
+        assert_eq!(v.to_string(), "@s root[t^3-t-1;t;1;2]");
     }
 
     #[test]

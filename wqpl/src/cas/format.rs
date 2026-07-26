@@ -9,11 +9,12 @@ use super::limit::LimitDirection;
 use super::numeric::{
     numeric_abs, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul,
 };
+use super::{fresh_name, open_cas_scope_with_value};
 use crate::value::Value;
 use crate::value::algebraic::{
     AlgebraicData, format_algebraic_generator_binding, format_algebraic_with_generator_name,
 };
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasOp, CasScope};
 
 fn precedence(value: &Value) -> u8 {
     match value.cas_known_op_parts() {
@@ -25,6 +26,9 @@ fn precedence(value: &Value) -> u8 {
 }
 
 fn canonical_degree(value: &Value) -> u32 {
+    if value.cas_bound_var().is_some() {
+        return 1;
+    }
     if !value.is_cas_expr() {
         return 0;
     }
@@ -63,9 +67,6 @@ fn canonical_degree(value: &Value) -> u32 {
     if let Some((_name, value)) = value.cas_named_arg_parts() {
         return canonical_degree(value);
     }
-    if value.cas_root_parts().is_some() {
-        return 0;
-    }
     0
 }
 
@@ -73,6 +74,10 @@ fn push_canonical_key(value: &Value, out: &mut String) {
     if let Some(name) = value.cas_var_name() {
         out.push_str("v:");
         out.push_str(name);
+        return;
+    }
+    if let Some(index) = value.cas_bound_var() {
+        write!(out, "b:{index}").expect("writing to String should not fail");
         return;
     }
     if let Some(konst) = value.cas_const() {
@@ -120,23 +125,24 @@ fn push_canonical_key(value: &Value, out: &mut String) {
         push_canonical_key(value, out);
         return;
     }
-    if let Some((expr, var, point, direction)) = value.cas_limit_parts() {
+    if let Some((scope, bounds)) = value.cas_integral_parts() {
+        out.push_str("i:");
+        push_canonical_key(scope.body(), out);
+        if let Some((lower, upper)) = bounds {
+            out.push(';');
+            push_canonical_key(lower, out);
+            out.push(';');
+            push_canonical_key(upper, out);
+        }
+        return;
+    }
+    if let Some((scope, point, direction)) = value.cas_limit_parts() {
         out.push_str("l:");
-        push_canonical_key(expr, out);
-        out.push(';');
-        push_canonical_key(var, out);
+        push_canonical_key(scope.body(), out);
         out.push(';');
         push_canonical_key(point, out);
         out.push(';');
         push_limit_direction_key(direction, out);
-        return;
-    }
-    if let Some((poly, lo, hi)) = value.cas_root_parts() {
-        out.push_str("r:");
-        push_canonical_key(poly, out);
-        out.push(';');
-        write!(out, "{:016x};{:016x};", lo.to_bits(), hi.to_bits())
-            .expect("writing to String should not fail");
         return;
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -354,7 +360,7 @@ impl AlgebraicAliasEnv {
                 continue;
             }
             let name = loop {
-                let name = format!("ad{next_alias}");
+                let name = format!("alpha{next_alias}");
                 next_alias += 1;
                 if occupied_names.insert(name.clone()) {
                     break name;
@@ -398,6 +404,9 @@ fn collect_symbolic_names(value: &Value, names: &mut BTreeSet<String>) {
         names.insert(name.to_string());
         return;
     }
+    if value.cas_bound_var().is_some() {
+        return;
+    }
     if let Some((_op, args)) = value.cas_op_parts() {
         for arg in args {
             collect_symbolic_names(arg, names);
@@ -421,14 +430,17 @@ fn collect_symbolic_names(value: &Value, names: &mut BTreeSet<String>) {
         collect_symbolic_names(arg, names);
         return;
     }
-    if let Some((expr, var, point, _direction)) = value.cas_limit_parts() {
-        collect_symbolic_names(expr, names);
-        collect_symbolic_names(var, names);
-        collect_symbolic_names(point, names);
+    if let Some((scope, bounds)) = value.cas_integral_parts() {
+        collect_symbolic_names(scope.body(), names);
+        if let Some((lower, upper)) = bounds {
+            collect_symbolic_names(lower, names);
+            collect_symbolic_names(upper, names);
+        }
         return;
     }
-    if let Some((poly, _lo, _hi)) = value.cas_root_parts() {
-        collect_symbolic_names(poly, names);
+    if let Some((scope, point, _direction)) = value.cas_limit_parts() {
+        collect_symbolic_names(scope.body(), names);
+        collect_symbolic_names(point, names);
         return;
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -480,13 +492,17 @@ fn collect_algebraic_candidates(value: &Value, candidates: &mut Vec<AlgebraicAli
         collect_algebraic_candidates(value, candidates);
         return;
     }
-    if let Some((expr, var, point, _direction)) = value.cas_limit_parts() {
-        collect_algebraic_candidates(expr, candidates);
-        collect_algebraic_candidates(var, candidates);
-        collect_algebraic_candidates(point, candidates);
+    if let Some((scope, bounds)) = value.cas_integral_parts() {
+        collect_algebraic_candidates(scope.body(), candidates);
+        if let Some((lower, upper)) = bounds {
+            collect_algebraic_candidates(lower, candidates);
+            collect_algebraic_candidates(upper, candidates);
+        }
         return;
     }
-    if value.cas_root_parts().is_some() {
+    if let Some((scope, point, _direction)) = value.cas_limit_parts() {
+        collect_algebraic_candidates(scope.body(), candidates);
+        collect_algebraic_candidates(point, candidates);
         return;
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -564,17 +580,7 @@ fn reciprocal_denominator(value: &Value) -> Option<Value> {
     {
         return Some(Value::from_bigint(denom));
     }
-    let Value::Float(f) = value else {
-        return None;
-    };
-    if !f.is_finite() || **f <= 0.0 {
-        return None;
-    }
-    let inverse = 1.0 / **f;
-    if (inverse - inverse.round()).abs() > f64::EPSILON {
-        return None;
-    }
-    Some(Value::Int(inverse.round() as i64))
+    None
 }
 
 fn format_power(base: &Value, exp: &Value, parent_prec: u8, aliases: &AlgebraicAliasEnv) -> String {
@@ -789,9 +795,31 @@ pub(super) fn format_cas_equation(lhs: &Value, rhs: &Value) -> String {
     aliases.apply_bindings(rendered)
 }
 
+fn open_scope_for_format(
+    scope: &CasScope,
+    extras: &[&Value],
+    aliases: &AlgebraicAliasEnv,
+) -> (Value, String) {
+    let mut used = BTreeSet::new();
+    collect_symbolic_names(scope.body(), &mut used);
+    for extra in extras {
+        collect_symbolic_names(extra, &mut used);
+    }
+    for alias in &aliases.aliases {
+        used.insert(alias.name.clone());
+    }
+    let name = fresh_name(scope.hint().as_str(), &used);
+    let var = Value::from_cas_var(&name);
+    (open_cas_scope_with_value(scope, &var), name)
+}
+
 fn format_expr_with_aliases(value: &Value, parent_prec: u8, aliases: &AlgebraicAliasEnv) -> String {
     if let Some(name) = value.cas_var_name() {
         return name.to_string();
+    }
+    if let Some(index) = value.cas_bound_var() {
+        debug_assert!(false, "dangling CAS bound variable {index}");
+        return format!("_bound{index}");
     }
     if let Some(konst) = value.cas_const() {
         return konst.name().to_string();
@@ -831,11 +859,31 @@ fn format_expr_with_aliases(value: &Value, parent_prec: u8, aliases: &AlgebraicA
             _ => format_raw_op(value, aliases),
         };
     }
-    if let Some((expr, var, point, direction)) = value.cas_limit_parts() {
+    if let Some((scope, bounds)) = value.cas_integral_parts() {
+        let extras = bounds
+            .map(|(lower, upper)| vec![lower, upper])
+            .unwrap_or_default();
+        let (body, var) = open_scope_for_format(scope, &extras, aliases);
+        let mut rendered = format!(
+            "integrate[{};{}",
+            format_expr_with_aliases(&body, 0, aliases),
+            var,
+        );
+        if let Some((lower, upper)) = bounds {
+            rendered.push(';');
+            rendered.push_str(&format_expr_with_aliases(lower, 0, aliases));
+            rendered.push(';');
+            rendered.push_str(&format_expr_with_aliases(upper, 0, aliases));
+        }
+        rendered.push(']');
+        return rendered;
+    }
+    if let Some((scope, point, direction)) = value.cas_limit_parts() {
+        let (body, var) = open_scope_for_format(scope, &[point], aliases);
         let mut rendered = format!(
             "limit[{};{};{}",
-            format_expr_with_aliases(expr, 0, aliases),
-            format_expr_with_aliases(var, 0, aliases),
+            format_expr_with_aliases(&body, 0, aliases),
+            var,
             format_expr_with_aliases(point, 0, aliases),
         );
         if let Some(dir) = direction {
@@ -847,14 +895,6 @@ fn format_expr_with_aliases(value: &Value, parent_prec: u8, aliases: &AlgebraicA
         }
         rendered.push(']');
         return rendered;
-    }
-    if let Some((poly, lo, hi)) = value.cas_root_parts() {
-        return format!(
-            "root[{};{};{}]",
-            format_expr_with_aliases(poly, 0, aliases),
-            lo,
-            hi
-        );
     }
     if let Some((name, args)) = value.cas_function_parts() {
         let mut rendered_args = Vec::with_capacity(args.len());
@@ -951,7 +991,7 @@ mod tests {
 
         assert_eq!(
             expr.to_string(),
-            "(ad1*x + ad1^2)[`ad1:@s root[_^3-_-1;1;2]]"
+            "(alpha1*x + alpha1^2)[`alpha1:@s root[t^3-t-1;t;1;2]]"
         );
     }
 
@@ -975,7 +1015,7 @@ mod tests {
         let expr = Value::from_cas_op(
             CasOp::Add,
             vec![
-                Value::from_cas_var("ad1"),
+                Value::from_cas_var("alpha1"),
                 alpha_sq,
                 Value::from_cas_op(CasOp::Multiply, vec![alpha, Value::from_cas_var("x")]),
             ],
@@ -983,7 +1023,7 @@ mod tests {
 
         assert_eq!(
             expr.to_string(),
-            "(ad2*x + ad2^2 + ad1)[`ad2:@s root[_^3-_-1;1;2]]"
+            "(alpha2*x + alpha2^2 + alpha1)[`alpha2:@s root[t^3-t-1;t;1;2]]"
         );
     }
 
@@ -1002,6 +1042,26 @@ mod tests {
         let value = AlgebraicData::value(field, vec![Value::Int(0), Value::Int(1)])
             .expect("valid cubic generator");
 
-        assert_eq!(format_cas_value(&value), "@s root[_^3-_-1;1;2]");
+        assert_eq!(format_cas_value(&value), "@s root[t^3-t-1;t;1;2]");
+    }
+
+    #[test]
+    fn tiny_float_coefficient_is_not_formatted_as_saturated_reciprocal() {
+        let value = Value::from_cas_op(
+            CasOp::Multiply,
+            vec![Value::float(1e-20), Value::from_cas_var("x")],
+        );
+
+        assert_eq!(format_cas_value(&value), "0.00000000000000000001*x");
+    }
+
+    #[test]
+    fn approximate_reciprocal_coefficient_remains_visibly_approximate() {
+        let value = Value::from_cas_op(
+            CasOp::Multiply,
+            vec![Value::float(1.0 / 3.0), Value::from_cas_var("x")],
+        );
+
+        assert_eq!(format_cas_value(&value), "0.3333333333333333*x");
     }
 }

@@ -57,7 +57,7 @@ solve[@s x^2=1] | echo
 solve[@s x^3=8] | echo
 
 //test solve a parameterized linear equation with explicit target variable
-solve[@s a*x+b;@s x;`assuming:nonzero[@s a]] | echo
+solve[@s a*x+b;@s x;`assuming:@s nonzero[a]] | echo
 
 //test solve a parameterized quadratic equation with explicit target variable
 solve[@s x^2+a*x+b;@s x] | echo
@@ -72,20 +72,20 @@ solve_system[@s(b+a=3;b-a=1)] | echo
 solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)] | echo
 
 //test describe CAS assumptions
-zero[@s a] | echo
-nonzero[@s a] | echo
-positive[@s a] | echo
-negative[@s a] | echo
-nonnegative[@s a] | echo
-real[@s a] | echo
-integer[@s a] | echo
+@s zero[a] | echo
+@s nonzero[a] | echo
+@s positive[a] | echo
+@s negative[a] | echo
+@s nonnegative[a] | echo
+@s real[a] | echo
+@s integer[a] | echo
 
 //test return conditional solutions without assuming a symbolic coefficient
 solve[@s a*x;@s x] | echo
 solve_system[,eq[@s a*x;1];,@s x] | echo
 
 //test narrow a symbolic system with a nonzero assumption
-solve_system[,eq[@s a*x;1];,@s x;`assuming:nonzero[@s a]] | echo
+solve_system[,eq[@s a*x;1];,@s x;`assuming:@s nonzero[a]] | echo
 
 //test return parametric and inconsistent system results
 solve_system[(eq[@s x+y;3];eq[@s 2*x+2*y;6])] | echo
@@ -98,7 +98,7 @@ solve[@s x^2+1;`domain:`real] | echo
 solve_system[
   (eq[@s a*x+b*y;1];eq[@s c*x+d*y;2]);
   (@s x;@s y);
-  `assuming:nonzero[@s a*d-b*c]] | echo
+  `assuming:@s nonzero[a*d-b*c]] | echo
 
 //test brent root finding on a quadratic
 brent[@s x^2-2;1;2] | echo
@@ -107,7 +107,7 @@ brent[@s x^2-2;1;2] | echo
 newton[@s x^2-2;1] | echo
 
 //test reparsing an opaque algebraic root constructor
-@s root[_^3-_-1;1;2] | echo
+@s root[t^3-t-1;t;1;2] | echo
 
 //test symbolic predicate calls use the reserved predicate representation
 @s nonzero[x] | echo
@@ -116,24 +116,53 @@ newton[@s x^2-2;1] | echo
 @s phi | echo
 
 //test golden-ratio roots display as exact radical expressions
-simplify @s root[_^2-_-1;1;2] | echo
-simplify @s root[_^2-_-1;-1;0] | echo
+simplify @s root[t^2-t-1;t;1;2] | echo
+simplify @s root[t^2-t-1;t;-1;0] | echo
 
 //test a negative pure-power root keeps the selected sign
-simplify @s root[_^2-2;-2;-1] | echo
+simplify @s root[t^2-2;t;-2;-1] | echo
 
 //test powers parenthesize negative and fractional bases
 @s (-2)^x | echo
 @s (2/3)^x | echo
 
 //test equivalent root intervals share one algebraic field identity
-coarse:simplify @s root[_^2-2;1;2]
-refined:simplify @s root[_^2-2;1.4;1.5]
+coarse:simplify @s root[t^2-2;t;1;2]
+refined:simplify @s root[t^2-2;t;1.4;1.5]
 (coarse=refined;coarse-refined) | echo
 
 //test numeric evaluation refines a coarse algebraic root interval
-numeric simplify @s root[_^2-2;1;2] | echo
+numeric simplify @s root[t^2-2;t;1;2] | echo
 
 //test root removes an unselected rational polynomial factor
-alpha:simplify @s root[(_^2-2)*(_-3);1;2]
+alpha:simplify @s root[(t^2-2)*(t-3);t;1;2]
 1/.(alpha-3) | echo
+
+//test exact quoted calls stay symbolic until numeric evaluation
+(@s sin[1];@s sin[e];@s gamma[1/.2]) | echo
+
+//test tiny float coefficients do not become saturated reciprocals
+@s 1e-20*x | echo
+
+//test sine shift rewriting requires exact pi over two
+rewrite @s sin[x+15707963267949/.10000000000000] | echo
+rewrite @s sin[x+pi/2] | echo
+
+//test locally scoped calculus forms avoid substitution capture
+substitute[@s integrate[y;x];@s y;@s x] | echo
+substitute[@s limit[y;x;0];@s y;@s x] | echo
+
+//test limit approach signs use exact local polynomial order
+nearby:@s sgn[x*(1-100000000000000000000*x)]
+limit[nearby;0] | echo
+limit[nearby;0;`direction:@s+] | echo
+limit[nearby;0;`direction:@s-] | echo
+
+//test exact limit coefficients and infinity signs
+limit[@s (sin[x]-x+(1/.6+1/.100000000000000000000)*x^3)/x^3;0] | echo
+limit[@s x*arcsinh[x];-inf] | echo
+
+//test irrational integration and binomial solving remain exact
+integrate[@s 1/sqrt[x^2+2];@s x] | echo
+solve[@s x^3-2] | echo
+solve[@s x^5-1] | echo

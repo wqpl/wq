@@ -2,8 +2,9 @@ use std::fmt;
 
 use num_traits::{One, Signed, Zero};
 
+use super::integrate::{definite_integrate_cas_with_debug, integrate_cas_with_debug};
 use super::limit::limit_cas;
-use super::root::resolve_cas_root;
+use super::{CasDebug, open_cas_scope};
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
@@ -165,32 +166,6 @@ pub(crate) fn numeric_pow(lhs: &Value, rhs: &Value) -> WqResult<Value> {
 enum NumericCallMode {
     Simplify,
     Evaluate,
-}
-
-/// Try to resolve CAS constants (pi, e, inf, -inf) to numeric values and
-/// evaluate the call.  Returns `None` if any arg is a non-constant CAS node
-/// or an unresolved variable.
-pub(super) fn try_eval_with_const_resolve(
-    function: CasFunction,
-    args: &[Value],
-) -> WqResult<Option<Value>> {
-    let mut numeric_args = Vec::with_capacity(args.len());
-    for arg in args {
-        if !arg.is_cas_expr() {
-            numeric_args.push(arg.clone());
-        } else if let Some(konst) = arg.cas_const() {
-            numeric_args.push(match konst {
-                CasConst::Pi => Value::float(std::f64::consts::PI),
-                CasConst::E => Value::float(std::f64::consts::E),
-                // inf/-inf: functions like sin(inf) are undefined, skip
-                _ => return Ok(None),
-            });
-        } else {
-            // Variable, operator, or other CAS node
-            return Ok(None);
-        }
-    }
-    eval_numeric_call(function, &numeric_args)
 }
 
 pub(super) fn eval_numeric_call(function: CasFunction, args: &[Value]) -> WqResult<Option<Value>> {
@@ -415,14 +390,24 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
                 ))
                 .got1(expr)
             })
-    } else if let Some((limit_expr, var, point, direction)) = expr.cas_limit_parts() {
-        let evaluated = limit_cas(limit_expr, var, point, direction)?;
+    } else if let Some((scope, bounds)) = expr.cas_integral_parts() {
+        let (body, var) = open_cas_scope(scope);
+        let evaluated = if let Some((lower, upper)) = bounds {
+            definite_integrate_cas_with_debug(&body, &var, lower, upper, CasDebug::disabled())?
+        } else {
+            integrate_cas_with_debug(&body, &var, CasDebug::disabled())?
+        };
+        if evaluated.cas_integral_parts().is_some() {
+            return Err(cas_err("integral could not be evaluated numerically").got1(expr));
+        }
+        eval_numeric_cas(&evaluated)
+    } else if let Some((scope, point, direction)) = expr.cas_limit_parts() {
+        let (limit_expr, var) = open_cas_scope(scope);
+        let evaluated = limit_cas(&limit_expr, &var, point, direction)?;
         if evaluated.cas_limit_parts().is_some() {
             return Err(cas_err("limit could not be evaluated numerically").got1(expr));
         }
         eval_numeric_cas(&evaluated)
-    } else if let Some(value) = resolve_cas_root(expr)? {
-        eval_numeric_cas(&value)
     } else if let Some((name, _)) = expr.cas_apply_parts() {
         Err(cas_err(format!(
             "application '{}' is not supported in numeric evaluation",
@@ -439,6 +424,7 @@ mod tests {
     use num_bigint::BigInt;
 
     use super::*;
+    use crate::cas::close_cas_scope;
     use crate::value::algebraic::{AlgebraicData, AlgebraicField};
 
     #[test]
@@ -465,8 +451,7 @@ mod tests {
         let x = Value::from_cas_var("x");
         let reciprocal = Value::from_cas_op(CasOp::Divide, vec![Value::Int(1), x.clone()]);
         let limit = Value::from_cas_limit(
-            reciprocal,
-            x,
+            close_cas_scope(&reciprocal, "x"),
             Value::from_cas_const(CasConst::Infinity),
             None,
         );

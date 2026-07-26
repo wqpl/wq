@@ -1367,7 +1367,7 @@ mod tests {
 
     #[test]
     fn test_cas_quote_highlights_cas_names() {
-        let src = "@s limit[sin[x]/x;pi]+root[_^3-_-1;1;2]+e+oo+_oo+undef";
+        let src = "@s limit[sin[x]/x;pi]+root[t^3-t-1;t;1;2]+e+oo+_oo+undef";
         let h = Highlighter::new();
         let events = h.highlight(src);
         let regions = named_regions(&events, src);
@@ -1381,7 +1381,7 @@ mod tests {
         assert_region(&regions, "_oo", HighlightName::CasConstant);
         assert_region(&regions, "undef", HighlightName::CasConstant);
         assert_region(&regions, "x", HighlightName::CasVariable);
-        assert_region(&regions, "_", HighlightName::CasVariable);
+        assert_region(&regions, "t", HighlightName::CasVariable);
     }
 
     #[test]

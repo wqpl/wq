@@ -6,7 +6,9 @@ use num_traits::{One, ToPrimitive};
 use super::limit::LimitDirection;
 use super::{format_cas_equation, format_cas_value};
 use crate::value::Value;
-use crate::value::cas::{CasConst, CasData, CasFunction, CasKind, CasOp, CasPredicate, CasSymbol};
+use crate::value::cas::{
+    CasConst, CasData, CasFunction, CasKind, CasOp, CasPredicate, CasScope, CasSymbol,
+};
 
 impl Value {
     pub fn is_cas(&self) -> bool {
@@ -24,6 +26,12 @@ impl Value {
     pub(crate) fn from_cas_var(name: impl Into<String>) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Var(CasSymbol::new(name)),
+        }))
+    }
+
+    pub(crate) fn from_cas_bound_var(index: u32) -> Value {
+        Value::Cas(Arc::new(CasData {
+            kind: CasKind::BoundVar(index),
         }))
     }
 
@@ -87,25 +95,23 @@ impl Value {
         }))
     }
 
+    pub(crate) fn from_cas_integral(scope: CasScope, bounds: Option<(Value, Value)>) -> Value {
+        Value::Cas(Arc::new(CasData {
+            kind: CasKind::Integral { scope, bounds },
+        }))
+    }
+
     pub(crate) fn from_cas_limit(
-        expr: Value,
-        var: Value,
+        scope: CasScope,
         point: Value,
         direction: Option<LimitDirection>,
     ) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Limit {
-                expr,
-                var,
+                scope,
                 point,
                 direction,
             },
-        }))
-    }
-
-    pub(crate) fn from_cas_root(poly: Value, lo: f64, hi: f64) -> Value {
-        Value::Cas(Arc::new(CasData {
-            kind: CasKind::Root { poly, lo, hi },
         }))
     }
 
@@ -113,6 +119,16 @@ impl Value {
         match self {
             Value::Cas(cd) => match &cd.kind {
                 CasKind::Var(name) => Some(name.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub(crate) fn cas_bound_var(&self) -> Option<u32> {
+        match self {
+            Value::Cas(cd) => match &cd.kind {
+                CasKind::BoundVar(index) => Some(*index),
                 _ => None,
             },
             _ => None,
@@ -202,27 +218,26 @@ impl Value {
         }
     }
 
-    pub(crate) fn cas_limit_parts(
-        &self,
-    ) -> Option<(&Value, &Value, &Value, Option<LimitDirection>)> {
+    pub(crate) fn cas_integral_parts(&self) -> Option<(&CasScope, Option<(&Value, &Value)>)> {
         match self {
             Value::Cas(cd) => match &cd.kind {
-                CasKind::Limit {
-                    expr,
-                    var,
-                    point,
-                    direction,
-                } => Some((expr, var, point, *direction)),
+                CasKind::Integral { scope, bounds } => {
+                    Some((scope, bounds.as_ref().map(|(lower, upper)| (lower, upper))))
+                }
                 _ => None,
             },
             _ => None,
         }
     }
 
-    pub(crate) fn cas_root_parts(&self) -> Option<(&Value, f64, f64)> {
+    pub(crate) fn cas_limit_parts(&self) -> Option<(&CasScope, &Value, Option<LimitDirection>)> {
         match self {
             Value::Cas(cd) => match &cd.kind {
-                CasKind::Root { poly, lo, hi } => Some((poly, *lo, *hi)),
+                CasKind::Limit {
+                    scope,
+                    point,
+                    direction,
+                } => Some((scope, point, *direction)),
                 _ => None,
             },
             _ => None,
