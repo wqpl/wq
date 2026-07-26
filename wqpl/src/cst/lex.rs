@@ -56,6 +56,7 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::AtDepth(_) => K::AtDepth,
         T::AtSymbolic => K::AtSymbolic,
         T::AtTry => K::AtTry,
+        T::AtImport => K::AtImport,
 
         // `$`-keywords.
         T::Dollar => K::Dollar,

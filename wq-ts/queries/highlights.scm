@@ -31,6 +31,7 @@
 (debug_form) @keyword
 (pause_form) @keyword
 (symbolic_form) @keyword
+"@i" @keyword
 (depth_modifier) @operator
 
 ;; operators

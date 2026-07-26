@@ -25,3 +25,7 @@ pub fn lookup_embedded_by_alias(name: &str) -> Option<&'static EmbeddedScript> {
     let n = n.strip_suffix(".wq").unwrap_or(n); // .wq optional for embedded alias
     EMBEDDED.iter().find(|e| e.aliases.contains(&n))
 }
+
+pub fn lookup_embedded_exact(name: &str) -> Option<&'static EmbeddedScript> {
+    EMBEDDED.iter().find(|script| script.virtual_name == name)
+}

@@ -29,6 +29,18 @@ try {
 The package targets browsers and exposes the stable session facade from
 `browser.js`. TypeScript declarations are included.
 
+Register exact virtual module specifiers before evaluating code that uses
+`@i`:
+
+```js
+session.register_module("answer.wq", "base:40;{base+x}");
+const answer = session.eval_wq('add:@i"answer.wq";add[2]');
+console.log(answer.display);
+```
+
+Adding, replacing, removing, or clearing registered modules also clears the
+session's module cache.
+
 `eval_wq_async` runs the selected interpreter in bounded work slices and
 yields to the browser between slices. It accepts an `AbortSignal` and an
 optional target slice duration in milliseconds:

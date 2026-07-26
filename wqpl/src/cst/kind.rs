@@ -48,6 +48,7 @@ pub enum SyntaxKind {
     AtDepth,
     AtSymbolic,
     AtTry,
+    AtImport,
 
     // `$`-keywords.
     Dollar,
@@ -165,6 +166,7 @@ pub enum SyntaxKind {
     DebugExpr,
     PauseExpr,
     TryExpr,
+    ImportExpr,
     SymbolicExpr,
     BreakExpr,
     ContinueExpr,
@@ -233,6 +235,7 @@ impl SyntaxKind {
             AtDepth => "AT_DEPTH",
             AtSymbolic => "AT_SYMBOLIC",
             AtTry => "AT_TRY",
+            AtImport => "AT_IMPORT",
 
             Dollar => "DOLLAR",
             DollarDot => "DOLLAR_DOT",
@@ -328,6 +331,7 @@ impl SyntaxKind {
             DebugExpr => "DEBUG_EXPR",
             PauseExpr => "PAUSE_EXPR",
             TryExpr => "TRY_EXPR",
+            ImportExpr => "IMPORT_EXPR",
             SymbolicExpr => "SYMBOLIC_EXPR",
             BreakExpr => "BREAK_EXPR",
             ContinueExpr => "CONTINUE_EXPR",

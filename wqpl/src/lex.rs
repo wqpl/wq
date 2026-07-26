@@ -1230,6 +1230,10 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             TokenType::AtTry
                         }
+                        Some('i') => {
+                            self.advance();
+                            TokenType::AtImport
+                        }
                         Some('f') => {
                             self.advance();
                             self.skip_whitespace();
@@ -1881,6 +1885,17 @@ mod tests {
         let mut lexer = Lexer::new("@t 1");
         let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::AtTry);
+    }
+
+    #[test]
+    fn at_import_token() {
+        let mut lexer = Lexer::new("@i\"module.wq\"");
+        let tokens = lexer.tokenize().expect("tokenize import");
+        assert_eq!(tokens[0].token_type, TokenType::AtImport);
+        assert_eq!(
+            tokens[1].token_type,
+            TokenType::String("module.wq".to_string())
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ pub mod format;
 pub mod frontend;
 pub mod highlight;
 pub mod interpret;
+pub mod module;
 pub mod script;
 pub mod session;
 pub mod style;

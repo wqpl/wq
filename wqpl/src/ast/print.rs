@@ -112,7 +112,8 @@ fn node_color(node: &AstNode) -> AnsiColor {
         | Break(..)
         | Continue(..)
         | Return(..)
-        | Try(..) => AnsiColor::Green,
+        | Try(..)
+        | Import { .. } => AnsiColor::Green,
         Cat(..) | List(..) | Dict(..) | Block(..) | BlockExpr(..) => AnsiColor::White,
         Index { .. } | MutatingIndex { .. } => AnsiColor::BrightBlue,
         Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) => AnsiColor::BrightRed,
@@ -174,6 +175,9 @@ impl AstNode {
             Variable(name, _) => pretty_leaf(&format!("VAR[{}]", atom_ident(name)), &note, color),
             OuterVariable(name, _) => {
                 pretty_leaf(&format!("OUTER-VAR[{}]", atom_ident(name)), &note, color)
+            }
+            Import { specifier, .. } => {
+                pretty_leaf(&format!("IMPORT[{specifier:?}]"), &note, color)
             }
             UnaryOp {
                 operator, operand, ..

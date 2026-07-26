@@ -1030,6 +1030,10 @@
         {
           "type": "SYMBOL",
           "name": "symbolic_form"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "import_form"
         }
       ]
     },
@@ -1970,6 +1974,10 @@
         {
           "type": "SYMBOL",
           "name": "symbolic_form"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "import_form"
         }
       ]
     },
@@ -2209,6 +2217,10 @@
         {
           "type": "SYMBOL",
           "name": "symbolic_form"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "import_form"
         }
       ]
     },
@@ -3149,6 +3161,28 @@
         {
           "type": "SYMBOL",
           "name": "comma_expr"
+        }
+      ]
+    },
+    "import_form": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "@i"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "string"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "raw_string"
+            }
+          ]
         }
       ]
     },

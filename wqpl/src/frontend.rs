@@ -539,6 +539,7 @@ fn attach_full_source_context_to_ast_errors(node: &mut AstNode, input: &str) {
     match node {
         AstNode::Error(error, _) => attach_full_source_context(error, input),
         AstNode::Literal(_, _)
+        | AstNode::Import { .. }
         | AstNode::Variable(_, _)
         | AstNode::OuterVariable(_, _)
         | AstNode::PipeInput

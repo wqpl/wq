@@ -1,4 +1,6 @@
 use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 #[cfg(target_arch = "wasm32")]
 use js_sys::Function;
@@ -16,6 +18,7 @@ use wqpl::highlight::{
     cursor_context_at as wqpl_cursor_context_at,
 };
 use wqpl::interpret::InterpreterKind;
+use wqpl::module::{ModuleError, ModuleRequest, ModuleResolver, ResolvedModule};
 use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
 use wqpl::session::stdio::{WqInput, WqIoError, WqOutput};
@@ -411,6 +414,31 @@ struct DebugPauseData {
     span: Option<(usize, usize)>,
 }
 
+#[derive(Clone, Default)]
+struct WasmModuleResolver {
+    modules: Arc<RwLock<HashMap<String, String>>>,
+}
+
+impl ModuleResolver for WasmModuleResolver {
+    fn resolve(&self, request: &ModuleRequest) -> Result<ResolvedModule, ModuleError> {
+        let modules = self
+            .modules
+            .read()
+            .map_err(|_| ModuleError::new("virtual module registry is unavailable"))?;
+        let source = modules.get(request.specifier()).ok_or_else(|| {
+            ModuleError::new(format!(
+                "virtual module '{}' does not exist",
+                request.specifier()
+            ))
+        })?;
+        Ok(ResolvedModule::new(
+            request.specifier(),
+            request.specifier(),
+            source.as_str(),
+        ))
+    }
+}
+
 /// Low-level wasm-bindgen session core.
 ///
 /// Browser consumers should construct `WasmWqSession` from `browser.js`, which
@@ -420,6 +448,7 @@ pub struct WasmWqSession {
     box_config: Cell<BoxPrintConfig>,
     session: RefCell<Session>,
     evaluation: RefCell<Option<ScriptEvaluation>>,
+    module_resolver: WasmModuleResolver,
 }
 
 impl WasmWqSession {
@@ -455,11 +484,78 @@ impl WasmWqSession {
     pub fn new() -> WasmWqSession {
         let mut session = Session::new();
         session.set_color_mode(ColorMode::Always);
+        let module_resolver = WasmModuleResolver::default();
+        session.set_module_resolver(module_resolver.clone());
         WasmWqSession {
             box_config: Cell::new(BoxPrintConfig::default()),
             session: RefCell::new(session),
             evaluation: RefCell::new(None),
+            module_resolver,
         }
+    }
+
+    /// Add or replace one exact virtual `@i` module specifier.
+    pub fn register_module(&self, specifier: &str, source: &str) -> Result<(), JsValue> {
+        self.ensure_session_idle()?;
+        if specifier.is_empty() {
+            return Err(api_error_js(
+                "invalid-module-specifier",
+                "module specifier must not be empty",
+            ));
+        }
+        self.module_resolver
+            .modules
+            .write()
+            .map_err(|_| {
+                api_error_js(
+                    "module-registry-unavailable",
+                    "virtual module registry is unavailable",
+                )
+            })?
+            .insert(specifier.to_string(), source.to_string());
+        self.try_session_mut()?
+            .set_module_resolver(self.module_resolver.clone());
+        Ok(())
+    }
+
+    /// Remove one exact virtual `@i` module specifier.
+    pub fn remove_module(&self, specifier: &str) -> Result<bool, JsValue> {
+        self.ensure_session_idle()?;
+        let removed = self
+            .module_resolver
+            .modules
+            .write()
+            .map_err(|_| {
+                api_error_js(
+                    "module-registry-unavailable",
+                    "virtual module registry is unavailable",
+                )
+            })?
+            .remove(specifier)
+            .is_some();
+        if removed {
+            self.try_session_mut()?
+                .set_module_resolver(self.module_resolver.clone());
+        }
+        Ok(removed)
+    }
+
+    /// Remove every virtual module and cached module value.
+    pub fn clear_modules(&self) -> Result<(), JsValue> {
+        self.ensure_session_idle()?;
+        self.module_resolver
+            .modules
+            .write()
+            .map_err(|_| {
+                api_error_js(
+                    "module-registry-unavailable",
+                    "virtual module registry is unavailable",
+                )
+            })?
+            .clear();
+        self.try_session_mut()?
+            .set_module_resolver(self.module_resolver.clone());
+        Ok(())
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -2162,6 +2258,19 @@ mod tests {
 
     struct CapturedOutput {
         out: Arc<Mutex<String>>,
+    }
+
+    #[test]
+    fn virtual_modules_are_available_to_imports() {
+        let session = WasmWqSession::new();
+        session
+            .register_module("answer.wq", "base:40;{base+x}")
+            .expect("module should register");
+
+        let value = eval_wq_script_value(&session, "add:@i\"answer.wq\";add[2]")
+            .expect("registered module should import");
+
+        assert_eq!(value, Value::Int(42));
     }
 
     impl WqOutput for CapturedOutput {

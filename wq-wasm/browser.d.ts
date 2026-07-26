@@ -110,6 +110,7 @@ export class WasmWqSession {
   backtrace_enabled(): boolean;
   builtin_preset_names(): string[];
   clear_bindings(): void;
+  clear_modules(): void;
   eval_wq(src: string): RenderedValue;
   eval_wq_async(
     src: string,
@@ -132,6 +133,8 @@ export class WasmWqSession {
   interpreter_names(): string[];
   reset_execution_state(): void;
   reset_workspace(): void;
+  register_module(specifier: string, source: string): void;
+  remove_module(specifier: string): boolean;
   set_ansi_styles_enabled(on: boolean): void;
   set_backtrace_enabled(on: boolean): void;
   set_box_flags(spec: string): void;

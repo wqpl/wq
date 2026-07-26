@@ -7,11 +7,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use wqpl::module::{ModuleError, ModuleRequest, ModuleResolver, ResolvedModule};
 use wqpl::script::ScriptDirective;
 use wqpl::session::{Bindings, DirectiveFailure, ScriptRunError, Session, SourceUnit};
 use wqpl::value::Value;
 
-use crate::load::embed::lookup_embedded_by_alias;
+use crate::load::embed::{lookup_embedded_by_alias, lookup_embedded_exact};
 use crate::load::report::{LoadError, LoadErrorKind, LoadReport};
 
 struct Loader {
@@ -20,6 +21,45 @@ struct Loader {
     warnings: Vec<String>,
     last_loaded_label: Option<String>,
     embedded_loaded: Rc<RefCell<HashSet<&'static str>>>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct CliModuleResolver;
+
+impl ModuleResolver for CliModuleResolver {
+    fn resolve(&self, request: &ModuleRequest) -> Result<ResolvedModule, ModuleError> {
+        if let Some(script) = lookup_embedded_exact(request.specifier()) {
+            return Ok(ResolvedModule::new(
+                script.virtual_name,
+                script.virtual_name,
+                script.content,
+            )
+            .with_import_origin(request.importer()));
+        }
+
+        let specifier = Path::new(request.specifier());
+        let importer = Path::new(request.importer());
+        let base = if importer.is_dir() {
+            importer
+        } else {
+            importer.parent().unwrap_or_else(|| Path::new(""))
+        };
+        let candidate = if specifier.is_absolute() {
+            specifier.to_path_buf()
+        } else {
+            base.join(specifier)
+        };
+        let canonical = fs::canonicalize(&candidate)
+            .map_err(|error| ModuleError::new(format!("{}: {error}", candidate.display())))?;
+        let source = fs::read_to_string(&canonical)
+            .map_err(|error| ModuleError::new(format!("{}: {error}", canonical.display())))?;
+        let identity = canonical.to_string_lossy().into_owned();
+        Ok(ResolvedModule::new(identity.clone(), identity, source))
+    }
+}
+
+pub(crate) fn install_module_resolver(session: &mut Session) {
+    session.set_module_resolver(CliModuleResolver);
 }
 
 impl Loader {
@@ -84,7 +124,8 @@ impl Loader {
         display_label: &str,
         loading: &RefCell<HashSet<PathBuf>>,
     ) -> Result<Option<Value>, LoadError> {
-        let source = SourceUnit::named(display_label, content);
+        let import_origin = base_dir.to_string_lossy();
+        let source = SourceUnit::named(display_label, content).with_import_origin(&import_origin);
         let result = session.eval_script_with_postmortem(source, |session, directive| {
             self.eval_directive(session, directive, base_dir, loading)
                 .map_err(|error| {

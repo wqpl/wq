@@ -349,6 +349,11 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push_unknown();
             fallthrough(pc, state)
         }
+        I::Import(_) => {
+            state.clear_volatile_facts();
+            state.push_unknown();
+            fallthrough(pc, state)
+        }
         I::LoadLocal(slot) => {
             state.push(state.local(*slot));
             fallthrough(pc, state)

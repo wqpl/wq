@@ -93,6 +93,7 @@ pub enum TokenType {
     // @s ... symbolic quote
     AtSymbolic,
     AtTry,
+    AtImport,
 
     LeftParen,
     RightParen,
@@ -186,6 +187,7 @@ impl TokenType {
             Self::AtDepth(_) => "depth modifier",
             Self::AtSymbolic => "'@s'",
             Self::AtTry => "'@t'",
+            Self::AtImport => "'@i'",
             Self::LeftParen => "'('",
             Self::RightParen => "')'",
             Self::LeftBracket => "'['",

@@ -1,0 +1,4 @@
+//exclude
+secret:40
+n:0
+(`add:{secret+x};`next:'{n+:1})

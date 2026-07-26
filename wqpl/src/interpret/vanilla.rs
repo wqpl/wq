@@ -1506,6 +1506,13 @@ impl VanillaInterpreter {
                             saved_trace_buf_len: vm.trace_buf.len(),
                         });
                     }
+                    Instruction::Import(import) => {
+                        if let Some(value) = vm.import_module(import)? {
+                            vm.stack.push(value);
+                        } else {
+                            continue 'exec;
+                        }
+                    }
                     Instruction::TraceBegin => {
                         vm.trace_depth = vm.trace_depth.saturating_add(1);
                         vm.trace_bases.push(vm.trace_buf.len());

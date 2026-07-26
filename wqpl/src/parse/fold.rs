@@ -12,6 +12,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
     match node {
         Error(..)
         | Literal(..)
+        | Import { .. }
         | Variable(_, _)
         | OuterVariable(_, _)
         | Break(..)

@@ -1,0 +1,5 @@
+module:@i"import_module_dep.wq"
+echo[(module `add)[2]]
+same:@i"import_module_dep.wq"
+echo[((module `next)[];(same `next)[])]
+echo $[F;@i"missing.wq";"lazy"]

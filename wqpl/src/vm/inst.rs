@@ -112,6 +112,12 @@ pub(crate) enum StoreTarget {
     Var(Arc<str>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImportData {
+    pub(crate) specifier: Arc<str>,
+    pub(crate) importer: Arc<str>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Instruction {
     LoadConst(Box<Value>),
@@ -224,6 +230,7 @@ pub(crate) enum Instruction {
     Debug,
     Pause,
     Try(usize),
+    Import(Box<ImportData>),
     /// Store named-argument metadata into the VM.  The next call
     /// instruction consumes it (and clears it after the call).
     PrepareNamedArgs(Arc<NamedArgMeta>),
@@ -363,7 +370,8 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::CallAnon(_)
         | I::TailCallAnon(_)
         | I::CallUser(_, _)
-        | I::TailCallUser(_, _) => (Call, false),
+        | I::TailCallUser(_, _)
+        | I::Import(_) => (Call, false),
 
         // Jumps / branches
         I::Jump(_)

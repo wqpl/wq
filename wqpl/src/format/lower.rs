@@ -267,7 +267,8 @@ impl<'a> LowerCtx<'a> {
             | SyntaxKind::OuterVarExpr
             | SyntaxKind::EllipsisExpr
             | SyntaxKind::BreakExpr
-            | SyntaxKind::ContinueExpr => self.verbatim_concat(node),
+            | SyntaxKind::ContinueExpr
+            | SyntaxKind::ImportExpr => self.verbatim_concat(node),
 
             SyntaxKind::FStringExpr => self.fstring(node),
 
@@ -961,7 +962,8 @@ impl<'a> LowerCtx<'a> {
             | SyntaxKind::FStringExpr
             | SyntaxKind::DebugExpr
             | SyntaxKind::PauseExpr
-            | SyntaxKind::SymbolicExpr => true,
+            | SyntaxKind::SymbolicExpr
+            | SyntaxKind::ImportExpr => true,
             SyntaxKind::ListExpr => first == SyntaxKind::LParen,
             SyntaxKind::UnaryExpr => first == SyntaxKind::Hash,
             SyntaxKind::BinaryExpr => Self::is_power_expr(node),
@@ -1004,6 +1006,7 @@ impl<'a> LowerCtx<'a> {
                 | SyntaxKind::AtPause
                 | SyntaxKind::FString
                 | SyntaxKind::AtSymbolic
+                | SyntaxKind::AtImport
                 | SyntaxKind::LParen
                 | SyntaxKind::LBrace
         )
@@ -1314,6 +1317,12 @@ mod tests {
         assert_eq!(fmt("\"hi\"", 80), "\"hi\"");
         assert_eq!(fmt("@u\"a\"", 80), "@u\"a\"");
         assert_eq!(fmt("@u{1f980}", 80), "@u{1f980}");
+    }
+
+    #[test]
+    fn import_keeps_a_tight_literal_specifier() {
+        assert_eq!(fmt("@i \"module.wq\"", 80), "@i\"module.wq\"");
+        assert_eq!(fmt("@i @l\"raw\\path.wq\"", 80), "@i@l\"raw\\path.wq\"");
     }
 
     #[test]

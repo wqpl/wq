@@ -1998,6 +1998,7 @@ impl Parser {
                 | Some(TokenType::AtPause)
                 | Some(TokenType::FormatString(_, _, _))
                 | Some(TokenType::AtSymbolic)
+                | Some(TokenType::AtImport)
                 | Some(TokenType::LeftParen) => {
                     let arg = parse_arg(self)?;
                     let end_byte = self.tokens[self.current.saturating_sub(1)].byte_end;
@@ -2331,6 +2332,7 @@ impl Parser {
             AstNode::Debug { .. } => SyntaxKind::DebugExpr,
             AstNode::Pause { .. } => SyntaxKind::PauseExpr,
             AstNode::Try(..) => SyntaxKind::TryExpr,
+            AstNode::Import { .. } => SyntaxKind::ImportExpr,
 
             AstNode::Ellipsis(_) => SyntaxKind::EllipsisExpr,
             AstNode::Error(..) => SyntaxKind::ErrorNode,
@@ -2529,6 +2531,7 @@ impl Parser {
                         Some((start, self.last_consumed_byte_end())),
                     ))
                 }
+                TokenType::AtImport => self.parse_import(),
 
                 TokenType::Keyword(keyword) => {
                     let span = (token.byte_start, token.byte_end);
@@ -2788,6 +2791,14 @@ impl Parser {
             | AstNode::Variable(_, span)
             | AstNode::OuterVariable(_, span) => {
                 if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+            }
+            AstNode::Import {
+                span, path_span, ..
+            } => {
+                for span in [span, path_span].into_iter().flatten() {
                     span.0 += offset;
                     span.1 += offset;
                 }
@@ -3400,6 +3411,7 @@ impl Parser {
         match node {
             AstNode::Error(err, span) => self.recontextualize_fstring_error_node(err, span),
             AstNode::Literal(_, _)
+            | AstNode::Import { .. }
             | AstNode::Variable(_, _)
             | AstNode::OuterVariable(_, _)
             | AstNode::PipeInput
@@ -3628,6 +3640,26 @@ impl Parser {
             self.quote_symbolic_value(expr, &start)?,
             None,
         ))
+    }
+
+    fn parse_import(&mut self) -> WqResult<AstNode> {
+        let import = self
+            .current_token()
+            .cloned()
+            .ok_or_else(|| self.eof_error_here("unexpected end of input after '@i'"))?;
+        self.advance();
+        let Some(path) = self.current_token().cloned() else {
+            return Err(self.eof_error_here("expected string literal after '@i'"));
+        };
+        let TokenType::String(specifier) = path.token_type else {
+            return Err(self.syntax_err(&path, "expected string literal after '@i'"));
+        };
+        self.advance();
+        Ok(AstNode::Import {
+            specifier,
+            span: Some((import.byte_start, path.byte_end)),
+            path_span: Some((path.byte_start, path.byte_end)),
+        })
     }
 
     fn quote_symbolic_value(&self, node: AstNode, start: &Token) -> WqResult<Value> {
@@ -5810,6 +5842,7 @@ mod cst_integration_tests {
             | AstNode::UnpackAssignment { span, .. }
             | AstNode::Return(_, span)
             | AstNode::Try(_, span)
+            | AstNode::Import { span, .. }
             | AstNode::Break(span)
             | AstNode::Continue(span)
             | AstNode::Ellipsis(span) => *span,
@@ -5920,6 +5953,7 @@ mod cst_integration_tests {
             AstNode::Debug { .. } => "Debug",
             AstNode::Pause { .. } => "Pause",
             AstNode::Try(..) => "Try",
+            AstNode::Import { .. } => "Import",
             AstNode::Ellipsis(_) => "Ellipsis",
             AstNode::Error(..) => "Error",
             AstNode::PipeInput => "PipeInput",
@@ -6081,6 +6115,7 @@ mod cst_integration_tests {
             } => out.push(expr),
             AstNode::NamedArg { value, .. } => out.push(value),
             AstNode::Literal(_, _)
+            | AstNode::Import { .. }
             | AstNode::Variable(_, _)
             | AstNode::OuterVariable(_, _)
             | AstNode::Break(_)

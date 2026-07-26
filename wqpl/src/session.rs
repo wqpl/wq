@@ -12,6 +12,7 @@ use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
 use crate::interpret::vanilla::{InterpretPoll, VanillaInterpreter};
 use crate::lex::Lexer;
+use crate::module::ModuleResolver;
 use crate::parse::resolve::Resolver;
 use crate::parse::{Parser, fold};
 use crate::script::{ScriptDirective, ScriptItem, ScriptSpan, parse_script_items};
@@ -65,6 +66,7 @@ fn debug_header_with_color_mode(text: &str, color_mode: ColorMode) -> String {
 pub struct SourceUnit<'source> {
     code: &'source str,
     path: &'source str,
+    import_origin: &'source str,
     full_text: &'source str,
     base_offset: usize,
 }
@@ -80,6 +82,7 @@ impl<'source> SourceUnit<'source> {
         Self {
             code,
             path,
+            import_origin: path,
             full_text: code,
             base_offset: 0,
         }
@@ -107,6 +110,7 @@ impl<'source> SourceUnit<'source> {
         Ok(Self {
             code: &full_text[span.as_range()],
             path,
+            import_origin: path,
             full_text,
             base_offset: span.start,
         })
@@ -118,6 +122,16 @@ impl<'source> SourceUnit<'source> {
 
     pub fn path(self) -> &'source str {
         self.path
+    }
+
+    /// Set the lexical origin used by `@i` imports in this source.
+    pub fn with_import_origin(mut self, origin: &'source str) -> Self {
+        self.import_origin = origin;
+        self
+    }
+
+    pub fn import_origin(self) -> &'source str {
+        self.import_origin
     }
 
     pub fn full_text(self) -> &'source str {
@@ -551,6 +565,8 @@ impl Session {
     pub fn reset_workspace(&mut self) {
         self.reset_execution_state();
         self.clear_bindings();
+        self.vm.module_cache.clear();
+        self.vm.module_loading.clear();
         self.vm.debug_info = DebugInfo::default();
         self.vm.current_chunk = None;
     }
@@ -625,6 +641,32 @@ impl Session {
     pub fn set_builtins_preset(&mut self, preset: BuiltinPreset) {
         self.vm.builtins.apply_preset(preset);
         self.vm.builtins_preset = preset;
+        self.vm.module_cache.clear();
+        self.vm.module_loading.clear();
+    }
+
+    /// Install the host resolver used by `@i` expressions.
+    ///
+    /// Replacing a resolver clears the module cache because stable identities
+    /// belong to the resolver that produced them.
+    pub fn set_module_resolver(&mut self, resolver: impl ModuleResolver + 'static) {
+        self.vm.module_resolver = Some(Arc::new(resolver));
+        self.vm.module_cache.clear();
+        self.vm.module_loading.clear();
+    }
+
+    /// Install an already shared host resolver used by `@i` expressions.
+    pub fn set_shared_module_resolver(&mut self, resolver: Arc<dyn ModuleResolver>) {
+        self.vm.module_resolver = Some(resolver);
+        self.vm.module_cache.clear();
+        self.vm.module_loading.clear();
+    }
+
+    /// Remove the module resolver and all cached module values.
+    pub fn clear_module_resolver(&mut self) {
+        self.vm.module_resolver = None;
+        self.vm.module_cache.clear();
+        self.vm.module_loading.clear();
     }
 
     pub fn debugger(&mut self) -> Debugger<'_> {
@@ -1074,7 +1116,8 @@ impl Session {
                     let absolute_span = rebase_script_span(span, source.base_offset);
                     let fragment =
                         SourceUnit::fragment(source.path, source.full_text, absolute_span)
-                            .expect("script parser should yield valid source spans");
+                            .expect("script parser should yield valid source spans")
+                            .with_import_origin(source.import_origin);
                     if !fragment.code.trim().is_empty() {
                         last_value = Some(
                             self.eval_source(fragment)
@@ -1188,6 +1231,7 @@ impl Session {
         compiler.set_source(source.full_text.to_string());
         compiler.set_source_base_offset(source.base_offset);
         compiler.set_source_path(source.path.to_string());
+        compiler.set_import_origin(source.import_origin);
         compiler.set_stmt_spans(parser.stmt_spans_top().to_vec());
         compiler.compile(&ast)?;
         compiler.instructions.push(Instruction::Return);
@@ -1454,10 +1498,12 @@ impl Default for Session {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::module::{ModuleError, ModuleRequest, ModuleResolver, ResolvedModule};
     use crate::session::stdio::{WqInput, WqOutput};
     use crate::wqdb::{
         DebugNotification, PauseReason, ResumeAction, SymbolMutationKind, TrackResult,
@@ -1466,6 +1512,35 @@ mod tests {
     struct CaptureOutput(Arc<Mutex<String>>);
 
     struct FixedInput(&'static str);
+
+    #[derive(Clone)]
+    struct TestModuleResolver {
+        modules: Arc<HashMap<&'static str, &'static str>>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl TestModuleResolver {
+        fn new(modules: impl IntoIterator<Item = (&'static str, &'static str)>) -> Self {
+            Self {
+                modules: Arc::new(modules.into_iter().collect()),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    impl ModuleResolver for TestModuleResolver {
+        fn resolve(&self, request: &ModuleRequest) -> Result<ResolvedModule, ModuleError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let source = self.modules.get(request.specifier()).ok_or_else(|| {
+                ModuleError::new(format!("module '{}' does not exist", request.specifier()))
+            })?;
+            Ok(ResolvedModule::new(
+                request.specifier(),
+                request.specifier(),
+                *source,
+            ))
+        }
+    }
 
     impl WqInput for FixedInput {
         fn read_line(&mut self, _prompt: &str) -> Result<String, WqIoError> {
@@ -1489,6 +1564,258 @@ mod tests {
         assert_eq!(
             debug_header_with_color_mode("TOKEN", ColorMode::Always),
             "\x1b[1;4mTOKEN\x1b[0m"
+        );
+    }
+
+    #[test]
+    fn import_exports_a_value_without_leaking_module_bindings() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([(
+            "module",
+            "secret:40;(`answer:secret+2)",
+        )]));
+
+        let value = session
+            .eval_string("module:@i\"module\";module")
+            .expect("module should import");
+
+        assert_eq!(value.to_string(), "(`answer:42)");
+        assert!(!session.bindings().contains_key("secret"));
+    }
+
+    #[test]
+    fn imported_function_captures_private_module_bindings() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("adder", "base:40;{base+x}")]));
+
+        let value = session
+            .eval_string("add:@i\"adder\";add[2]")
+            .expect("exported closure should be callable");
+
+        assert_eq!(value, Value::Int(42));
+    }
+
+    #[test]
+    fn imported_function_can_use_builtins() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("length", "{len x}")]));
+
+        let value = session
+            .eval_string("length:@i\"length\";length[\"abc\"]")
+            .expect("module builtins should remain available");
+
+        assert_eq!(value, Value::Int(3));
+    }
+
+    #[test]
+    fn imported_module_cannot_capture_a_caller_binding() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("module", "{secret}")]));
+
+        let error = session
+            .eval_string("secret:42;@i\"module\"")
+            .expect_err("module should not see caller bindings");
+
+        assert!(error.to_string().contains("'secret' has not been bound"));
+    }
+
+    #[test]
+    fn imported_module_rejects_top_level_return() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("module", "@r 1")]));
+
+        let error = session
+            .eval_string("@i\"module\"")
+            .expect_err("top-level return should be rejected");
+
+        assert!(error.to_string().contains("@r outside function"));
+    }
+
+    #[test]
+    fn import_accepts_a_raw_string_literal() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("module", "42")]));
+
+        let value = session
+            .eval_string("@i @l\"module\"")
+            .expect("raw string specifier should import");
+
+        assert_eq!(value, Value::Int(42));
+    }
+
+    #[test]
+    fn import_works_inside_a_function_body() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("module", "42")]));
+
+        let value = session
+            .eval_string("load:{@i\"module\"};load[]")
+            .expect("function body should import lazily");
+
+        assert_eq!(value, Value::Int(42));
+    }
+
+    #[test]
+    fn repeated_import_returns_the_same_stateful_export() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("counter", "n:0;'{n+:1}")]));
+
+        let value = session
+            .eval_string("a:@i\"counter\";b:@i\"counter\";(a[];b[])")
+            .expect("cached module should preserve export state");
+
+        assert_eq!(value, Value::IntList(Arc::new(vec![1, 2])));
+    }
+
+    #[test]
+    fn import_is_lazy_and_catchable() {
+        let resolver = TestModuleResolver::new([]);
+        let calls = Arc::clone(&resolver.calls);
+        let mut session = Session::new();
+        session.set_module_resolver(resolver);
+
+        assert_eq!(
+            session
+                .eval_string("$[F;@i\"missing\";7]")
+                .expect("false branch should not resolve"),
+            Value::Int(7)
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        let caught = session
+            .eval_string("@t @i\"missing\"")
+            .expect("module resolution error should be caught");
+        assert!(caught.to_string().starts_with("(`error;"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn import_detects_cycles_and_does_not_cache_failures() {
+        let resolver = TestModuleResolver::new([("a", "@i\"b\""), ("b", "@i\"a\"")]);
+        let calls = Arc::clone(&resolver.calls);
+        let mut session = Session::new();
+        session.set_module_resolver(resolver);
+
+        let first = session
+            .eval_string("@i\"a\"")
+            .expect_err("cycle should fail");
+        assert!(first.to_string().contains("a -> b -> a"));
+        let first_calls = calls.load(Ordering::SeqCst);
+
+        session
+            .eval_string("@i\"a\"")
+            .expect_err("failed import should be retried");
+        assert!(calls.load(Ordering::SeqCst) > first_calls);
+    }
+
+    #[test]
+    fn import_initialization_failure_is_catchable_and_retried() {
+        let resolver = TestModuleResolver::new([("broken", "1/0")]);
+        let calls = Arc::clone(&resolver.calls);
+        let mut session = Session::new();
+        session.set_module_resolver(resolver);
+
+        let caught = session
+            .eval_string("@t @i\"broken\"")
+            .expect("initialization error should be caught");
+        assert!(caught.to_string().starts_with("(`error;"));
+        let first_calls = calls.load(Ordering::SeqCst);
+
+        session
+            .eval_string("@i\"broken\"")
+            .expect_err("failed initialization should be retried");
+        assert!(calls.load(Ordering::SeqCst) > first_calls);
+    }
+
+    #[test]
+    fn execution_reset_preserves_modules_and_workspace_reset_clears_them() {
+        let resolver = TestModuleResolver::new([("counter", "n:0;'{n+:1}")]);
+        let mut session = Session::new();
+        session.set_module_resolver(resolver);
+
+        assert_eq!(
+            session
+                .eval_string("counter:@i\"counter\";counter[]")
+                .expect("counter should initialize"),
+            Value::Int(1)
+        );
+        session.reset_execution_state();
+        assert_eq!(
+            session
+                .eval_string("counter:@i\"counter\";counter[]")
+                .expect("execution reset should preserve module"),
+            Value::Int(2)
+        );
+        session.reset_workspace();
+        assert_eq!(
+            session
+                .eval_string("counter:@i\"counter\";counter[]")
+                .expect("workspace reset should reinitialize module"),
+            Value::Int(1)
+        );
+    }
+
+    #[test]
+    fn import_requires_a_literal_string() {
+        let mut session = Session::new();
+        let error = session
+            .eval_string("path:\"module\";@i path")
+            .expect_err("computed specifier should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("expected string literal after '@i'")
+        );
+    }
+
+    #[test]
+    fn import_reports_when_the_host_has_no_resolver() {
+        let mut session = Session::new();
+        let error = session
+            .eval_string("@i\"module\"")
+            .expect_err("missing resolver should fail at runtime");
+
+        assert!(
+            error
+                .to_string()
+                .contains("this host has no module resolver")
+        );
+    }
+
+    #[test]
+    fn dry_mode_does_not_resolve_imports() {
+        let resolver = TestModuleResolver::new([("module", "42")]);
+        let calls = Arc::clone(&resolver.calls);
+        let mut session = Session::new();
+        session.set_module_resolver(resolver);
+        session.set_dry_mode(true);
+
+        assert_eq!(
+            session
+                .eval_string("@i\"module\"")
+                .expect("dry import should compile"),
+            Value::empty_list()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn imported_module_rejects_legacy_directives() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([(
+            "module",
+            "\\load dependency.wq",
+        )]));
+
+        let error = session
+            .eval_string("@i\"module\"")
+            .expect_err("module directive should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("legacy script directives are not allowed")
         );
     }
 

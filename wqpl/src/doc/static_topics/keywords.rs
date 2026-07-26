@@ -36,6 +36,12 @@ const AT_TRY_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("`error"),
 }];
 
+const AT_IMPORT_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Bind a module export",
+    code: "deque:@i\"deque.wq\"",
+    expectation: ExampleExpectation::NoRun("requires a host module resolver"),
+}];
+
 const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Create a CAS expression",
@@ -225,6 +231,21 @@ Errors with kind `vm` are not caught.
 Return, break, and continue remain control flow and are not caught as errors.",
     examples: AT_TRY_EXAMPLES,
     related: &["raise"],
+};
+
+pub(super) const AT_IMPORT: StaticDoc = StaticDoc {
+    id: "at-import",
+    title: "@i Import",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@i", "import", "module"],
+    summary: "Evaluate an isolated module and return its export value.",
+    details: "`@i\"path.wq\"` resolves the literal path relative to the source file containing the import. `@i @l\"path.wq\"` accepts a raw string literal. Computed paths and format strings are rejected.
+The module runs in a private lexical scope. Its final expression is the export value, and an empty module exports `()`. Caller bindings are not visible. Functions exported by the module retain the private bindings they capture.
+Imports execute only when control reaches them. Successful modules run once per session workspace and subsequent imports with the same stable identity return the cached value. Resolution, reading, parsing, compilation, initialization, and cycle failures can be caught with `@t`; failed imports are not cached.
+The host controls module resolution. A host without a resolver reports an `io` error. `\\load` remains the legacy workspace inclusion mechanism and does not provide module isolation.",
+    examples: AT_IMPORT_EXAMPLES,
+    related: &["@t", "functions"],
 };
 
 pub(super) const AT_SYMBOLIC: StaticDoc = StaticDoc {

@@ -15,7 +15,7 @@ use wqpl::style::ColorMode;
 use wqpl::wqdb::{DebugResume, Debugger, PauseEvent, PauseReason};
 
 use crate::dap::adapter;
-use crate::load::load_script;
+use crate::load::{install_module_resolver, load_script};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum VmState {
@@ -199,6 +199,7 @@ pub(crate) fn run_vm(
     status: Arc<VmStatus>,
 ) {
     let mut session = Session::new();
+    install_module_resolver(&mut session);
     status.install_interrupt(session.interrupt_handle());
     session.set_stdout(Box::new(DapOutput {
         event_tx: event_tx.clone(),

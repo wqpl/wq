@@ -7,7 +7,7 @@ use wqpl::session::Session;
 use crate::arg::RuntimeFlags;
 use crate::display::{format_print_result, format_xray_info};
 use crate::interrupt::{CliInterrupts, INTERRUPTED_EXIT_STATUS};
-use crate::load::{eval_inline_with_load, load_script};
+use crate::load::{eval_inline_with_load, install_module_resolver, load_script};
 use crate::msg::{print_dry_run_status, print_load_error};
 use crate::repl::input::RustylineInput;
 use crate::wqdb::WqdbShell;
@@ -15,6 +15,7 @@ use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag};
 
 pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: RuntimeFlags) -> i32 {
     let mut evaluator = Session::new();
+    install_module_resolver(&mut evaluator);
     evaluator.set_argv(args);
     evaluator.set_debug_flags(rtflags.debug_flags);
     evaluator.set_backtrace_enabled(rtflags.bt);
@@ -70,6 +71,7 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: Runt
 
 pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 {
     let mut session = Session::new();
+    install_module_resolver(&mut session);
     session.set_argv(args);
     session.set_debug_flags(rtflags.debug_flags);
     session.set_backtrace_enabled(rtflags.bt);

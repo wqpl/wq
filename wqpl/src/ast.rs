@@ -222,6 +222,12 @@ pub enum AstNode {
         span: AstSpan,
     },
     Try(Box<AstNode>, AstSpan),
+    /// Isolated module import (`@i"path"`).
+    Import {
+        specifier: String,
+        span: AstSpan,
+        path_span: AstSpan,
+    },
     /// Sequence of statements
     Block(Vec<AstNode>, AstSpan),
     /// Block expression from `[...]` or legacy `B[...]`.
@@ -281,6 +287,7 @@ impl AstNode {
             | NLoop { span, .. }
             | Debug { span, .. }
             | Pause { span, .. }
+            | Import { span, .. }
             | NamedArg { span, .. }
             | FString { span, .. }
             | UnaryOp { span, .. }

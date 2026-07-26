@@ -645,6 +645,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::Debug => "Debug",
         I::Pause => "Pause",
         I::Try(_) => "Try",
+        I::Import(_) => "Import",
         I::PrepareNamedArgs(_) => "PrepareNamedArgs",
     }
 }
@@ -745,6 +746,7 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::Debug => "Debug".to_string(),
         I::Pause => "Pause".to_string(),
         I::Try(_) => "Try".to_string(),
+        I::Import(import) => format!("Import({:?})", import.specifier),
         I::PrepareNamedArgs(meta) => {
             format!(
                 "PrepareNamedArgs(pos={}, named={})",

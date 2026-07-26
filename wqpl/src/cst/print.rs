@@ -27,7 +27,7 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
 
         // Keywords and directives.
         WLoopKw | NLoopKw | BlockKw | AndKw | OrKw | AtBreak | AtContinue | AtReturn | AtDebug
-        | AtPause | AtDepth | AtSymbolic | AtTry | Dollar | DollarDot | DollarDollar => {
+        | AtPause | AtDepth | AtSymbolic | AtTry | AtImport | Dollar | DollarDot | DollarDollar => {
             AnsiColor::Green
         }
 
@@ -63,10 +63,9 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
         PostfixExpr | NamedArgExpr | ArgList => AnsiColor::Magenta,
         FStringExpr => AnsiColor::Cyan,
         CondExpr | CondDotExpr | CondChainExpr | WLoopExpr | NLoopExpr | FunctionExpr
-        | ParamList | Param | ReturnExpr | DebugExpr | PauseExpr | TryExpr | SymbolicExpr
-        | BreakExpr | ContinueExpr | EllipsisExpr | PipeExpr | PipeTapExpr | DictPair => {
-            AnsiColor::Green
-        }
+        | ParamList | Param | ReturnExpr | DebugExpr | PauseExpr | TryExpr | ImportExpr
+        | SymbolicExpr | BreakExpr | ContinueExpr | EllipsisExpr | PipeExpr | PipeTapExpr
+        | DictPair => AnsiColor::Green,
         ErrorNode => AnsiColor::BrightMagenta,
 
         __LastToken => AnsiColor::White,

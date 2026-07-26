@@ -953,7 +953,8 @@ impl Highlighter {
             | TokenType::AtDepth(_)
             | TokenType::AtPause
             | TokenType::AtSymbolic
-            | TokenType::AtTry => Some(HighlightName::Keyword),
+            | TokenType::AtTry
+            | TokenType::AtImport => Some(HighlightName::Keyword),
 
             TokenType::Dollar | TokenType::DollarDot | TokenType::DollarDollar => {
                 Some(HighlightName::Keyword)

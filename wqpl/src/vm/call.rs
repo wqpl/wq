@@ -420,14 +420,22 @@ impl Vm {
             tail_call_depth: saved_tail_depth,
             pushed_debug_frame: pushed_dbg,
             pending_trace_probe: self.pending_trace_probe.take(),
+            module_identity: None,
         });
         Ok(())
     }
 
     pub(crate) fn finish_user_call(&mut self, value: Value, push_result: bool) -> Option<Value> {
         let value = self.attach_provenance_to_returned_callable(value);
+        let module_identity = self
+            .execution_frames
+            .last()
+            .and_then(|frame| frame.module_identity.clone());
         if !self.restore_user_call() {
             return Some(value);
+        }
+        if let Some(identity) = module_identity {
+            self.finish_module(identity, value.clone());
         }
         if self.accept_builtin_callback_result(value.clone()) {
             return None;
@@ -441,8 +449,15 @@ impl Vm {
     }
 
     pub(crate) fn unwind_user_call(&mut self) -> bool {
+        let module_identity = self
+            .execution_frames
+            .last()
+            .and_then(|frame| frame.module_identity.clone());
         if !self.restore_user_call() {
             return false;
+        }
+        if let Some(identity) = module_identity {
+            self.fail_module(&identity);
         }
         if self.builtin_frames.last().is_some_and(|frame| {
             frame.owner_call_depth == self.execution_frames.len()

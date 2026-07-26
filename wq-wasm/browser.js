@@ -258,6 +258,18 @@ export class WasmWqSession {
     return this.#call("apply_debug_flags", spec);
   }
 
+  register_module(specifier, source) {
+    return this.#call("register_module", specifier, source);
+  }
+
+  remove_module(specifier) {
+    return this.#call("remove_module", specifier);
+  }
+
+  clear_modules() {
+    return this.#call("clear_modules");
+  }
+
   backtrace_enabled() {
     return this.#call("backtrace_enabled");
   }

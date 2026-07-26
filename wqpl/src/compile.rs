@@ -12,7 +12,9 @@ use crate::ast::{AstNode, AstSpan, BinaryOperator, BoolOperator, Parameter};
 use crate::builtins::{BuiltinDepthSugar, Builtins};
 use crate::value::func::FunctionData;
 use crate::value::{Value, WqResult};
-use crate::vm::inst::{Capture, DebugStmtMark, Instruction, MutationOp, Operand, StoreTarget};
+use crate::vm::inst::{
+    Capture, DebugStmtMark, ImportData, Instruction, MutationOp, Operand, StoreTarget,
+};
 use crate::wqerror::{WqError, WqErrorType};
 
 #[derive(Clone, Copy)]
@@ -72,6 +74,7 @@ pub(crate) struct Compiler {
     src_base_offset: usize,
     // Pretty error reporting: source file path / label
     src_path: Option<String>,
+    import_origin: Option<String>,
     // Pretty error reporting: current statement spans (byte offsets) and cursor
     cur_stmt_spans: Vec<(usize, usize)>,
     cur_stmt_idx: usize,
@@ -80,6 +83,7 @@ pub(crate) struct Compiler {
     pub(crate) dbg_stmt_marks: Vec<DebugStmtMark>,
     pub(crate) has_runtime_debug: bool,
     trace_symbol_operands: bool,
+    module_root: bool,
 }
 
 impl Default for Compiler {
@@ -114,6 +118,7 @@ impl Compiler {
             src_text: None,
             src_base_offset: 0,
             src_path: None,
+            import_origin: None,
             cur_stmt_spans: Vec::new(),
             cur_stmt_idx: 0,
             current_stmt_span: None,
@@ -121,11 +126,125 @@ impl Compiler {
             dbg_stmt_marks: Vec::new(),
             has_runtime_debug: false,
             trace_symbol_operands: false,
+            module_root: false,
         }
     }
 
     pub(crate) fn compile(&mut self, node: &AstNode) -> WqResult<()> {
         self.compile_stmt_sequence(node, true)
+    }
+
+    pub(crate) fn compile_module_initializer(mut self, node: &AstNode) -> WqResult<FunctionData> {
+        let stmt_spans = self.cur_stmt_spans.clone();
+        self.fn_depth = 1;
+        self.module_root = true;
+        self.compile(node)?;
+        if let Some(Capture::Global(name, span)) = self.captures.first() {
+            return Err(self.error_at(
+                WqErrorType::NotBound,
+                *span,
+                format!("'{name}' has not been bound to a value"),
+            ));
+        }
+        if let Some((name, span)) = self.first_ambient_global(&self.instructions) {
+            return Err(self.error_at(
+                WqErrorType::NotBound,
+                span,
+                format!("'{name}' has not been bound to a value"),
+            ));
+        }
+        self.instructions.push(Instruction::Return);
+        self.propagate_constants_with_globals(&crate::vm::GlobalMap::default());
+        self.rewrite_tail_calls();
+        self.fuse();
+
+        let locals = self.local_count();
+        let local_names: Arc<[String]> = Arc::from(self.local_names_vec());
+        let instructions: Arc<[Instruction]> = self.instructions.into();
+        let mut pc_spans = self.dbg_pc_spans;
+        pc_spans.resize(instructions.len(), None);
+        Ok(FunctionData {
+            params: Some(Arc::from([])),
+            named_params: None,
+            locals,
+            instructions,
+            dbg_chunk: None,
+            dbg_stmt_spans: Some(Arc::from(stmt_spans)),
+            dbg_source_base_offset: self.src_base_offset,
+            dbg_pc_spans: Some(Arc::from(pc_spans)),
+            dbg_stmt_marks: Some(Arc::from(self.dbg_stmt_marks)),
+            dbg_local_names: Some(local_names),
+            dbg_provenance: None,
+        })
+    }
+
+    fn first_ambient_global(&self, instructions: &[Instruction]) -> Option<(String, AstSpan)> {
+        for instruction in instructions {
+            let direct = match instruction {
+                Instruction::LoadVar(name)
+                | Instruction::StoreVar(name)
+                | Instruction::StoreVarKeep(name)
+                | Instruction::IndexLoadVar(name)
+                | Instruction::IndexAssignVar(name)
+                | Instruction::IndexAssignVarDrop(name) => {
+                    (!self.builtins.has_function(name)).then(|| (name.to_string(), None))
+                }
+                Instruction::IndexManyLoadVar(name, _)
+                | Instruction::IndexManyAssignVar(name, _)
+                | Instruction::IndexManyAssignVarDrop(name, _) => {
+                    (!self.builtins.has_function(name)).then(|| (name.to_string(), None))
+                }
+                Instruction::LoadCallTarget(operand) => self.ambient_global_from_operand(operand),
+                Instruction::UnaryOp(data) => self.ambient_global_from_operand(&data.operand),
+                Instruction::BinaryOp(data) => self
+                    .ambient_global_from_operand(&data.left)
+                    .or_else(|| self.ambient_global_from_operand(&data.right)),
+                Instruction::JumpIfCmpFalse(data) => self
+                    .ambient_global_from_operand(&data.left)
+                    .or_else(|| self.ambient_global_from_operand(&data.right)),
+                Instruction::IndexMutate {
+                    target: StoreTarget::Var(name),
+                    ..
+                } => Some((name.to_string(), None)),
+                _ => None,
+            };
+            if direct.is_some() {
+                return direct;
+            }
+
+            match instruction {
+                Instruction::LoadClosure(payload) => {
+                    if let Some(Capture::Global(name, span)) = payload
+                        .captures
+                        .iter()
+                        .find(|capture| matches!(capture, Capture::Global(..)))
+                    {
+                        return Some((name.clone(), *span));
+                    }
+                    if let Some(found) = self.first_ambient_global(&payload.instructions) {
+                        return Some(found);
+                    }
+                }
+                Instruction::LoadConst(value) => {
+                    if let Value::CompiledFunction(function) = value.as_ref()
+                        && let Some(found) = self.first_ambient_global(&function.instructions)
+                    {
+                        return Some(found);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn ambient_global_from_operand(&self, operand: &Operand) -> Option<(String, AstSpan)> {
+        match operand {
+            Operand::Var(name) if !self.builtins.has_function(name) => {
+                Some((name.to_string(), None))
+            }
+            _ => None,
+        }
     }
 
     fn compile_expr(&mut self, node: &AstNode) -> WqResult<()> {
@@ -901,6 +1020,17 @@ impl Compiler {
                 return Err(err.clone());
             }
             AstNode::Literal(v, ..) => self.emit_load_const(v.clone()),
+            AstNode::Import { specifier, .. } => {
+                let importer = self
+                    .import_origin
+                    .as_deref()
+                    .or(self.src_path.as_deref())
+                    .unwrap_or("<eval>");
+                self.push_inst(Instruction::Import(Box::new(ImportData {
+                    specifier: Arc::from(specifier.as_str()),
+                    importer: Arc::from(importer),
+                })));
+            }
             AstNode::Variable(name, span) => self.emit_load(name, *span)?,
             AstNode::OuterVariable(name, span) => self.emit_outer_load(name, *span)?,
             AstNode::PipeInput => {
@@ -966,7 +1096,7 @@ impl Compiler {
                             &mut capture_needs,
                         );
                     }
-                    let mut c = Compiler::new();
+                    let mut c = Compiler::new_with_builtins(self.builtins.clone());
                     c.fn_depth = self.fn_depth + 1;
                     c.defining_name = Some(name.clone());
                     if *ref_capture {
@@ -991,6 +1121,9 @@ impl Compiler {
                     }
                     if let Some(path) = &self.src_path {
                         c.set_source_path(path.clone());
+                    }
+                    if let Some(origin) = &self.import_origin {
+                        c.set_import_origin(origin.clone());
                     }
                     c.set_stmt_spans(spans_for_fn.clone());
                     c.fn_spans_stream = self.fn_spans_stream.clone();
@@ -1312,7 +1445,7 @@ impl Compiler {
                 }
             }
             AstNode::Return(expr, _) => {
-                if self.fn_depth == 0 {
+                if self.fn_depth == 0 || self.module_root {
                     return Err(self.syntax_err_here("@r outside function"));
                 }
                 if let Some(e) = expr {
@@ -1412,6 +1545,24 @@ impl Compiler {
                 value,
                 span,
             } => {
+                if self.module_root {
+                    match object.as_ref() {
+                        AstNode::Variable(name, span) if !self.is_local(name) => {
+                            return Err(self.error_at(
+                                WqErrorType::NotBound,
+                                *span,
+                                format!("'{name}' has not been bound to a value"),
+                            ));
+                        }
+                        AstNode::OuterVariable(_, span) => {
+                            return Err(self.syntax_err_at(
+                                *span,
+                                "outer binding reference requires a closure",
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
                 if let Some(target) = self.collect_index_path(object, index, *span)? {
                     self.compile_index_path_assign(target, *op, value)?;
                     return Ok(());
@@ -1543,7 +1694,7 @@ impl Compiler {
                         &mut capture_needs,
                     );
                 }
-                let mut c = Compiler::new();
+                let mut c = Compiler::new_with_builtins(self.builtins.clone());
                 c.fn_depth = self.fn_depth + 1;
                 if *ref_capture {
                     c.ref_default_names = capture_needs.by_ref.clone();
@@ -1571,6 +1722,9 @@ impl Compiler {
                 }
                 if let Some(path) = &self.src_path {
                     c.set_source_path(path.clone());
+                }
+                if let Some(origin) = &self.import_origin {
+                    c.set_import_origin(origin.clone());
                 }
                 c.set_stmt_spans(spans_for_fn.clone());
                 c.fn_spans_stream = self.fn_spans_stream.clone();
@@ -1939,6 +2093,12 @@ impl Compiler {
             AstNode::Variable(name, _) => {
                 if self.fn_depth > 0 && self.is_local(name) {
                     Ok(StoreTarget::Local(self.locals[name]))
+                } else if self.module_root {
+                    Err(self.error_at(
+                        WqErrorType::NotBound,
+                        object.span(),
+                        format!("'{name}' has not been bound to a value"),
+                    ))
                 } else if self.is_ref_default_name(name) {
                     if let Some(idx) = self.ref_capture_map.get(name) {
                         Ok(StoreTarget::Capture(*idx))
@@ -1991,6 +2151,10 @@ impl Compiler {
         self.cur_stmt_spans = spans;
         self.cur_stmt_idx = 0;
         self.current_stmt_span = None;
+    }
+
+    pub(crate) fn set_import_origin(&mut self, origin: impl Into<String>) {
+        self.import_origin = Some(origin.into());
     }
 
     fn error_at(
@@ -2469,7 +2633,7 @@ impl Compiler {
     }
 
     fn emit_outer_load(&mut self, name: &str, span: Option<(usize, usize)>) -> WqResult<()> {
-        if self.fn_depth == 0 {
+        if self.fn_depth == 0 || self.module_root {
             return Err(self.syntax_err_at(span, "outer binding reference requires a closure"));
         }
         if let Some(idx) = self.ref_capture_map.get(name) {
@@ -2523,7 +2687,7 @@ impl Compiler {
     }
 
     fn emit_outer_store_keep(&mut self, name: &str, span: Option<(usize, usize)>) -> WqResult<()> {
-        if self.fn_depth == 0 {
+        if self.fn_depth == 0 || self.module_root {
             return Err(self.syntax_err_at(span, "outer binding reference requires a closure"));
         }
         if let Some(idx) = self.ref_capture_map.get(name) {
@@ -2593,6 +2757,7 @@ fn collect_ref_default_assignment_needs_inner(
         | AstNode::PipeInput
         | AstNode::Break(_)
         | AstNode::Continue(_)
+        | AstNode::Import { .. }
         | AstNode::Function { .. } => {}
         AstNode::Assignment { name, value, .. } => {
             if available.contains(name) && !excluded.contains(name) {
@@ -2832,6 +2997,7 @@ fn has_ctrl(node: &AstNode) -> bool {
         }
         AstNode::Error(..)
         | AstNode::Literal(..)
+        | AstNode::Import { .. }
         | AstNode::Variable(..)
         | AstNode::OuterVariable(..)
         | AstNode::Ellipsis(_)
@@ -2891,6 +3057,7 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
         },
         AstNode::Error(..)
         | AstNode::Literal(..)
+        | AstNode::Import { .. }
         | AstNode::Variable(_, _)
         | AstNode::OuterVariable(_, _)
         | AstNode::Ellipsis(_)
@@ -3234,6 +3401,7 @@ fn collect_capture_needs(
     match node {
         AstNode::Error(..)
         | AstNode::Literal(..)
+        | AstNode::Import { .. }
         | AstNode::Ellipsis(_)
         | AstNode::PipeInput
         | AstNode::Break(_)

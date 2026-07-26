@@ -15,6 +15,7 @@ pub(super) const STATIC_DOCS: &[StaticDoc] = &[
     keywords::AT_DEBUG,
     keywords::AT_PAUSE,
     keywords::AT_TRY,
+    keywords::AT_IMPORT,
     keywords::AT_SYMBOLIC,
     keywords::AT_FSTRING,
     keywords::AT_RAW_STRING,

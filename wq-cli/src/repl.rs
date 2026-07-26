@@ -205,6 +205,7 @@ impl InteractiveOutputSpacing {
 
 pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut session = Session::new();
+    crate::load::install_module_resolver(&mut session);
     let editor = RustylineInput::new().expect("REPL editor should initialize");
     let session_interrupt = session.interrupt_handle();
     session.set_input(Box::new(RuntimeInput::new(
@@ -753,7 +754,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
 
                 let start_t = Instant::now();
                 let interrupt_guard = interrupts.arm(session.interrupt_handle());
-                let attempt = session.eval_source(SourceUnit::named(&source_label, src_eval));
+                let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let import_origin = cwd.to_string_lossy();
+                let attempt = session.eval_source(
+                    SourceUnit::named(&source_label, src_eval).with_import_origin(&import_origin),
+                );
                 drop(interrupt_guard);
                 debugger_shell.flush_notifications(&mut session);
                 let elapsed_t = start_t.elapsed();

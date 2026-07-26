@@ -1790,6 +1790,7 @@ mod tests {
             }
             AstNode::NamedArg { value, .. } => contains_call_name(value, target),
             AstNode::Literal(..)
+            | AstNode::Import { .. }
             | AstNode::Variable(..)
             | AstNode::OuterVariable(..)
             | AstNode::PipeInput

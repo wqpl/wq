@@ -453,6 +453,7 @@ impl SymbolAnalyzer {
                     self.literals.push((span, v.clone()));
                 }
             }
+            AstNode::Import { .. } => {}
             AstNode::Variable(name, span) => {
                 let (kind, def_idx) = self.read_use(name);
                 self.add_use(name, *span, kind, def_idx);

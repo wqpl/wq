@@ -305,6 +305,7 @@ export default grammar({
         $.debug_form,
         $.pause_form,
         $.symbolic_form,
+        $.import_form,
       ),
 
     comma_expr: ($) =>
@@ -495,6 +496,7 @@ export default grammar({
         $.debug_form,
         $.pause_form,
         $.symbolic_form,
+        $.import_form,
       ),
 
     depth_modifier: (_) => token(seq("@", /[0-9](?:_?[0-9])*/)),
@@ -545,6 +547,7 @@ export default grammar({
         $.debug_form,
         $.pause_form,
         $.symbolic_form,
+        $.import_form,
       ),
 
     literal: ($) =>
@@ -703,6 +706,7 @@ export default grammar({
     debug_form: ($) => seq("@d", $.unary_expr),
     pause_form: ($) => seq("@p", optional($.unary_expr)),
     symbolic_form: ($) => seq("@s", $.comma_expr),
+    import_form: ($) => seq("@i", choice($.string, $.raw_string)),
 
     magic_command: (_) => token(seq("!", /[^\n]*/)),
 

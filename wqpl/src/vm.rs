@@ -2,6 +2,7 @@ pub(crate) mod builtin_frame;
 pub mod call;
 pub(crate) mod debug;
 pub mod inst;
+mod module;
 mod owned_const;
 pub(crate) mod pure;
 mod slot;
@@ -17,6 +18,7 @@ use ahash::AHashMap;
 
 use crate::builtins::{BuiltinPreset, Builtins};
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
+use crate::module::ModuleResolver;
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::session::stdio::{RuntimeIo, WqInputPoll, WqIoError};
 use crate::style::ColorMode;
@@ -125,7 +127,16 @@ pub(crate) struct Vm {
     pub(crate) cooperative_execution: bool,
     pub(crate) pending_input_request: Option<PendingInputRequest>,
     pub(crate) pending_host_error: Option<WqError>,
+    pub(crate) module_resolver: Option<Arc<dyn ModuleResolver>>,
+    pub(crate) module_cache: AHashMap<Arc<str>, ModuleCacheEntry>,
+    pub(crate) module_loading: Vec<Arc<str>>,
     next_input_request_id: u64,
+}
+
+#[derive(Clone)]
+pub(crate) enum ModuleCacheEntry {
+    Loading,
+    Loaded(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +174,7 @@ pub(crate) struct ExecutionFrame {
     pub(crate) tail_call_depth: usize,
     pub(crate) pushed_debug_frame: bool,
     pub(crate) pending_trace_probe: Option<usize>,
+    pub(crate) module_identity: Option<Arc<str>>,
 }
 
 const TAIL_CALL_JOURNAL_CAP: usize = 128;
@@ -323,6 +335,9 @@ impl Vm {
             cooperative_execution: false,
             pending_input_request: None,
             pending_host_error: None,
+            module_resolver: None,
+            module_cache: AHashMap::new(),
+            module_loading: Vec::new(),
             next_input_request_id: 1,
         }
     }
@@ -357,6 +372,7 @@ impl Vm {
         self.pending_debug_pause = None;
         self.skip_debug_pause_once = None;
         self.pending_host_error = None;
+        self.clear_loading_modules();
         // Keep debug_src_offset as set by session for current run
     }
 
