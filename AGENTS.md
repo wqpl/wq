@@ -1,7 +1,7 @@
 # Must-dos
 
 - Use `cargo run -p wq-cli -- --help` to understand CLI usage
-  - eg. `cargo run -p wq-cli -- exec 'inline code' -d ast,inst -p`
+  - e.g. `cargo run -p wq-cli -- exec 'inline code' -d ast,inst -p`
 - Read `e/*.wq` to understand wq grammar
   - `lhs:rhs` is assignment
   - `a=b` is equality
@@ -86,34 +86,13 @@
 - Ensure `cargo clippy --all-targets -- -D warnings` passes.
   - Avoid using `#[allow(...)]` to pass clippy.
   - If passing clippy requires a large-scope edit, pause and ask the user.
-- format command: `cargo +nightly fmt`
 - If you changed wq lexer/grammar:
   - Update `wq-ts/grammar.js`
   - Regenerate tree-sitter parser
   - Add new corpse tests
-- Development should be test-driven. Choose between unit tests and snapshot tests depending on situation.
-  - Integration/snapshot tests use `hotchoco.py`.
-    - This tests semantics, formatter, backtraces, etc.
-    - `uv run hotchoco.py run`, when you touched:
-      - lexer/parser/compiler/vm/interpreter
-      - anything that affects semantics, backtrace, debugger, formatter, output format, etc
-      - `e/*.wq`
-    - If a new major module is added, you may create a new test config for it.
-    - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept --test TEST`.
-    - See `uv run hotchoco.py --help` for details.
-- At handoff, recommend a good commit message based on the appendix guidelines.
-  - Do not commit unless the user explicitly asked for it.
-- Unless the user explicitly requested/approved, don't build/run with `release` profile.
-- Prohibited without explicit user permission:
-  - Python/Perl... scripts (especially regex-based replacements) for batch editing
-  - `sed`, `awk`, or any similar text-processing utilities for code changes
-  - `git checkout`, `git restore`, `git reset`, or any other destructive git mutations
-  - `cargo clean`, or any other destructive cargo commands
-  - Any cargo commands that force a complete rebuild
-  - `rm`. prefer `trash` instead.
-- If you are given a perf-related task, prefer `hyperfine` over `time`
-- When you are not sure of the user's intent, prefer asking the user instead of guessing.
-- Avoid `panic!` outside tests. Prefer `unreachable!` or `debug_assert!` instead.
+- Unless the user explicitly requested/approved, don't build with profile `release` or `R`.
+- For perf-related tasks, use `hyperfine`.
+- Avoid `panic!`. Prefer `unreachable!` or `debug_assert!`.
 - Avoid `unwrap()`. Prefer `expect()`.
 - Use `a.rs + a/` instead of `a/mod.rs` for modules with submodules.
   - Prefer no modifiers (i.e., private) over `pub(super)`.
@@ -159,6 +138,11 @@
 
 - Do not omit representative tag or dict examples, or rewrite an example merely to avoid handling the delimiters. Verify the rendered Markdown whenever a code span contains backticks.
 
+## Rust code format policy
+
+- First check `cargo +nightly fmt --check` to ensure no surprising formatting happens
+- Then use the format command: `cargo +nightly fmt`
+
 ## Audit policy
 
 - `cargo deny check`
@@ -168,10 +152,19 @@
 
 ## Test policy
 
+Choose between rust unit tests and hotchoco snapshot tests to lock behaviors or correctness.
+
+- Snapshot tests use `hotchoco.py`.
+  - This tests semantics, formatter, backtraces, etc.
+  - If a new major module is added, create a new test config for it.
+  - Key commands: `uv run hotchoco.py run`, `uv run hotchoco.py show --no-pager`, `uv run hotchoco.py accept --test TEST`.
+  - See `uv run hotchoco.py --help` for details.
+
 For all implemented changes, run the full:
 
 - `cargo test -p wqpl`
 - `cargo test -p wq-cli`
+- `uv run hotchoco.py run`
 
 Do not replace these with targeted runs at final handoff. Targeted runs are fine while iterating, but the final verification must include the full commands above unless the user explicitly says not to run them or an external blocker prevents them.
 
@@ -200,7 +193,7 @@ When continuing a session but the previous turn's changes have already been comm
 
 Use:
 
-- Clear, uncapitalized, imperative title: `fix everything`
+- Clear, capitalized, imperative title: `Fix everything`
 - Avoid "conventional commit prefixes" (no `fix:`)
 - Avoid trailing punctuation
 - Optionally prefix the title with a crate name and colon when one crate is the clear scope: `wq-cli: did something`
