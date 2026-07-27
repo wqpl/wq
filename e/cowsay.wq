@@ -7,4 +7,4 @@ cowsay:{[msg]border:repeat["-";#msg+2]
   echo"             (__)\\       )\\/\\"
   echo"                 ||-----w-|"
   echo"                 ||      ||"}
-cowsay "moooving on!"
+cowsay

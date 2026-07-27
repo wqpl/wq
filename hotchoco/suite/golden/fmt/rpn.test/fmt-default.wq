@@ -1,0 +1,14 @@
+rpn_module:@i"rpn.wq";parse_rpn:rpn_module `parse_rpn;rpn:rpn_module `rpn
+assert_eq[
+  parse_rpn "1 2 */";
+  ((`noun;1);(`noun;2);(`adverb;@u"/";@u"*"));
+  "parses / as an adverb"]
+assert_eq[rpn "3 4 + 2 * 1 -";13;"parses and evaluates RPN"]
+assert_eq[rpn "3 4 + -";-7;"uses - as unary minus"]
+assert_eq[rpn "1 2 3 4 +/";10;"folds with +/"]
+assert_eq[rpn "1 2 3 4 */";24;"folds with */"]
+assert_eq[rpn "10 2 3 -/";5;"folds with -/"]
+assert_eq[rpn "100 5 2 %/";10.0;"folds with %/"]
+assert_eq[rpn "-3 1.5 +";-1.5;"parses signed and decimal numbers"]
+assert_eq[(@t rpn "3 _") 0;`error;"rejects _"]
+()

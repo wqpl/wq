@@ -1,0 +1,28 @@
+make_deque:@i"deque.wq"
+// The trace shows the logical list and raw ring storage side by side.
+d:make_deque[]
+trace:{[label;d]
+  s:d[`state][];lst:s `list;lst:$[#lst=0;"()";lst];dat:s `data;h:s `head;t:s `tail;sz:s `sz;cap:s `cap
+  echo@f"{label} | logical={lst} | raw={dat} | head={h} tail={t} sz={sz} cap={cap}"}
+
+trace["new";d]
+d[`push_back] 10;trace["push_back 10";d]
+d[`push_back] 20;trace["push_back 20";d]
+d[`push_front] 5;trace["push_front 5 wraps head";d]
+d[`push_front] 2;trace["push_front 2 fills ring";d]
+assert_eq[d[`to_list][];(2;5;10;20);"logical order after wrap"]
+
+d[`push_back] 30;trace["push_back 30 grows";d]
+assert_eq[d[`capacity][];8;"capacity after grow"]
+assert_eq[d[`pop_back][];30;"pop_back"];trace["pop_back 30";d]
+assert_eq[d[`pop_front][];2;"pop_front"];trace["pop_front 2";d]
+
+d[`set][0;99];trace["set index 0 to 99";d]
+assert_eq[d[`get] 0;99;"get front"]
+assert_eq[d[`get][-1];20;"get back with negative index"]
+
+assert_eq[d[`pop_front][];99;"pop_front"];trace["pop_front 99";d]
+assert_eq[d[`pop_front][];10;"pop_front triggers shrink"];trace["pop_front 10 shrinks";d]
+assert_eq[d[`pop_front][];20;"pop_front"];trace["pop_front 20";d]
+assert_eq[d[`empty?][];T;"empty"]
+()

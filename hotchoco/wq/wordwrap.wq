@@ -1,2 +1,2 @@
-\l ../../e/wordwrap.wq
+wordwrap:@i"../../e/wordwrap.wq";wrap_file:wordwrap `wrap_file
 wrap_file["hotchoco/wq/data/cloud";80]

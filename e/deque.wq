@@ -1,5 +1,4 @@
 // Deque backed by a circular buffer.
-// The demo trace shows the logical list and the raw ring storage side by side.
 make_deque:{[]
   // mutable state
   data:alloc 4;head:0;tail:0;sz:0/* number of elements */;cap:4/* ring buffer capacity */
@@ -37,29 +36,4 @@ make_deque:{[]
   (`push_back:push_back;`push_front:push_front;`pop_back:pop_back;`pop_front:pop_front;
     `get:get;`set:set_;`len:deque_len;`empty?:empty?;`capacity:capacity;`to_list:to_list;
     `state:state;`check:check)}
-
-d: make_deque[]
-trace:{[label;d]s:d[`state][];lst:s`list;lst:$[#lst=0;"()";lst];dat:s`data;h:s`head;t:s`tail;sz:s`sz;cap:s`cap
-  echo@f"{label} | logical={lst} | raw={dat} | head={h} tail={t} sz={sz} cap={cap}"}
-expect:{[label;got;want]$[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
-
-trace["new";d]
-d[`push_back][10]; trace["push_back 10";d]
-d[`push_back][20]; trace["push_back 20";d]
-d[`push_front][5]; trace["push_front 5 wraps head";d]
-d[`push_front][2]; trace["push_front 2 fills ring";d]
-expect["logical order after wrap";d[`to_list][];(2;5;10;20)]
-
-d[`push_back][30]; trace["push_back 30 grows";d]
-expect["capacity after grow";d[`capacity][];8]
-expect["pop_back";d[`pop_back][];30]; trace["pop_back 30";d]
-expect["pop_front";d[`pop_front][];2]; trace["pop_front 2";d]
-
-d[`set][0;99]; trace["set index 0 to 99";d]
-expect["get front";d[`get][0];99]
-expect["get back with negative index";d[`get][-1];20]
-
-expect["pop_front";d[`pop_front][];99]; trace["pop_front 99";d]
-expect["pop_front triggers shrink";d[`pop_front][];10]; trace["pop_front 10 shrinks";d]
-expect["pop_front";d[`pop_front][];20]; trace["pop_front 20";d]
-expect["empty";d[`empty?][];true]
+make_deque

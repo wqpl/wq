@@ -11,4 +11,4 @@ bf:{[code]tape:alloc 30000;ptr:0;jump:buildmap code;ip:0;
     $.[op=@u",";inp:input"[bf] ";tape ptr:$[#inp>0;ord inp 0;0];echo@f"tape[ptr]={tape ptr}"]
     $.[op=@u"[";$.[tape ptr=0;ip:jump ip]]
     $.[op=@u"]";$.[tape ptr~0;ip:jump ip]];ip+:1];echo""}
-bf">++++++++[<+++++++++>-]<.>++++[<+++++++>-]<+.+++++++..+++.>>++++++[<+++++++>-]<++.------------.>++++++[<+++++++++>-]<+.<.+++.------.--------.>>>++++[<++++++++>-]<+."
+bf

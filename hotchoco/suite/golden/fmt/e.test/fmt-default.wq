@@ -1,0 +1,5 @@
+e:@i"e.wq"
+digits:e 100
+assert_eq[#digits;100;"digit count"]
+assert_eq[digits 0..=9;(2;7;1;8;2;8;1;8;2;8);"leading digits"]
+echo digits

@@ -8,4 +8,4 @@ cowsay:{[msg]
   echo "             (__)\\       )\\/\\"
   echo "                 ||-----w-|"
   echo "                 ||      ||"}
-cowsay "moooving on!"
+cowsay

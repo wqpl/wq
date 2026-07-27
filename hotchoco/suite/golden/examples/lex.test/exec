@@ -1,0 +1,11 @@
+--- Test 1: basic ---
+((`id;"a");(`op;@u"+");(`id;"b");(`op;@u"*");(`int;"12"))
+--- Test 2: identifiers and ops mixed ---
+((`id;"ABC123");(`op;@u"-");(`id;"xyz");(`op;@u"/");(`int;"9"))
+--- Test 3: consecutive same ops ---
+((`op;@u"+");(`op;@u"+");(`op;@u"-");(`op;@u"-"))
+--- Test 4: single identifier ---
+,((`id;"helloWorld"))
+--- Test 5: deny 1k ---
+((`int;"1");(`id;"k"))
+()

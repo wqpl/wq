@@ -3,10 +3,10 @@ wordwrap:{[cs;w]
     W[and[cs idx_~@u" ";idx_>=0];idx_-:1]
     seg:$[idx_<=0;cs[!0..w];t:cs[!0..idx_];cs[!0];t]
     echo seg];$.[#cs~0;echo cs]}
-"abcd efghi jklm"|repeat 100|wordwrap 10
 
 read_text:{open x|read|decode"utf-8"}
 split_lines:{lines:split[x;"\n"]
   $.[and[#lines>0;#lines[-1]=0];lines!];lines}
 wrap_file:{[path;w]lines:split_lines read_text path
   N[#lines;lines _n|wordwrap w]}
+(`wordwrap:wordwrap;`wrap_file:wrap_file)

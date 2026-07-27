@@ -31,25 +31,4 @@ parse_csv:{[csv]
   $[or[#cols>0;#field>0;quote_closed;~at_field_start]
     [push_field[];rows,:(,cols)]
     rows]}
-
-expect:{[label;got;want]
-  $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
-
-// -- demos --
-expect["basic";parse_csv "name,age\nAlice,30\nBob,25";(("name";"age");("Alice";"30");("Bob";"25"))]
-expect["quoted field with comma";parse_csv "\"hello, world\",123";,(("hello, world";"123"))]
-expect["mixed quoted and unquoted";parse_csv "a,\"b,c\",d";,("a";"b,c";"d")]
-expect[
-  "escaped quotes inside field";
-  parse_csv "\"hello \"\"world\"\"\",123";
-  ,(("hello \"world\"";"123"))]
-expect["empty fields";parse_csv ",,";,(("";"";""))]
-expect["newline inside quoted field";parse_csv "\"line1\nline2\",tail";,(("line1\nline2";"tail"))]
-expect["trailing newline";parse_csv "a,b\n";,("a";"b")]
-expect["crlf rows";parse_csv "a,b\r\nc,d";(("a";"b");("c";"d"))]
-expect["cr rows";parse_csv "a,b\rc,d";(("a";"b");("c";"d"))]
-expect["empty input";parse_csv "";()]
-expect["trailing comma";parse_csv "a,b,";,("a";"b";"")]
-expect["unterminated quote errors";(@t parse_csv "\"a,b") 0;`error]
-expect["quote in unquoted field errors";(@t parse_csv "a\"b,c") 0;`error]
-expect["text after closing quote errors";(@t parse_csv "\"a\"b,c") 0;`error]
+parse_csv

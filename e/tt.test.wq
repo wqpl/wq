@@ -1,0 +1,6 @@
+tt:@i"tt.wq";tokenize:tt`tokenize;parse:tt`parse;collect_vars:tt`collect_vars;print_table:tt`print_table;print_ast:tt`print_ast
+// inp:input"Input the Bool Expression: "
+inp:"A&B|C^B"
+toks:tokenize inp;expr:parse toks;vars:collect_vars[expr;()]
+assert_eq[#vars;3;"variable count"]
+print_table[inp;expr;vars];echo"";print_ast[expr;0;F];echo""

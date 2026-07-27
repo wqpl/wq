@@ -1,0 +1,5 @@
+f:@i"mc.wq"
+k:999999
+estimate:4*sum f[k]/k
+assert[and[estimate>3.0;estimate<3.3];"Monte Carlo estimate should approximate pi"]
+echo estimate

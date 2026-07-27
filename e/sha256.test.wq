@@ -1,0 +1,4 @@
+sha256:@i"sha256.wq"
+echo sha256 ""
+echo sha256 "abc"
+echo sha256 "hello world"

@@ -1,0 +1,5 @@
+nq:@i"nq.wq"
+sizes:(1;2;4;8)
+assert_eq[sizes|map{#nq x};(1;0;2;92);"solution counts"]
+sizes|.map{echo@f"n={x}: {#nq x}"}
+echo nq 4

@@ -15,7 +15,4 @@ clean:{[s;o]
 fft2:{fft2_ x|clean x}
 ifft2:{
   i:1.0/#x;x|M conj|fft2_|M{i*conj x}|clean x}
-
-echo fft2 (0;0;1;0;0;0;0;0)
-echo fft2 (1;0;-1;0;1;0;-1;0)
-echo ifft2 fft2 (1;2;3;4)
+(`fft2:fft2;`ifft2:ifft2)

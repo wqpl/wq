@@ -12,18 +12,4 @@ lex:{[s]tokens:();i:0;n:#s
       is_alpha c;[j:i;W[A[j<n;is_id_char s j];j+:1];tokens,:,(`id;s[i..j]);i:j]
       is_digit c;[j:i;W[A[j<n;is_digit s j];j+:1];  tokens,:,(`int;s[i..j]);i:j]
       i+:1]];tokens}
-
-echo "--- Test 1: basic ---"
-echo lex "a+b*12"
-
-echo "--- Test 2: identifiers and ops mixed ---"
-echo lex "ABC123-xyz/9"
-
-echo "--- Test 3: consecutive same ops ---"
-echo lex "++--"
-
-echo "--- Test 4: single identifier ---"
-echo lex "helloWorld"
-
-echo "--- Test 5: deny 1k ---"
-echo lex "1k"
+lex

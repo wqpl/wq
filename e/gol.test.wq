@@ -1,0 +1,12 @@
+gol:@i"gol.wq";neighbors:gol`neighbors;after:gol`after;show_after:gol`show_after
+// Blinker, a period-2 oscillator.
+g:((0;0;0;0;0)
+   (0;0;1;0;0)
+   (0;0;1;0;0)
+   (0;0;1;0;0)
+   (0;0;0;0;0))
+assert_eq[after[g;2];g;"blinker period"]
+show_after[g;0]
+echo"neighbor counts";echo neighbors g
+show_after[g;1]
+show_after[g;2]

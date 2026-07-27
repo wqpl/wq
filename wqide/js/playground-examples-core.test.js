@@ -4,12 +4,18 @@ import {
   PLAYGROUND_EXAMPLE_DEFINITIONS,
   createPlaygroundExamples,
   findPlaygroundExample,
+  inlineImportedExample,
 } from "./playground-examples-core.js";
 
 test("playground examples point at curated e scripts", () => {
   assert.deepEqual(
     PLAYGROUND_EXAMPLE_DEFINITIONS.map((example) => example.sourcePath),
-    ["@e/nq.wq", "@e/primes.wq", "@e/cowsay.wq", "@e/gol.wq"],
+    [
+      "@e/nq.test.wq",
+      "@e/primes.test.wq",
+      "@e/cowsay.test.wq",
+      "@e/gol.test.wq",
+    ],
   );
   assert.equal(
     new Set(PLAYGROUND_EXAMPLE_DEFINITIONS.map((example) => example.id)).size,
@@ -32,6 +38,20 @@ test("playground examples are built from source registry entries", () => {
 test("playground example registry rejects missing source entries", () => {
   assert.throws(
     () => createPlaygroundExamples({}),
-    /Missing playground example source for @e\/nq\.wq/,
+    /Missing playground example source for @e\/nq\.test\.wq/,
+  );
+});
+
+test("imported example tests are inlined for the browser", () => {
+  assert.equal(
+    inlineImportedExample(
+      "double:{2*x}\ndouble\n",
+      'double:@i"double.wq"\nassert_eq[double 2;4]',
+    ),
+    "double:{2*x}\ndouble\n\nassert_eq[double 2;4]",
+  );
+  assert.throws(
+    () => inlineImportedExample("double:{2*x}", "assert_eq[double 2;4]"),
+    /start with a wq import/,
   );
 });

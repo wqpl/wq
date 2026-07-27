@@ -30,7 +30,4 @@ sha256:{[msg]
       (h_var;g;f;e;d;c;b;a):(g;f;e;band[d+t1;4294967295];c;b;a;band[t1+t2;4294967295])]
     h:zipw[h;(a;b;c;d;e;f;g;h_var);{band[x+y;4294967295]}]]
   alloc 8|map{@f"{[08x]h x}"}|flatten}
-
-echo sha256 ""
-echo sha256 "abc"
-echo sha256 "hello world"
+sha256

@@ -12,7 +12,4 @@ clean:{[s;o]eps:32*EPS64*#s*$[(mx:max abs o)>0;mx;1.0]
   s|M{complex[$[eps>abs re x;0.0;re x];$[eps>abs im x;0.0;im x]]}}
 fft2:{fft2_ x|clean x}
 ifft2:{i:1.0/#x;x|M conj|fft2_|M{i*conj x}|clean x}
-
-echo fft2(0;0;1;0;0;0;0;0)
-echo fft2(1;0;-1;0;1;0;-1;0)
-echo ifft2 fft2(1;2;3;4)
+(`fft2:fft2;`ifft2:ifft2)

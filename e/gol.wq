@@ -7,14 +7,4 @@ step:{n:neighbors x;(1-sgn abs[n-3])+x*(1-sgn abs[n-2])}
 show:{x|M{".#" x|flatten|echo};echo""}
 after:{[g;n]N[n;g:step g];g}
 show_after:{[g;n]g:after[g;n];echo@f"t={n}";show g;g}
-
-// blinker, a period-2 oscillator
-g:((0;0;0;0;0)
-   (0;0;1;0;0)
-   (0;0;1;0;0)
-   (0;0;1;0;0)
-   (0;0;0;0;0))
-show_after[g;0]
-echo"neighbor counts";echo neighbors g
-show_after[g;1]
-show_after[g;2]
+(`neighbors:neighbors;`step:step;`show:show;`after:after;`show_after:show_after)

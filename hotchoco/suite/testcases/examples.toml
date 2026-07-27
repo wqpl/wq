@@ -1,0 +1,8 @@
+name = "examples"
+source_glob = "e/*.test.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "exec"
+flags = ["-p", "--seed", "4242"]
+capture = "stdout+stderr"

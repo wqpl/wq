@@ -31,16 +31,4 @@ eval_rpn:{[program]
   $.[#sta=1;@r sta 0]
   raise@f"rpn: expected one result, stack has {#sta}"}
 rpn:{eval_rpn parse_rpn x}
-
-expect:{[label;got;want]
-  $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
-
-expect["parses / as an adverb";parse_rpn "1 2 */";((`noun;1);(`noun;2);(`adverb;@u"/";@u"*"))]
-expect["parses and evaluates RPN";rpn "3 4 + 2 * 1 -";13]
-expect["uses - as unary minus";rpn "3 4 + -";-7]
-expect["folds with +/";rpn "1 2 3 4 +/";10]
-expect["folds with */";rpn "1 2 3 4 */";24]
-expect["folds with -/";rpn "10 2 3 -/";5]
-expect["folds with %/";rpn "100 5 2 %/";10.0]
-expect["parses signed and decimal numbers";rpn "-3 1.5 +";-1.5]
-expect["rejects _";(@t rpn "3 _")0;`error]
+(`parse_rpn:parse_rpn;`eval_rpn:eval_rpn;`rpn:rpn)

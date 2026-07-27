@@ -1,0 +1,2 @@
+wordwrap_module:@i"wordwrap.wq";wordwrap:wordwrap_module`wordwrap
+"abcd efghi jklm"|repeat 100|wordwrap 10

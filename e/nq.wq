@@ -4,11 +4,4 @@ nq_:{[r;p;oc;rd;fd;n]$.[r=n;@r,p];res:()
     res,:nq_[r+1;p,_n;oc;rd;fd;n];(oc _n;rd d1;fd d2):3|alloc F]];res}
 
 nq:{nq_[0;();x|alloc F;(s:2*x-1|alloc F);s;x]}
-
-(1;2;4;8)|.map{echo@f"n={x}: {#nq x}"}
-
-nq 4
-//n=1: 1
-//n=2: 0
-//n=4: 2
-//n=8: 92
+nq
