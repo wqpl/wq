@@ -14,8 +14,6 @@ use wqpl::highlight::Highlighter;
 use wqpl::symbol::{DefKind, SymbolDef, SymbolIndex, SymbolProvenance, SymbolProvenanceKind};
 use wqpl::wqerror::WqError;
 
-// const PARSER_INTERNAL_PREFIX: &str = "--";
-
 #[derive(Clone)]
 struct DocumentSnapshot {
     text: String,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
-use crate::identifier::is_identifier;
+use crate::identifier::{is_identifier, normalize_identifier};
 use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult, expected_string1, into_wq_string};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
@@ -36,7 +36,7 @@ pub(super) fn to_tag(args: BuiltinFnArgs) -> WqResult<Value> {
                 "tag names must start with a Unicode identifier character or '_'; remaining characters must be Unicode identifier characters, '_', or '?'",
             ));
     }
-    Ok(Value::Tag(name.into()))
+    Ok(Value::Tag(normalize_identifier(&name).into()))
 }
 
 pub(super) fn to_char(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -168,10 +168,10 @@ mod tests {
 
     #[test]
     fn tag_conversion_uses_identifier_character_rules() {
-        for name in ["a?", "λx", "e\u{301}"] {
+        for (name, expected) in [("a?", "a?"), ("λx", "λx"), ("e\u{301}", "é")] {
             let input = Value::String(Arc::new(name.to_string()));
             let result = to_tag(BuiltinFnArgs::from(input)).expect("valid tag name");
-            assert_eq!(result, Value::Tag(Arc::from(name)));
+            assert_eq!(result, Value::Tag(Arc::from(expected)));
         }
 
         for name in ["?a", "1a", "\u{301}a"] {

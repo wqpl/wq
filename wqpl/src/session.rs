@@ -3627,21 +3627,35 @@ mod tests {
     }
 
     #[test]
-    fn discard_only_unpacking_remains_a_value_expression() {
+    fn underscore_is_an_ordinary_unpack_binding() {
         let mut session = Session::new();
 
         assert_eq!(
             session
-                .eval_string("discarded:(_;_):(1;2);discarded")
-                .expect("discard-only unpack should return its source"),
-            Value::IntList(Arc::new(vec![1, 2]))
+                .eval_string("(_;_):(1;2);_")
+                .expect("underscore unpack targets should bind"),
+            Value::Int(2)
         );
         assert_eq!(
             session
-                .eval_string("(_;_):(3;4);42")
-                .expect("a discarded unpack statement should leave the stack balanced"),
-            Value::Int(42)
+                .eval_string("(`_):(`_:3);_")
+                .expect("underscore dict shorthand should bind"),
+            Value::Int(3)
         );
+        assert_eq!(session.bindings().get("_"), Some(&Value::Int(3)));
+    }
+
+    #[test]
+    fn underscore_unpack_binding_obeys_function_scope() {
+        let mut session = Session::new();
+
+        assert_eq!(
+            session
+                .eval_string("f:{[xs](_;tail):xs;(_;tail)};f (3;4)")
+                .expect("underscore unpack targets should bind locally"),
+            Value::IntList(Arc::new(vec![3, 4]))
+        );
+        assert!(!session.bindings().contains_key("_"));
     }
 
     #[test]
@@ -3672,6 +3686,26 @@ mod tests {
         assert_eq!(bindings.get("d"), Some(&Value::Int(3)));
         assert!(bindings.keys().all(|name| !name.starts_with("--")));
         assert!(session.vm.unpack_frames.is_empty());
+    }
+
+    #[test]
+    fn identifiers_and_tags_use_nfc() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("é:41;e\u{301}+:1;d:(`é:é);(é;d`e\u{301};tag[\"e\u{301}\"])")
+            .expect("canonically equivalent names should share bindings and keys");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::Int(42),
+                Value::Int(42),
+                Value::Tag(Arc::from("é")),
+            ]))
+        );
+        assert_eq!(session.bindings().get("é"), Some(&Value::Int(42)));
+        assert!(!session.bindings().contains_key("e\u{301}"));
     }
 
     #[test]

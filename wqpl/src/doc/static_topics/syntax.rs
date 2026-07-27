@@ -33,6 +33,19 @@ const ASSIGNMENT_EXAMPLES: &[DocExample] = &[
     },
 ];
 
+const IDENTIFIER_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Use Unicode and a predicate suffix",
+        code: "λ2?:7;λ2?",
+        expectation: ExampleExpectation::ResultContains("7"),
+    },
+    DocExample {
+        title: "Reuse a canonically equivalent spelling",
+        code: "é:7;é",
+        expectation: ExampleExpectation::ResultContains("7"),
+    },
+];
+
 const EQUALITY_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Compare two values",
@@ -370,6 +383,23 @@ const BLOCK_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("2"),
 }];
 
+pub(super) const IDENTIFIERS: StaticDoc = StaticDoc {
+    id: "identifier",
+    title: "Identifiers",
+    kind: DocKind::Syntax,
+    group: "Syntax",
+    aliases: &["identifier", "identifiers", "name", "names", "XID"],
+    summary: "Learn which spellings form identifiers and how Unicode is normalized.",
+    details: r#"An identifier starts with `_` or a character with the Unicode `XID_Start` property, such as `a`, `λ`, or `猫`.
+Later characters can be `_`, `?`, or characters with the `XID_Continue` property, such as `2` or a combining accent.
+
+`ready?` and `λ2?` are valid identifiers.
+`?ready` and `1st` are not.
+wq normalizes identifiers to Unicode NFC, so canonically equivalent spellings refer to the same name."#,
+    examples: IDENTIFIER_EXAMPLES,
+    related: &["assignment-forms", "functions"],
+};
+
 pub(super) const ASSIGNMENT: StaticDoc = StaticDoc {
     id: "assignment-forms",
     title: "Assignment Forms",
@@ -390,13 +420,13 @@ Operator-colon forms such as `x+:1` update from the old value, and `xs,:x` appen
 If a right operand runs code that mutates a binding used on the left, binary expressions and operator-colon updates still use the left value from before that mutation.
 List-shaped left sides unpack by position, so `(a;b):(1;2)` binds both names; patterns can nest, and `...` skips the middle.
 Tag-shaped left sides unpack dicts by key: ``(`a;`b:alias):dict`` binds key `a` to `a` and key `b` to `alias`, independent of dict order.
-A shorthand tag requires a bindable identifier; use an explicit alias for reserved or builtin key spellings.
+A shorthand tag creates a same-named binding; use an explicit alias when that name is unavailable.
 List and dict unpacking evaluate the right side once and validate every requested path before writing any target.
 Extra dict keys are ignored.
 A missing list position or dict key raises an index error without partially updating the pattern targets.
 Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
     examples: ASSIGNMENT_EXAMPLES,
-    related: &["equality", "index-mutation", "pipes"],
+    related: &["identifier", "equality", "index-mutation", "pipes"],
 };
 
 pub(super) const EQUALITY: StaticDoc = StaticDoc {
@@ -536,9 +566,12 @@ pub(super) const NAMED_ARGUMENTS: StaticDoc = StaticDoc {
         "`name:value",
     ],
     summary: "Use backtick tags for named call arguments and dict keys.",
-    details: "A tag is a backtick-prefixed, identifier-shaped name. It starts with a Unicode identifier character or `_`; remaining characters can also include `?`. In a call, a backtick-tagged `name:value` pair passes a named argument; in a function parameter list, a backtick-tagged `name:default` declares a named parameter with a default. Named call arguments accept any order, and each callee decides which names it accepts. The same tag syntax also names dict keys, so `(`a:1)`a` reads the value stored under `a`.",
+    details: "A tag uses a backtick prefix and follows identifier spelling rules.
+In a call, a backtick-tagged `name:value` pair passes a named argument; in a function parameter list, a backtick-tagged `name:default` declares a named parameter with a default.
+Named call arguments accept any order, and each callee decides which names it accepts.
+The same tag syntax also names dict keys, so `(`a:1)`a` reads the value stored under `a`.",
     examples: NAMED_ARGUMENT_EXAMPLES,
-    related: &["functions", "calls", "dicts"],
+    related: &["identifier", "functions", "calls", "dicts"],
 };
 
 pub(super) const PIPES: StaticDoc = StaticDoc {

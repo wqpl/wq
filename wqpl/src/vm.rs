@@ -393,6 +393,9 @@ impl Vm {
     pub(crate) fn global_env(&self) -> GlobalMap {
         let mut map = GlobalMap::default();
         for (name, slot) in self.global_slot_map.iter() {
+            if name.starts_with("--") {
+                continue;
+            }
             if let Some(val) = self.global_slots.get(*slot) {
                 map.insert(name.clone(), val.clone());
             }

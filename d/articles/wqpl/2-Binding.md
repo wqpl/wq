@@ -9,6 +9,29 @@ steps|echo
 
 Read `steps:40+2` as "bind `40+2` to `steps`". A single `=` is equality; a colon is assignment.
 
+## Names
+
+A name starts with `_` or a character with the Unicode `XID_Start` property,
+such as `a`, `λ`, or `猫`. Later characters can be `_`, `?`, or characters with
+the `XID_Continue` property, such as `2` or a combining accent.
+
+```wq
+λ2?:7
+λ2?|echo
+```
+
+`ready?` and `λ2?` are valid names. `?ready` and `1st` are not. wq normalizes
+names to Unicode NFC, so canonically equivalent spellings refer to the same
+binding.
+
+Some valid identifier spellings are already wq syntax:
+
+- `true`, `T`, `false`, `F`, and `inf` are literals.
+- `W`, `N`, `B`, `A`, `and`, `O`, and `or` are language forms.
+
+Those spellings cannot be binding names. A builtin-function name available in
+the current builtin set cannot be rebound either.
+
 ## Names Are Reusable
 
 Once a name is bound, it can appear anywhere an expression can appear.

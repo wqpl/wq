@@ -121,6 +121,23 @@ pub enum TokenType {
 }
 
 impl TokenType {
+    pub(crate) fn from_identifier(identifier: String) -> Self {
+        Self::reserved_identifier(&identifier).unwrap_or(Self::Identifier(identifier))
+    }
+
+    pub(crate) fn is_reserved_identifier(identifier: &str) -> bool {
+        Self::reserved_identifier(identifier).is_some()
+    }
+
+    fn reserved_identifier(identifier: &str) -> Option<Self> {
+        match identifier {
+            "true" | "T" => Some(Self::True),
+            "false" | "F" => Some(Self::False),
+            "inf" => Some(Self::Inf),
+            _ => Keyword::from_identifier(identifier).map(Self::Keyword),
+        }
+    }
+
     pub(crate) const fn diagnostic_name(&self) -> &'static str {
         match self {
             Self::Identifier(_) => "identifier",
@@ -205,6 +222,32 @@ impl TokenType {
             Self::Error => "invalid token",
             Self::FormatString(_, _, _) => "format string",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identifier_classification_identifies_reserved_spellings() {
+        assert_eq!(
+            TokenType::from_identifier("value".to_string()),
+            TokenType::Identifier("value".to_string())
+        );
+        assert_eq!(
+            TokenType::from_identifier("true".to_string()),
+            TokenType::True
+        );
+        assert_eq!(TokenType::from_identifier("T".to_string()), TokenType::True);
+        assert_eq!(
+            TokenType::from_identifier("and".to_string()),
+            TokenType::Keyword(Keyword::And)
+        );
+
+        assert!(!TokenType::is_reserved_identifier("value"));
+        assert!(TokenType::is_reserved_identifier("false"));
+        assert!(TokenType::is_reserved_identifier("W"));
     }
 }
 

@@ -10,11 +10,10 @@ use crate::range::{make_range, make_range_from_next, range_alloc_len};
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
+use crate::value::unpack::extract_path as extract_unpack_path;
 use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_bool_op, eval_unary};
 use crate::vm::debug::DebugBoundary;
-use crate::vm::inst::{
-    BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand, UnpackPathSegment,
-};
+use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
@@ -499,7 +498,10 @@ impl VanillaInterpreter {
                         let mut values = Vec::with_capacity(plan.paths.len() + 1);
                         values.push(source.clone());
                         for path in &plan.paths {
-                            values.push(extract_unpack_path(&source, path)?);
+                            values.push(
+                                extract_unpack_path(&source, path)
+                                    .map_err(|err| index_load_err(&err.index, &err.target))?,
+                            );
                         }
                         vm.unpack_frames.push(values.into_boxed_slice());
                     }
@@ -1950,20 +1952,6 @@ fn eval_int_comparison(op: BinaryOperator, left: i64, right: i64) -> Option<bool
         Add | Subtract | Multiply | Power | PowerDot | Divide | DivideDot | Modulo | Matmul
         | Cat | BitAnd | BitOr | Shl | Shr | BitXor | FloorDiv => None,
     }
-}
-
-fn extract_unpack_path(source: &Value, path: &[UnpackPathSegment]) -> WqResult<Value> {
-    let mut value = source.clone();
-    for segment in path {
-        let index = match segment {
-            UnpackPathSegment::Index(index) => Value::Int(*index),
-            UnpackPathSegment::Key(key) => Value::Tag(Arc::clone(key)),
-        };
-        value = value
-            .index(&index)
-            .ok_or_else(|| index_load_err(&index, &value))?;
-    }
-    Ok(value)
 }
 
 fn take_index_args(stack: &mut Vec<Value>, argc: usize) -> WqResult<Sv4> {

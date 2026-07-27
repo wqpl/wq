@@ -1269,7 +1269,7 @@ impl Parser {
                 _ => {
                     return Err(self.syntax_err(
                         colon_tok,
-                        "unpack assignment target must be an identifier, index target, '_', '...', or a nested pattern",
+                        "unpack assignment target must be an identifier, index target, '...', or a nested pattern",
                     ));
                 }
             }
@@ -4896,7 +4896,7 @@ mod diagnostic_wording_tests {
         assert_eq!(
             err.msg.as_deref(),
             Some(
-                "unpack assignment target must be an identifier, index target, '_', '...', or a nested pattern"
+                "unpack assignment target must be an identifier, index target, '...', or a nested pattern"
             )
         );
     }
@@ -4943,7 +4943,7 @@ mod diagnostic_wording_tests {
 
     #[test]
     fn dict_unpack_shorthand_requires_a_bindable_identifier() {
-        for source in ["(`T):(`T:1)", "(`_):(`_:1)", "(`assert):(`assert:1)"] {
+        for source in ["(`T):(`T:1)", "(`assert):(`assert:1)"] {
             let err = recovered_error(source);
             assert!(
                 err.msg
@@ -4952,6 +4952,11 @@ mod diagnostic_wording_tests {
                 "unexpected error for {source}: {err:?}"
             );
         }
+    }
+
+    #[test]
+    fn dict_unpack_shorthand_accepts_underscore() {
+        parse_input("(`_):(`_:1)").expect("underscore should be a bindable unpack target");
     }
 
     #[test]

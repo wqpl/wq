@@ -16,6 +16,7 @@ pub mod op;
 pub mod rng;
 pub mod seq;
 pub mod stream;
+pub(crate) mod unpack;
 
 use std::fmt;
 use std::sync::{Arc, Mutex};

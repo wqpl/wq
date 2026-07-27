@@ -11,10 +11,10 @@ use indexmap::{IndexMap, IndexSet};
 use crate::ast::{AstNode, AstSpan, BinaryOperator, BoolOperator, Parameter};
 use crate::builtins::{BuiltinDepthSugar, Builtins};
 use crate::value::func::FunctionData;
+use crate::value::unpack::{UnpackPathSegment, extract_path as extract_unpack_path};
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{
-    Capture, DebugStmtMark, ImportData, Instruction, MutationOp, Operand, StoreTarget,
-    UnpackPathSegment, UnpackPlan,
+    Capture, DebugStmtMark, ImportData, Instruction, MutationOp, Operand, StoreTarget, UnpackPlan,
 };
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -31,7 +31,12 @@ struct IndexPathTarget<'a> {
 
 struct PlannedUnpack {
     paths: Vec<Box<[UnpackPathSegment]>>,
-    writes: Vec<AstNode>,
+    writes: Vec<PlannedUnpackWrite>,
+}
+
+struct PlannedUnpackWrite {
+    target: AstNode,
+    path_index: usize,
 }
 
 enum IndexArgPlan {
@@ -276,10 +281,57 @@ impl Compiler {
             writes: Vec::new(),
         };
         if let [AstNode::DictUnpackPattern(..)] = lhs {
-            self.plan_unpack_target(&lhs[0], Vec::new(), op, span, &mut plan)?;
+            Self::plan_unpack_target(&lhs[0], Vec::new(), &mut plan);
         } else {
-            self.plan_list_unpack(lhs, Vec::new(), op, span, &mut plan)?;
+            Self::plan_list_unpack(lhs, Vec::new(), &mut plan);
         }
+
+        // A literal source has no runtime effects. Preflight every path with
+        // the shared value extractor, then write only the extracted constants.
+        // If any path is invalid, retain the runtime plan and its standard
+        // diagnostic.
+        if let AstNode::Literal(source, rhs_span) = rhs
+            && let Ok(values) = plan
+                .paths
+                .iter()
+                .map(|path| extract_unpack_path(source, path))
+                .collect::<Result<Vec<_>, _>>()
+        {
+            if plan.writes.is_empty() {
+                self.compile_expr(rhs)?;
+            } else {
+                let writes = plan
+                    .writes
+                    .iter()
+                    .map(|write| {
+                        self.unpack_write(
+                            &write.target,
+                            AstNode::Literal(values[write.path_index].clone(), *rhs_span),
+                            op,
+                            span,
+                        )
+                    })
+                    .collect::<WqResult<Vec<_>>>()?;
+                self.compile_stmt_sequence_inner(&AstNode::Block(writes, span), self.value_needed)?;
+            }
+            return Ok(());
+        }
+
+        let writes = plan
+            .writes
+            .iter()
+            .map(|write| {
+                self.unpack_write(
+                    &write.target,
+                    AstNode::UnpackValue {
+                        slot: write.path_index + 1,
+                        span,
+                    },
+                    op,
+                    span,
+                )
+            })
+            .collect::<WqResult<Vec<_>>>()?;
 
         self.compile_expr(rhs)?;
         self.instructions
@@ -287,26 +339,20 @@ impl Compiler {
                 paths: plan.paths.into_boxed_slice(),
             })));
 
-        if plan.writes.is_empty() {
+        if writes.is_empty() {
             self.instructions.push(Instruction::LoadUnpack(0));
         } else {
-            self.compile_stmt_sequence_inner(
-                &AstNode::Block(plan.writes, span),
-                self.value_needed,
-            )?;
+            self.compile_stmt_sequence_inner(&AstNode::Block(writes, span), self.value_needed)?;
         }
         self.instructions.push(Instruction::EndUnpack);
         Ok(())
     }
 
     fn plan_list_unpack(
-        &self,
         items: &[AstNode],
         prefix: Vec<UnpackPathSegment>,
-        op: Option<BinaryOperator>,
-        span: AstSpan,
         plan: &mut PlannedUnpack,
-    ) -> WqResult<()> {
+    ) {
         let ellipsis = items
             .iter()
             .position(|item| matches!(item, AstNode::Ellipsis(_)));
@@ -314,7 +360,7 @@ impl Compiler {
         for (position, item) in items.iter().take(prefix_len).enumerate() {
             let mut path = prefix.clone();
             path.push(UnpackPathSegment::Index(position as i64));
-            self.plan_unpack_target(item, path, op, span, plan)?;
+            Self::plan_unpack_target(item, path, plan);
         }
         if let Some(ellipsis) = ellipsis {
             let suffix = &items[ellipsis + 1..];
@@ -322,51 +368,47 @@ impl Compiler {
                 let distance_from_end = suffix.len() - offset;
                 let mut path = prefix.clone();
                 path.push(UnpackPathSegment::Index(-(distance_from_end as i64)));
-                self.plan_unpack_target(item, path, op, span, plan)?;
+                Self::plan_unpack_target(item, path, plan);
             }
         }
-        Ok(())
     }
 
     fn plan_unpack_target(
-        &self,
         target: &AstNode,
         path: Vec<UnpackPathSegment>,
-        op: Option<BinaryOperator>,
-        span: AstSpan,
         plan: &mut PlannedUnpack,
-    ) -> WqResult<()> {
+    ) {
         match target {
             AstNode::DictUnpackPattern(entries, _) => {
                 for entry in entries {
                     let mut entry_path = path.clone();
                     entry_path.push(UnpackPathSegment::Key(entry.key.clone().into()));
-                    self.plan_unpack_target(&entry.target, entry_path, op, span, plan)?;
+                    Self::plan_unpack_target(&entry.target, entry_path, plan);
                 }
             }
             AstNode::List(items, _) => {
-                self.plan_list_unpack(items, path, op, span, plan)?;
+                Self::plan_list_unpack(items, path, plan);
             }
             AstNode::Ellipsis(_) => {}
             target => {
-                let slot = plan.paths.len() + 1;
+                let path_index = plan.paths.len();
                 plan.paths.push(path.into_boxed_slice());
-                if !matches!(target, AstNode::Variable(name, _) if name == "_") {
-                    plan.writes.push(self.unpack_write(target, slot, op, span)?);
-                }
+                plan.writes.push(PlannedUnpackWrite {
+                    target: target.clone(),
+                    path_index,
+                });
             }
         }
-        Ok(())
     }
 
     fn unpack_write(
         &self,
         target: &AstNode,
-        slot: usize,
+        value: AstNode,
         op: Option<BinaryOperator>,
         span: AstSpan,
     ) -> WqResult<AstNode> {
-        let value = Box::new(AstNode::UnpackValue { slot, span });
+        let value = Box::new(value);
         match target {
             AstNode::Variable(name, name_span) => Ok(AstNode::Assignment {
                 name: name.clone(),
@@ -3106,7 +3148,6 @@ fn collect_ref_default_unpack_target(
     needs: &mut CaptureNeeds,
 ) {
     match target {
-        AstNode::Variable(name, _) if name == "_" => {}
         AstNode::Variable(name, _) => {
             if available.contains(name) && !excluded.contains(name) {
                 needs.by_ref.insert(name.clone());
@@ -3880,7 +3921,6 @@ fn collect_unpack_target_capture_needs(
     defining_name: Option<&str>,
 ) {
     match target {
-        AstNode::Variable(name, _) if name == "_" => {}
         AstNode::Variable(name, _) => {
             if op.is_some() && !scope_has(locals, name) && defining_name != Some(name.as_str()) {
                 if ref_capture {
@@ -4045,7 +4085,7 @@ mod tests {
 
     #[test]
     fn destructuring_compiles_to_an_anonymous_extraction_plan() {
-        let insts = compile_source("(a;(`key:b)):(1;(`key:2))");
+        let insts = compile_source("source:(1;(`key:2));(a;(`key:b)):source");
         let unpack = insts
             .iter()
             .find_map(|inst| match inst {
@@ -4086,6 +4126,59 @@ mod tests {
             insts
                 .iter()
                 .any(|inst| matches!(inst, Instruction::EndUnpack))
+        );
+    }
+
+    #[test]
+    fn valid_literal_destructuring_compiles_to_direct_constant_stores() {
+        let insts = compile_source("(a;_;(`key:b)):(1;2;(`key:3))");
+
+        assert!(
+            insts.iter().all(|inst| !matches!(
+                inst,
+                Instruction::Unpack(_)
+                    | Instruction::LoadUnpack(_)
+                    | Instruction::EndUnpack
+                    | Instruction::MakeList(_)
+            )),
+            "literal destructuring should not create a runtime extraction plan: {insts:#?}"
+        );
+        assert!(
+            insts.iter().any(
+                |inst| matches!(inst, Instruction::LoadConst(value) if value.as_ref() == &Value::Int(1))
+            ),
+            "first extracted constant should be loaded directly: {insts:#?}"
+        );
+        assert!(
+            insts.iter().any(
+                |inst| matches!(inst, Instruction::LoadConst(value) if value.as_ref() == &Value::Int(3))
+            ),
+            "nested extracted constant should be loaded directly: {insts:#?}"
+        );
+        assert!(
+            insts.iter().any(|inst| matches!(
+                inst,
+                Instruction::StoreVar(name) | Instruction::StoreVarKeep(name) if &**name == "a"
+            )),
+            "first target should use a direct store: {insts:#?}"
+        );
+        assert!(
+            insts
+                .iter()
+                .any(|inst| matches!(inst, Instruction::StoreVarKeep(name) if &**name == "b")),
+            "last target should use a direct store that preserves the expression value: {insts:#?}"
+        );
+    }
+
+    #[test]
+    fn invalid_literal_destructuring_keeps_runtime_preflight() {
+        let insts = compile_source("(a;b):,1");
+
+        assert!(
+            insts
+                .iter()
+                .any(|inst| matches!(inst, Instruction::Unpack(_))),
+            "an invalid literal path should retain runtime unpack diagnostics: {insts:#?}"
         );
     }
 

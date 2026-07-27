@@ -4,8 +4,10 @@ use std::str::Chars;
 use num_bigint::BigInt;
 use num_traits::{Num, ToPrimitive};
 
-use crate::identifier::{is_identifier_continue, is_identifier_start};
-use crate::token::{Keyword, Token, TokenType};
+use crate::identifier::{is_identifier_continue, is_identifier_start, normalize_identifier};
+#[cfg(test)]
+use crate::token::Keyword;
+use crate::token::{Token, TokenType};
 use crate::value::WqResult;
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -405,7 +407,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        identifier
+        normalize_identifier(&identifier)
     }
 
     fn read_tag(
@@ -1480,13 +1482,7 @@ impl<'a> Lexer<'a> {
                 Some(c) if is_identifier_start(c) => {
                     // Otherwise, read an identifier and map to keywords if any.
                     let ident = self.read_identifier();
-                    let tt = match ident.as_str() {
-                        "true" | "T" => TokenType::True,
-                        "false" | "F" => TokenType::False,
-                        "inf" => TokenType::Inf,
-                        _ => Keyword::from_identifier(&ident)
-                            .map_or(TokenType::Identifier(ident), TokenType::Keyword),
-                    };
+                    let tt = TokenType::from_identifier(ident);
                     return emit(tt, self.byte_pos);
                 }
 
@@ -1715,7 +1711,19 @@ mod tests {
         assert_eq!(tokens[0].token_type, TokenType::Tag("a?".to_string()));
         assert_eq!(tokens[1].token_type, TokenType::Tag("_x".to_string()));
         assert_eq!(tokens[2].token_type, TokenType::Tag("λ".to_string()));
-        assert_eq!(tokens[3].token_type, TokenType::Tag("e\u{301}".to_string()));
+        assert_eq!(tokens[3].token_type, TokenType::Tag("é".to_string()));
+    }
+
+    #[test]
+    fn identifiers_and_tags_normalize_to_nfc() {
+        let tokens = Lexer::new("é e\u{301} `é `e\u{301}")
+            .tokenize()
+            .expect("canonically equivalent names should lex");
+
+        assert_eq!(tokens[0].token_type, TokenType::Identifier("é".to_string()));
+        assert_eq!(tokens[1].token_type, tokens[0].token_type);
+        assert_eq!(tokens[2].token_type, TokenType::Tag("é".to_string()));
+        assert_eq!(tokens[3].token_type, tokens[2].token_type);
     }
 
     #[test]

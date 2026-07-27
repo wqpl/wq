@@ -629,11 +629,9 @@ impl Resolver {
     fn resolve_unpack_target(&mut self, target: AstNode) -> AstNode {
         match target {
             AstNode::Variable(name, span) => {
-                if name != "_" {
-                    let binding = self.binding_for_named_def(&name, span);
-                    self.bind_current_scope(name.clone(), binding.clone());
-                    self.set_binding_fact(&binding, BindingFact::Unknown);
-                }
+                let binding = self.binding_for_named_def(&name, span);
+                self.bind_current_scope(name.clone(), binding.clone());
+                self.set_binding_fact(&binding, BindingFact::Unknown);
                 AstNode::Variable(name, span)
             }
             AstNode::List(items, span) => AstNode::List(

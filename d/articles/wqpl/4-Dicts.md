@@ -2,7 +2,15 @@
 
 A dict stores named pieces of data. Dict keys are tags, written with a leading backtick.
 
-Bare tag names follow identifier character rules. They start with a Unicode identifier character or `_`; later characters can also include `?`. For example, `` `ready? `` is valid, while `` `?ready `` and `` `1st `` are not.
+Bare tag names follow identifier character rules. The first character is `_`
+or has the Unicode `XID_Start` property, such as `a`, `λ`, or `猫`. Later
+characters can be `_`, `?`, or have the `XID_Continue` property, such as `2`
+or a combining accent.
+
+For example, `` `ready? `` and `` `λ2 `` are valid tags; `` `?ready `` and
+`` `1st `` are not. wq normalizes tag names to Unicode NFC. `tag[string]`
+applies the same character and normalization rules. Tags are values, so wq
+syntax and builtin names such as `` `T `` and `` `echo `` are valid tags.
 
 ```wq
 cat:(`name:"Ada";`age:3)
@@ -30,7 +38,7 @@ cat[`name]|echo
 
 ## Unpacking Fields
 
-A tag-shaped assignment target selects fields by key. A shorthand tag binds to the same identifier, while `key:name` chooses a different target name.
+A tag-shaped assignment target selects fields by key. A shorthand tag creates a binding with the same name, while `key:name` chooses a different target name.
 
 ```wq
 cat:(`name:"Ada";`age:3)
@@ -38,7 +46,7 @@ cat:(`name:"Ada";`age:3)
 (name;years)|echo
 ```
 
-Shorthand requires a bindable identifier. Use an explicit alias for a reserved or builtin key spelling, as in ``(`T:truth):record``.
+When a key name is unavailable as a binding, choose another target name, as in ``(`T:truth):record``.
 
 List and dict unpacking evaluate the source once and validate every requested path before writing any target. A missing position or key leaves all pattern targets unchanged.
 

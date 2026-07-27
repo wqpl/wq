@@ -69,10 +69,11 @@ pub(super) const TAG: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Tag,
     summary: "Convert a string to a tag.",
     details: "`tag[x]` converts a string to a tag name and leaves tags unchanged.
-Tag names follow identifier character rules: they start with a Unicode identifier character or `_`, and remaining characters can also include `?`.
+The string must be a valid identifier spelling.
+The result is normalized to Unicode NFC.
 Invalid names raise a domain error.",
     examples: TAG_EXAMPLES,
-    related: &["type", "dict", "str"],
+    related: &["identifier", "type", "dict", "str"],
 };
 
 pub(super) const BOOL: BuiltinDoc = BuiltinDoc {

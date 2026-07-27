@@ -40,6 +40,14 @@ fn resolves_keywords_and_depth_modifiers() {
         "interpreters".to_string()
     );
     assert_eq!(
+        resolve("identifier").expect("identifier doc").id,
+        "identifier".to_string()
+    );
+    assert_eq!(
+        resolve("XID").expect("XID doc").id,
+        "identifier".to_string()
+    );
+    assert_eq!(
         resolve(r"\i").expect(r"\i doc").id,
         "interpreters".to_string()
     );

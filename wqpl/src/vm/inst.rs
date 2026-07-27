@@ -5,6 +5,7 @@ use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
+use crate::value::unpack::UnpackPathSegment;
 use crate::wqdb::data::ChunkId;
 use crate::wqdb::{DebugInstruction, InstructionClass};
 
@@ -116,12 +117,6 @@ pub(crate) enum StoreTarget {
 pub(crate) struct ImportData {
     pub(crate) specifier: Arc<str>,
     pub(crate) importer: Arc<str>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum UnpackPathSegment {
-    Index(i64),
-    Key(Arc<str>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
