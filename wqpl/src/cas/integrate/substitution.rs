@@ -14,7 +14,7 @@ pub(super) fn integrate_by_substitution(
         debug,
         DebugLogFlags::CAS,
         "[cas] substitution enter: {}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string())
+        expr.format_cas()
     );
     let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         cas_trace!(

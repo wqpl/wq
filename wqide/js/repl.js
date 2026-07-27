@@ -1138,26 +1138,16 @@ async function doEval({ recordHistory = true } = {}) {
       result.display !== null &&
       String(result.display).length
     ) {
-      if (result.is_cas) {
-        const content = createTurn("output", "", "", "success");
-        const casSpan = document.createElement("span");
-        casSpan.innerHTML = frontend.highlight_wq(alignTurnBody(result.display));
-        content.appendChild(casSpan);
-        if (showCategory && result.category) {
-          content.appendChild(document.createTextNode(`\n${result.category}`));
-        }
-      } else {
-        const valueText =
-          alignTurnBody(String(result.display)) +
-          (showCategory && result.category ? `\n${result.category}` : "") +
-          "\n";
-        createTurn(
-          "output",
-          "",
-          valueText,
-          "success",
-        );
-      }
+      const valueText =
+        alignTurnBody(String(result.display)) +
+        (showCategory && result.category ? `\n${result.category}` : "") +
+        "\n";
+      createTurn(
+        "output",
+        "",
+        valueText,
+        "success",
+      );
       if (getBoxFlags().includes("xray") && result.xray) {
         createTurn(
           "system",

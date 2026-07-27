@@ -460,26 +460,14 @@ async function doEval(instance) {
       // if (instance.output.textContent && !instance.output.textContent.endsWith("\n")) {
       //   instance.output.appendChild(document.createTextNode("\n"));
       // }
-      if (result.is_cas) {
-        const bar = document.createElement("span");
-        bar.className = "repl-bar repl-bar-success";
-        bar.textContent = "\u258d ";
-        instance.output.appendChild(bar);
-        const casSpan = document.createElement("span");
-        casSpan.innerHTML = instance.frontend.highlight_wq(
-          alignTurnBody(result.display),
-        );
-        instance.output.appendChild(casSpan);
-      } else {
-        const bar = document.createElement("span");
-        bar.className = "repl-bar repl-bar-success";
-        bar.textContent = "\u258d ";
-        instance.output.appendChild(bar);
-        const resultRenderer = createOutputRenderer(instance.output, bar);
-        resultRenderer.appendOutput(
-          alignTurnBody(String(result.display)) + "\n",
-        );
-      }
+      const bar = document.createElement("span");
+      bar.className = "repl-bar repl-bar-success";
+      bar.textContent = "\u258d ";
+      instance.output.appendChild(bar);
+      const resultRenderer = createOutputRenderer(instance.output, bar);
+      resultRenderer.appendOutput(
+        alignTurnBody(String(result.display)) + "\n",
+      );
       if (readBoxFlags(instance).includes("xray") && result.xray) {
         const xrayBar = document.createElement("span");
         xrayBar.className = "repl-bar repl-bar-info";
@@ -576,26 +564,14 @@ async function runForPoster(instance) {
       result.display !== null &&
       String(result.display).length
     ) {
-      if (result.is_cas) {
-        const bar = document.createElement("span");
-        bar.className = "repl-bar repl-bar-success";
-        bar.textContent = "\u258d ";
-        resultDiv.appendChild(bar);
-        const casSpan = document.createElement("span");
-        casSpan.innerHTML = instance.frontend.highlight_wq(
-          alignTurnBody(result.display),
-        );
-        resultDiv.appendChild(casSpan);
-      } else {
-        const bar = document.createElement("span");
-        bar.className = "repl-bar repl-bar-success";
-        bar.textContent = "\u258d ";
-        resultDiv.appendChild(bar);
-        const resultRenderer = createOutputRenderer(resultDiv, bar);
-        resultRenderer.appendOutput(
-          alignTurnBody(String(result.display)) + "\n",
-        );
-      }
+      const bar = document.createElement("span");
+      bar.className = "repl-bar repl-bar-success";
+      bar.textContent = "\u258d ";
+      resultDiv.appendChild(bar);
+      const resultRenderer = createOutputRenderer(resultDiv, bar);
+      resultRenderer.appendOutput(
+        alignTurnBody(String(result.display)) + "\n",
+      );
       if (readBoxFlags(instance).includes("xray") && result.xray) {
         const bar = document.createElement("span");
         bar.className = "repl-bar repl-bar-info";

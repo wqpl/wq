@@ -40,7 +40,7 @@ pub(crate) fn integrate_cas_with_debug(
             debug,
             DebugLogFlags::CAS,
             "[cas] integrate enter: expr={} var={}",
-            expr.format_cas().unwrap_or_else(|| expr.to_string()),
+            expr.format_cas(),
             var
         );
         let result = rewrite_cas_with_debug(
@@ -51,7 +51,7 @@ pub(crate) fn integrate_cas_with_debug(
             debug,
             DebugLogFlags::CAS,
             "[cas] integrate exit: {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         Ok(result)
     })
@@ -444,7 +444,7 @@ pub(super) fn integrate_expr_with_depth(
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] integrate_expr_with_depth enter depth={depth} expr={} var={var}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string())
+        expr.format_cas()
     );
 
     if !expr.is_cas_expr() {
@@ -515,7 +515,7 @@ pub(super) fn integrate_expr_with_depth(
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] integrate_expr_with_depth exit depth={depth} op={op} -> {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(result);
     }
@@ -526,7 +526,7 @@ pub(super) fn integrate_expr_with_depth(
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] integrate_expr_with_depth exit depth={depth} call -> {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(result);
     }
@@ -549,21 +549,21 @@ fn try_strategies(expr: &Value, var: &str, depth: usize, debug: CasDebug<'_>) ->
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] try_strategy {name} depth={depth} expr={}",
-            expr.format_cas().unwrap_or_else(|| expr.to_string())
+            expr.format_cas()
         );
         if let Some(result) = strategy(expr, var, debug)? {
             cas_trace!(
                 debug,
                 DebugLogFlags::CAS,
                 "[cas] strategy {name} -> success: {}",
-                result.format_cas().unwrap_or_else(|| result.to_string())
+                result.format_cas()
             );
             cas_trace_depth!(
                 debug,
                 DebugLogFlags::CAS_VERBOSE,
                 depth,
                 "[cas-v] try_strategy {name} depth={depth} -> success: {}",
-                result.format_cas().unwrap_or_else(|| result.to_string())
+                result.format_cas()
             );
             return simplify_cas_value(&result);
         }
@@ -574,7 +574,7 @@ fn try_strategies(expr: &Value, var: &str, depth: usize, debug: CasDebug<'_>) ->
             "[cas-v] try_strategy {name} depth={depth} -> failed"
         );
     }
-    let formatted = expr.format_cas().unwrap_or_else(|| expr.to_string());
+    let formatted = expr.format_cas();
     cas_trace!(
         debug,
         DebugLogFlags::CAS,
@@ -587,7 +587,7 @@ pub(super) fn unsupported_symbolic_integral_error(
     expr: &Value,
     var: &str,
 ) -> crate::wqerror::WqError {
-    let formatted = expr.format_cas().unwrap_or_else(|| expr.to_string());
+    let formatted = expr.format_cas();
     let err = cas_err(format!("unsupported symbolic integral: {formatted}"));
     match unsupported_integral_reason(expr, var) {
         Some(reason) => err.attach_note(format!("reason: {reason}")),

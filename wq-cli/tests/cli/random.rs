@@ -4,6 +4,8 @@ use crate::support::{ResultContext as _, TestResult, wq_command};
 fn seeded_rng_values_are_callable_and_reproducible() -> TestResult {
     let output = wq_command()
         .args([
+            "--box",
+            "off",
             "exec",
             "a:rng 42;b:rng 42;((a[];a[10];a[-5;5])=(b[];b[10];b[-5;5]);type a;str a)",
             "-p",
@@ -14,7 +16,7 @@ fn seeded_rng_values_are_callable_and_reproducible() -> TestResult {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stdout}{stderr}");
-    assert!(stdout.contains("T\n\"rng\"\n\"<rng>\""), "{stdout}{stderr}");
+    assert_eq!(stdout, "(T;\"rng\";\"/* rng */\")\n", "{stderr}");
     Ok(())
 }
 

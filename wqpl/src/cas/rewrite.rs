@@ -2078,7 +2078,7 @@ pub(crate) fn rewrite_loop_with_debug(current: &mut Value, debug: CasDebug<'_>) 
             debug,
             DebugLogFlags::CAS_VERBOSE,
             "[cas-v] rewrite_loop iteration={i} -> {}",
-            next.format_cas().unwrap_or_else(|| next.to_string())
+            next.format_cas()
         );
         *current = next;
     }
@@ -2173,7 +2173,7 @@ mod tests {
             factors.iter().any(|factor| factor == &simplified_exp),
             "expected exp common factor in {result}"
         );
-        let text = result.format_cas().unwrap_or_else(|| result.to_string());
+        let text = result.format_cas();
         assert!(
             text.contains("x^4 + x^2 - 2*x"),
             "expected expanded inner sum in {text}"
@@ -2206,7 +2206,7 @@ mod tests {
         let expr = cas_add(vec![scaled_sum, cas_neg(x2).expect("-x^2")]).expect("sum");
 
         let result = rewrite_cas(&expr).expect("rewrite");
-        let text = result.format_cas().unwrap_or_else(|| result.to_string());
+        let text = result.format_cas();
         assert_eq!(text, "-x^2/2 + 1/2");
     }
 

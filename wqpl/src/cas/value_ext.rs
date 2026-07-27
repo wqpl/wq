@@ -244,19 +244,18 @@ impl Value {
         }
     }
 
-    pub(crate) fn format_cas(&self) -> Option<String> {
-        if self.is_cas_expr() {
-            Some(format_cas_value(self))
-        } else if let Some((lhs, rhs)) = self.cas_eq_parts() {
-            Some(format_cas_equation(lhs, rhs))
-        } else {
-            self.cas_predicate().map(|predicate| {
-                format!(
+    pub(crate) fn format_cas(&self) -> String {
+        match self {
+            Value::Cas(data) => match &data.kind {
+                CasKind::Eq(lhs, rhs) => format_cas_equation(lhs, rhs),
+                CasKind::Predicate(predicate) => format!(
                     "{}[{}]",
                     predicate.name(),
                     format_cas_value(predicate.expr())
-                )
-            })
+                ),
+                _ => format_cas_value(self),
+            },
+            _ => self.to_string(),
         }
     }
 

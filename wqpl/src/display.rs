@@ -1,9 +1,9 @@
 use std::fmt::Write as _;
 
-use crate::boxmode::{BoxFormatOptions, format_boxed_with};
+use crate::boxmode::{BoxFormatOptions, format_boxed_for_display};
 use crate::style::{ColorMode, TextStyle, paint};
 use crate::value::Value;
-use crate::value::display::format_table_value;
+use crate::value::display::format_table_value_for_display;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoxPrintConfig {
@@ -11,6 +11,13 @@ pub struct BoxPrintConfig {
     pub xray: bool,
     pub color: bool,
     pub axis: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct ResultFormatOptions<'a> {
+    pub color: bool,
+    pub max_width: Option<usize>,
+    pub source_styler: Option<&'a dyn Fn(&str) -> String>,
 }
 
 impl Default for BoxPrintConfig {
@@ -126,26 +133,40 @@ pub fn apply_box_spec(config: &mut BoxPrintConfig, spec: &str) -> Result<(), Str
 }
 
 pub fn format_print_result(result: &Value, config: &BoxPrintConfig, color: bool) -> String {
-    if result.is_cas() {
-        format!("{result}")
-    } else {
-        format_non_cas_result(result, config, color)
-    }
+    format_print_result_with(
+        result,
+        config,
+        ResultFormatOptions {
+            color,
+            ..ResultFormatOptions::default()
+        },
+    )
 }
 
-pub fn format_non_cas_result(result: &Value, config: &BoxPrintConfig, color: bool) -> String {
+pub fn format_print_result_with(
+    result: &Value,
+    config: &BoxPrintConfig,
+    options: ResultFormatOptions<'_>,
+) -> String {
+    let source_styler = options.source_styler;
     if config.boxed {
-        format_table_value(result).unwrap_or_else(|| {
-            format_boxed_with(
+        format_table_value_for_display(result, source_styler).unwrap_or_else(|| {
+            format_boxed_for_display(
                 result,
                 BoxFormatOptions {
                     axes: config.axis,
-                    color,
+                    color: options.color,
                 },
+                options.max_width,
+                source_styler,
             )
         })
     } else {
-        format!("{result}")
+        let source = result.to_string();
+        match source_styler {
+            Some(styler) => styler(&source),
+            None => source,
+        }
     }
 }
 
@@ -253,6 +274,10 @@ fn two_col_item_values(pairs: &[(&str, String)], gutter: usize, color: bool) -> 
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use indexmap::IndexMap;
+
     use super::*;
 
     #[test]
@@ -278,5 +303,44 @@ mod tests {
         assert_eq!(config.summary(), "[]");
         config.toggle_box();
         assert_eq!(config.summary(), "[box,axis,color]");
+    }
+
+    #[test]
+    fn unboxed_result_is_one_independently_styled_source_cell() {
+        let config = BoxPrintConfig::off();
+        let styler = |source: &str| format!("<{source}>");
+
+        assert_eq!(
+            format_print_result_with(
+                &Value::Int(42),
+                &config,
+                ResultFormatOptions {
+                    source_styler: Some(&styler),
+                    ..ResultFormatOptions::default()
+                }
+            ),
+            "<42>"
+        );
+    }
+
+    #[test]
+    fn table_cells_are_padded_before_independent_styling() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("a".into(), Value::IntList(Arc::new(vec![1, 22]))),
+            ("b".into(), Value::IntList(Arc::new(vec![3, 4]))),
+        ])));
+        let styler = |source: &str| format!("<{source}>");
+
+        assert_eq!(
+            format_print_result_with(
+                &value,
+                &BoxPrintConfig::default(),
+                ResultFormatOptions {
+                    source_styler: Some(&styler),
+                    ..ResultFormatOptions::default()
+                }
+            ),
+            "a  b\n< 1> <3>\n<22> <4>"
+        );
     }
 }

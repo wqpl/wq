@@ -64,7 +64,9 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     });
 
     const result = session.eval_wq("echo 1");
-    assert.equal(result.display, "()");
+    assert.match(result.display, /\x1b\[/);
+    assert.equal(result.display.replace(/\x1b\[[0-9;]*m/g, ""), "()");
+    assert.equal(Object.hasOwn(result, "is_cas"), false);
     assert.deepEqual(callbackError, {
       version: 2,
       kind: "reentrant-session-access",
@@ -352,7 +354,10 @@ test("session callback boundaries return structured diagnostics", async (t) => {
   });
 
   const disposalResult = disposalSession.eval_wq("echo 2");
-  assert.equal(disposalResult.display, "()");
+  assert.equal(
+    disposalResult.display.replace(/\x1b\[[0-9;]*m/g, ""),
+    "()",
+  );
   assert.equal(disposalCallbackRan, true);
   assert.throws(
     () => disposalSession.get_debug_flags(),

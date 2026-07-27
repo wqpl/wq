@@ -23,9 +23,7 @@ pub(super) fn integrate_elliptic(
         debug,
         DebugLogFlags::CAS,
         "[cas] elliptic enter: {}",
-        simplified
-            .format_cas()
-            .unwrap_or_else(|| simplified.to_string())
+        simplified.format_cas()
     );
 
     let result = try_elliptic(&simplified, var);
@@ -35,7 +33,7 @@ pub(super) fn integrate_elliptic(
             debug,
             DebugLogFlags::CAS,
             "[cas] elliptic exit: {}",
-            val.format_cas().unwrap_or_else(|| val.to_string())
+            val.format_cas()
         );
     } else {
         cas_trace!(

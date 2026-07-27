@@ -9,8 +9,8 @@ fn exec_print_uses_boxed_display() -> TestResult {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
-    assert!(stdout.contains("  a1 0 1 2"));
-    assert!(stdout.contains("a0   - - -"));
+    assert!(stdout.contains("  x1 0 1 2"));
+    assert!(stdout.contains("x0   - - -"));
     assert!(stdout.contains(" 0 | 1 2 3"));
     Ok(())
 }
@@ -28,8 +28,8 @@ fn script_print_uses_boxed_display() -> TestResult {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
-    assert!(stdout.contains("  a1 0 1 2"));
-    assert!(stdout.contains("a0   - - -"));
+    assert!(stdout.contains("  x1 0 1 2"));
+    assert!(stdout.contains("x0   - - -"));
     assert!(stdout.contains(" 0 | 1 2 3"));
     Ok(())
 }
@@ -85,9 +85,10 @@ fn ragged_print_uses_index_fence_and_values() -> TestResult {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
+    assert!(stdout.contains("x0"));
     assert!(stdout.contains("0 | 1"));
-    assert!(stdout.contains("1 | 2 3"));
-    assert!(stdout.contains("2 | 4 5 (6 7)"));
+    assert!(stdout.contains("1 | (2;3)"));
+    assert!(stdout.contains("2 | (4;5;(6;7))"));
     Ok(())
 }
 

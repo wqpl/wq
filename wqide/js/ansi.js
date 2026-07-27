@@ -23,6 +23,7 @@ const ANSI_BRIGHT_COLORS = [
 function createState() {
   return {
     bold: false,
+    dim: false,
     italic: false,
     underline: false,
     inverse: false,
@@ -103,6 +104,10 @@ function applySgrCodes(state, params) {
       state.bold = true;
       continue;
     }
+    if (code === 2) {
+      state.dim = true;
+      continue;
+    }
     if (code === 3) {
       state.italic = true;
       continue;
@@ -121,6 +126,7 @@ function applySgrCodes(state, params) {
     }
     if (code === 22) {
       state.bold = false;
+      state.dim = false;
       continue;
     }
     if (code === 23) {
@@ -180,6 +186,7 @@ function applySgrCodes(state, params) {
 function hasTextStyle(state) {
   return !!(
     state.bold ||
+    state.dim ||
     state.italic ||
     state.underline ||
     state.inverse ||
@@ -208,6 +215,7 @@ function appendParsedText(fragment, documentRef, state, text) {
     if (state.bg) span.style.backgroundColor = state.bg;
   }
   if (state.bold) span.style.fontWeight = "700";
+  if (state.dim) span.style.opacity = "0.68";
   if (state.italic) span.style.fontStyle = "italic";
 
   const decorations = [];

@@ -121,7 +121,7 @@ pub(super) fn integrate_by_parts(
         debug,
         DebugLogFlags::CAS,
         "[cas] byparts enter: {}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string())
+        expr.format_cas()
     );
 
     // 1. Try direct formula for exp*sin / exp*cos
@@ -130,7 +130,7 @@ pub(super) fn integrate_by_parts(
             debug,
             DebugLogFlags::CAS,
             "[cas] byparts exit (exp_trig): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -141,7 +141,7 @@ pub(super) fn integrate_by_parts(
             debug,
             DebugLogFlags::CAS,
             "[cas] byparts exit (tabular): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -209,7 +209,7 @@ pub(super) fn integrate_by_parts(
                 debug,
                 DebugLogFlags::CAS,
                 "[cas] byparts exit: {}",
-                result.format_cas().unwrap_or_else(|| result.to_string())
+                result.format_cas()
             );
             return Ok(Some(result));
         }
@@ -520,8 +520,8 @@ fn try_parts(
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] try_parts enter depth={depth} u={} dv={}",
-        u.format_cas().unwrap_or_else(|| u.to_string()),
-        dv.format_cas().unwrap_or_else(|| dv.to_string())
+        u.format_cas(),
+        dv.format_cas()
     );
     let v = match integrate_expr_with_depth(dv, var, depth + 1, debug) {
         Ok(v) => v,
@@ -558,7 +558,7 @@ fn try_parts(
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] try_parts exit depth={depth} -> {}",
-        result.format_cas().unwrap_or_else(|| result.to_string())
+        result.format_cas()
     );
     Ok(Some(result))
 }

@@ -529,7 +529,19 @@ mod tests {
 
     #[test]
     fn builtin_function_display_uses_formal_name() {
-        assert_eq!(test_builtin("f", 1).to_string(), "<builtin-function 'f'>");
+        assert_eq!(
+            test_builtin("f", 1).to_string(),
+            "/* builtin-function 'f' */"
+        );
+    }
+
+    #[test]
+    fn opaque_functions_display_as_comments() {
+        assert_eq!(test_function().to_string(), "/* {...} */");
+        assert_eq!(test_closure().to_string(), "/* {...} */");
+        let lifted =
+            Value::function_composition(BinaryOperator::Subtract, test_function(), Value::Int(5));
+        assert_eq!(lifted.to_string(), "/* fn {...} - 5 */");
     }
 
     #[test]
@@ -650,10 +662,10 @@ mod tests {
 
         let nested =
             Value::function_composition(BinaryOperator::Multiply, test_builtin("f", 1), folded);
-        assert_eq!(nested.to_string(), "<fn f * 3>");
+        assert_eq!(nested.to_string(), "/* fn f * 3 */");
 
         let negated = Value::unary_function_composition(UnaryOperator::Negate, nested);
-        assert_eq!(negated.to_string(), "<fn -(f * 3)>");
+        assert_eq!(negated.to_string(), "/* fn -(f * 3) */");
     }
 
     #[test]
@@ -683,9 +695,9 @@ mod tests {
             Value::function_composition(BinaryOperator::Multiply, f.clone(), Value::Int(0));
         let sub_self = Value::function_composition(BinaryOperator::Subtract, f.clone(), f);
 
-        assert_eq!(add_zero.to_string(), "<fn f + 0>");
-        assert_eq!(mul_zero.to_string(), "<fn f * 0>");
-        assert_eq!(sub_self.to_string(), "<fn f - f>");
+        assert_eq!(add_zero.to_string(), "/* fn f + 0 */");
+        assert_eq!(mul_zero.to_string(), "/* fn f * 0 */");
+        assert_eq!(sub_self.to_string(), "/* fn f - f */");
     }
 
     #[test]
@@ -723,8 +735,8 @@ mod tests {
             Value::function_composition(BinaryOperator::Subtract, times_two, Value::Int(3));
         let negated = Value::unary_function_composition(UnaryOperator::Negate, add_one);
 
-        assert_eq!(minus_three.to_string(), "<fn ((f + 1) * 2) - 3>");
-        assert_eq!(negated.to_string(), "<fn -(f + 1)>");
+        assert_eq!(minus_three.to_string(), "/* fn ((f + 1) * 2) - 3 */");
+        assert_eq!(negated.to_string(), "/* fn -(f + 1) */");
     }
 
     #[test]

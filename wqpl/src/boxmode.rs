@@ -1,3 +1,5 @@
+use unicode_width::UnicodeWidthStr as _;
+
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
 use crate::value::meta::ShapeMeta;
@@ -20,9 +22,9 @@ impl Default for BoxFormatOptions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CellRole {
-    Plain,
+    Source,
     Axis(usize),
-    Index { axis: usize, alternate: bool },
+    Index(usize),
     Fence,
 }
 
@@ -40,8 +42,25 @@ impl Cell {
         }
     }
 
-    fn plain(text: impl Into<String>) -> Self {
-        Self::new(text, CellRole::Plain)
+    fn source(text: impl Into<String>) -> Self {
+        Self::new(text, CellRole::Source)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RenderContext<'a> {
+    options: BoxFormatOptions,
+    max_width: Option<usize>,
+    source_styler: Option<&'a dyn Fn(&str) -> String>,
+}
+
+impl RenderContext<'_> {
+    fn plain(options: BoxFormatOptions) -> Self {
+        Self {
+            options,
+            max_width: None,
+            source_styler: None,
+        }
     }
 }
 
@@ -80,15 +99,15 @@ fn expand_simple_1d(v: &Value) -> Option<Vec<String>> {
     Some(items.values().map(|value| value.to_string()).collect())
 }
 
-fn render_table(table: &[Vec<String>]) -> String {
+fn render_table(table: &[Vec<String>], context: RenderContext<'_>) -> String {
     let cells: Vec<Vec<Cell>> = table
         .iter()
-        .map(|row| row.iter().map(Cell::plain).collect())
+        .map(|row| row.iter().map(Cell::source).collect())
         .collect();
-    render_cells(&cells, false)
+    render_cells(&cells, context)
 }
 
-fn render_cells(table: &[Vec<Cell>], color: bool) -> String {
+fn render_cells(table: &[Vec<Cell>], context: RenderContext<'_>) -> String {
     let ncols = table.iter().map(|r| r.len()).max().unwrap_or(0);
     if ncols == 0 {
         return String::new();
@@ -96,23 +115,49 @@ fn render_cells(table: &[Vec<Cell>], color: bool) -> String {
     let mut widths = vec![0usize; ncols];
     for row in table {
         for (j, cell) in row.iter().enumerate() {
-            widths[j] = widths[j].max(cell.text.len()); // byte width; swap for unicode-width if needed
+            widths[j] = widths[j].max(display_width(&cell.text));
         }
     }
     let mut lines = Vec::with_capacity(table.len());
     for row in table {
-        let mut parts = Vec::with_capacity(ncols);
-        for (j, &w) in widths.iter().enumerate() {
-            let cell = row
-                .get(j)
-                .cloned()
-                .unwrap_or_else(|| Cell::plain(String::new()));
-            let text = format!("{:<w$}", cell.text);
-            parts.push(style_text(&text, cell.role, color));
+        let mut parts = Vec::with_capacity(row.len());
+        for (j, cell) in row.iter().enumerate() {
+            let width = if j + 1 == row.len() {
+                display_width(&cell.text)
+            } else {
+                widths[j]
+            };
+            let text = pad_plain(&cell.text, width, false);
+            parts.push(style_cell(&text, cell.role, context));
         }
-        lines.push(parts.join(" ").trim_end().to_string());
+        lines.push(parts.join(" "));
     }
     lines.join("\n")
+}
+
+fn display_width(text: &str) -> usize {
+    text.width()
+}
+
+fn pad_plain(text: &str, width: usize, right: bool) -> String {
+    let padding = " ".repeat(width.saturating_sub(display_width(text)));
+    if right {
+        format!("{padding}{text}")
+    } else {
+        format!("{text}{padding}")
+    }
+}
+
+fn style_cell(text: &str, role: CellRole, context: RenderContext<'_>) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    match role {
+        CellRole::Source => context
+            .source_styler
+            .map_or_else(|| text.to_string(), |styler| styler(text)),
+        _ => style_text(text, role, context.options.color),
+    }
 }
 
 fn style_text(text: &str, role: CellRole, color: bool) -> String {
@@ -124,10 +169,8 @@ fn style_text(text: &str, role: CellRole, color: bool) -> String {
 
 fn cell_style(role: CellRole) -> TextStyle {
     match role {
-        CellRole::Plain => TextStyle::new(),
-        CellRole::Axis(axis) => axis_style(axis).bold(),
-        CellRole::Index { axis, alternate } if alternate => axis_style(axis).dimmed(),
-        CellRole::Index { axis, .. } => axis_style(axis),
+        CellRole::Source => TextStyle::new(),
+        CellRole::Axis(axis) | CellRole::Index(axis) => axis_style(axis).dimmed(),
         CellRole::Fence => TextStyle::new().dimmed(),
     }
 }
@@ -147,64 +190,44 @@ fn axis_color(axis: usize) -> AnsiColor {
     }
 }
 
-fn pad_cell(text: &str, width: usize, role: CellRole, color: bool) -> String {
-    style_text(&format!("{text:<width$}"), role, color)
+fn pad_cell(text: &str, width: usize, role: CellRole, context: RenderContext<'_>) -> String {
+    style_cell(&pad_plain(text, width, false), role, context)
 }
 
-fn pad_cell_right(text: &str, width: usize, role: CellRole, color: bool) -> String {
-    style_text(&format!("{text:>width$}"), role, color)
+fn pad_cell_right(text: &str, width: usize, role: CellRole, context: RenderContext<'_>) -> String {
+    style_cell(&pad_plain(text, width, true), role, context)
 }
 
 fn join_padded_cells<'a>(
     cells: impl Iterator<Item = (&'a str, usize, CellRole)>,
-    color: bool,
+    context: RenderContext<'_>,
 ) -> String {
+    let cells = cells.collect::<Vec<_>>();
+    let last = cells.len().saturating_sub(1);
     cells
-        .map(|(text, width, role)| pad_cell(text, width, role, color))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim_end()
-        .to_string()
-}
-
-fn join_plain_cells<'a>(cells: impl Iterator<Item = (&'a str, usize)>) -> String {
-    cells
-        .map(|(text, width)| format!("{text:<width$}"))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim_end()
-        .to_string()
-}
-
-fn axis_index_role(axis: usize, index: usize) -> CellRole {
-    CellRole::Index {
-        axis,
-        alternate: index % 2 == 1,
-    }
-}
-
-fn format_ragged_value(v: &Value) -> String {
-    let Value::List(items) = v else {
-        return format_compact(v);
-    };
-    items
-        .iter()
-        .map(|item| {
-            if item.len() >= 2 && !item.is_string() && item.is_list() {
-                format!("({})", format_compact(item))
+        .into_iter()
+        .enumerate()
+        .map(|(index, (text, width, role))| {
+            let width = if index == last {
+                display_width(text)
             } else {
-                item.to_string()
-            }
+                width
+            };
+            pad_cell(text, width, role, context)
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn axis_index_role(axis: usize) -> CellRole {
+    CellRole::Index(axis)
 }
 
 fn format_matrix(
     v: &Value,
     row_axis: usize,
     dims: &[usize],
-    options: BoxFormatOptions,
+    context: RenderContext<'_>,
 ) -> Option<String> {
     let col_axis = row_axis + 1;
     let rows_len = dims[row_axis];
@@ -225,10 +248,10 @@ fn format_matrix(
         row_cells.push(cells);
     }
 
-    let row_axis_label = format!("a{row_axis}");
-    let col_axis_label = format!("a{col_axis}");
+    let row_axis_label = format!("x{row_axis}");
+    let col_axis_label = format!("x{col_axis}");
     let row_label_width = row_axis_label
-        .len()
+        .width()
         .max(rows_len.saturating_sub(1).to_string().len());
     let mut col_widths = vec![1usize; cols_len];
     for (col, width) in col_widths.iter_mut().enumerate() {
@@ -236,7 +259,7 @@ fn format_matrix(
     }
     for row in &row_cells {
         for (col, cell) in row.iter().enumerate() {
-            col_widths[col] = col_widths[col].max(cell.len());
+            col_widths[col] = col_widths[col].max(display_width(cell));
         }
     }
 
@@ -248,14 +271,13 @@ fn format_matrix(
             col_axis_label.len(),
             CellRole::Axis(col_axis),
         ))
-        .chain(col_indices.iter().enumerate().map(|(col, text)| {
-            (
-                text.as_str(),
-                col_widths[col],
-                axis_index_role(col_axis, col),
-            )
-        })),
-        options.color,
+        .chain(
+            col_indices
+                .iter()
+                .enumerate()
+                .map(|(col, text)| (text.as_str(), col_widths[col], axis_index_role(col_axis))),
+        ),
+        context,
     );
     lines.push(format!("{}{}", " ".repeat(row_label_width), col_header));
 
@@ -263,7 +285,7 @@ fn format_matrix(
         col_widths
             .iter()
             .map(|&width| ("-", width, CellRole::Fence)),
-        options.color,
+        context,
     );
     lines.push(format!(
         "{}   {}",
@@ -271,7 +293,7 @@ fn format_matrix(
             &row_axis_label,
             row_label_width,
             CellRole::Axis(row_axis),
-            options.color
+            context
         ),
         fence
     ));
@@ -280,15 +302,16 @@ fn format_matrix(
         let row_label = pad_cell_right(
             &row.to_string(),
             row_label_width,
-            axis_index_role(row_axis, row),
-            options.color,
+            axis_index_role(row_axis),
+            context,
         );
-        let pipe = style_text("|", CellRole::Fence, options.color);
-        let rendered_cells = join_plain_cells(
+        let pipe = style_cell("|", CellRole::Fence, context);
+        let rendered_cells = join_padded_cells(
             cells
                 .iter()
                 .enumerate()
-                .map(|(col, text)| (text.as_str(), col_widths[col])),
+                .map(|(col, text)| (text.as_str(), col_widths[col], CellRole::Source)),
+            context,
         );
         lines.push(format!("{row_label} {pipe} {rendered_cells}"));
     }
@@ -296,11 +319,15 @@ fn format_matrix(
     Some(lines.join("\n"))
 }
 
-fn slice_title(prefix: &[(usize, usize)], color: bool) -> String {
+fn slice_title(prefix: &[(usize, usize)], context: RenderContext<'_>) -> String {
     prefix
         .iter()
         .map(|(axis, index)| {
-            style_text(&format!("a{axis} = {index}"), CellRole::Axis(*axis), color)
+            style_cell(
+                &format!("x{axis} = {index}"),
+                CellRole::Axis(*axis),
+                context,
+            )
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -312,11 +339,11 @@ fn collect_slices(
     axis: usize,
     prefix: &mut Vec<(usize, usize)>,
     sections: &mut Vec<String>,
-    options: BoxFormatOptions,
+    context: RenderContext<'_>,
 ) -> Option<()> {
     if axis + 2 == dims.len() {
-        let matrix = format_matrix(v, axis, dims, options)?;
-        let title = slice_title(prefix, options.color);
+        let matrix = format_matrix(v, axis, dims, context)?;
+        let title = slice_title(prefix, context);
         if title.is_empty() {
             sections.push(matrix);
         } else {
@@ -333,22 +360,90 @@ fn collect_slices(
     }
     for (i, item) in items.iter().enumerate() {
         prefix.push((axis, i));
-        collect_slices(item, dims, axis + 1, prefix, sections, options)?;
+        collect_slices(item, dims, axis + 1, prefix, sections, context)?;
         prefix.pop();
     }
     Some(())
 }
 
-fn format_uniform_axes(v: &Value, dims: &[usize], options: BoxFormatOptions) -> Option<String> {
+fn format_uniform_axes(v: &Value, dims: &[usize], context: RenderContext<'_>) -> Option<String> {
     if dims.len() < 2 || v.is_string() {
         return None;
     }
     let mut sections = Vec::new();
-    collect_slices(v, dims, 0, &mut Vec::new(), &mut sections, options)?;
+    collect_slices(v, dims, 0, &mut Vec::new(), &mut sections, context)?;
     Some(sections.join("\n\n"))
 }
 
-fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
+fn format_rank_one(v: &Value, dims: &[usize], context: RenderContext<'_>) -> Option<String> {
+    if dims.len() != 1 || dims[0] == 0 || v.is_string() {
+        return None;
+    }
+    let cells = ValueSeq::from_value(v)?
+        .values()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    if cells.len() != dims[0] {
+        return None;
+    }
+
+    let indices = (0..cells.len())
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>();
+    let widths = cells
+        .iter()
+        .zip(&indices)
+        .map(|(cell, index)| display_width(cell).max(display_width(index)))
+        .collect::<Vec<_>>();
+    let axis_label = "x0";
+    let axis_width = display_width(axis_label);
+    let max_width = context.max_width.unwrap_or(usize::MAX);
+    let mut sections = Vec::new();
+    let mut start = 0;
+    while start < cells.len() {
+        let mut end = start;
+        let mut section_width = axis_width + 1;
+        while end < cells.len() {
+            let candidate_width = section_width + usize::from(end > start) + widths[end];
+            if end > start && candidate_width > max_width {
+                break;
+            }
+            section_width = candidate_width;
+            end += 1;
+        }
+
+        let header = join_padded_cells(
+            std::iter::once((axis_label, axis_width, CellRole::Axis(0))).chain(
+                indices[start..end]
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, index)| {
+                        (index.as_str(), widths[start + offset], axis_index_role(0))
+                    }),
+            ),
+            context,
+        );
+        let prefix = " ".repeat(axis_width + 1);
+        let fence = join_padded_cells(
+            widths[start..end]
+                .iter()
+                .map(|&width| ("-", width, CellRole::Fence)),
+            context,
+        );
+        let values = join_padded_cells(
+            cells[start..end]
+                .iter()
+                .enumerate()
+                .map(|(offset, cell)| (cell.as_str(), widths[start + offset], CellRole::Source)),
+            context,
+        );
+        sections.push(format!("{header}\n{prefix}{fence}\n{prefix}{values}"));
+        start = end;
+    }
+    Some(sections.join("\n"))
+}
+
+fn format_ragged_rows(v: &Value, context: RenderContext<'_>) -> Option<String> {
     let Value::List(rows) = v else {
         return None;
     };
@@ -359,27 +454,30 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
         return None;
     }
 
-    let index_width = rows.len().saturating_sub(1).to_string().len();
-    let mut lines = Vec::with_capacity(rows.len());
+    let axis_label = "x0";
+    let index_width = display_width(axis_label).max(rows.len().saturating_sub(1).to_string().len());
+    let mut lines = Vec::with_capacity(rows.len() + 1);
+    lines.push(pad_cell(
+        axis_label,
+        index_width,
+        CellRole::Axis(0),
+        context,
+    ));
     for (i, row) in rows.iter().enumerate() {
-        let index = pad_cell_right(
-            &i.to_string(),
-            index_width,
-            axis_index_role(0, i),
-            options.color,
-        );
-        let pipe = style_text("|", CellRole::Fence, options.color);
-        lines.push(format!("{index} {pipe} {}", format_ragged_value(row)));
+        let index = pad_cell_right(&i.to_string(), index_width, axis_index_role(0), context);
+        let pipe = style_cell("|", CellRole::Fence, context);
+        let source = style_cell(&row.to_string(), CellRole::Source, context);
+        lines.push(format!("{index} {pipe} {source}"));
     }
     Some(lines.join("\n"))
 }
 
-pub fn format_compact(v: &Value) -> String {
+fn format_compact_with(v: &Value, context: RenderContext<'_>) -> String {
     if v.len() < 2 || v.is_string() {
-        return v.to_string();
+        return style_cell(&v.to_string(), CellRole::Source, context);
     }
     if let Some(cells) = expand_simple_1d(v) {
-        return render_table(&[cells]);
+        return render_table(&[cells], context);
     }
     match v {
         Value::List(rows) => {
@@ -387,11 +485,11 @@ pub fn format_compact(v: &Value) -> String {
                 .iter()
                 .map(|row| expand_as_cells(row).unwrap_or_else(|| vec![row.to_string()]))
                 .collect();
-            render_table(&table)
+            render_table(&table, context)
         }
         Value::IntList(items) => {
             let table: Vec<Vec<String>> = items.iter().map(|e| vec![e.to_string()]).collect();
-            render_table(&table)
+            render_table(&table, context)
         }
         Value::FloatList(items) => {
             let table: Vec<Vec<String>> = items
@@ -400,33 +498,62 @@ pub fn format_compact(v: &Value) -> String {
                 .map(Value::Float)
                 .map(|e| vec![e.to_string()])
                 .collect();
-            render_table(&table)
+            render_table(&table, context)
         }
-        _ => v.to_string(),
+        _ => style_cell(&v.to_string(), CellRole::Source, context),
     }
 }
 
-pub fn format_boxed_with(v: &Value, options: BoxFormatOptions) -> String {
-    if !options.axes {
-        return format_compact(v);
+pub fn format_compact(v: &Value) -> String {
+    format_compact_with(v, RenderContext::plain(BoxFormatOptions::default()))
+}
+
+fn format_boxed_in_context(v: &Value, context: RenderContext<'_>) -> String {
+    if !context.options.axes {
+        return format_compact_with(v, context);
     }
 
     let meta = v.display_meta();
     match &meta.shape {
+        ShapeMeta::Uniform(dims) if dims.len() == 1 => {
+            if let Some(body) = format_rank_one(v, dims, context) {
+                return body;
+            }
+        }
         ShapeMeta::Uniform(dims) if dims.len() >= 2 => {
-            if let Some(body) = format_uniform_axes(v, dims, options) {
+            if let Some(body) = format_uniform_axes(v, dims, context) {
                 return body;
             }
         }
         ShapeMeta::Ragged => {
-            if let Some(body) = format_ragged_rows(v, options) {
+            if let Some(body) = format_ragged_rows(v, context) {
                 return body;
             }
         }
         ShapeMeta::Uniform(_) => {}
     }
 
-    format_compact(v)
+    format_compact_with(v, context)
+}
+
+pub fn format_boxed_with(v: &Value, options: BoxFormatOptions) -> String {
+    format_boxed_in_context(v, RenderContext::plain(options))
+}
+
+pub(crate) fn format_boxed_for_display(
+    v: &Value,
+    options: BoxFormatOptions,
+    max_width: Option<usize>,
+    source_styler: Option<&dyn Fn(&str) -> String>,
+) -> String {
+    format_boxed_in_context(
+        v,
+        RenderContext {
+            options,
+            max_width,
+            source_styler,
+        },
+    )
 }
 
 pub fn format_boxed(v: &Value) -> String {
@@ -467,44 +594,43 @@ mod tests {
     }
 
     #[test]
-    fn one_elem_intlist_row_uses_display_comma() {
+    fn one_element_rank_one_list_has_an_axis() {
         let v = Value::IntList(Arc::new(vec![1]));
-        assert_eq!(format_boxed(&v), ",1");
+        assert_eq!(format_boxed(&v), "x0 0\n   -\n   1");
     }
 
     #[test]
-    fn flat_intlist_renders_as_single_row() {
+    fn rank_one_int_list_has_an_index_row() {
         let v = Value::IntList(Arc::new(vec![1, 2, 3]));
-        assert_eq!(format_boxed(&v), "1 2 3");
+        assert_eq!(format_boxed(&v), "x0 0 1 2\n   - - -\n   1 2 3");
     }
 
     #[test]
     fn packed_bool_and_range_lists_expand_like_other_rows() {
         let bools = Value::BoolList(Arc::new(vec![true, false]));
-        assert_eq!(format_boxed(&bools), "T F");
+        assert_eq!(format_boxed(&bools), "x0 0 1\n   - -\n   T F");
 
         let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 3)));
-        assert_eq!(format_boxed(&range), "1 2 3");
+        assert_eq!(format_boxed(&range), "x0 0 1 2\n   - - -\n   1 2 3");
     }
 
     #[test]
-    fn flat_list_of_atoms_renders_as_single_row() {
+    fn rank_one_general_list_has_an_index_row() {
         let v = Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)]));
-        assert_eq!(format_boxed(&v), "1 2 3");
+        assert_eq!(format_boxed(&v), "x0 0 1 2\n   - - -\n   1 2 3");
     }
 
     #[test]
-    fn mixed_rows_keep_display_for_singletons() {
-        // First row: two cells; second row: single 1-elem list -> inline value
+    fn ragged_rows_keep_each_row_reparsable() {
         let v = Value::List(Arc::new(vec![
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
             Value::List(Arc::new(vec![Value::Int(42)])),
         ]));
-        assert_eq!(format_boxed(&v), "0 | 1 2\n1 | 42");
+        assert_eq!(format_boxed(&v), "x0\n 0 | (1;2)\n 1 | ,42");
     }
 
     #[test]
-    fn ragged_rows_are_terse() {
+    fn nested_ragged_rows_keep_wq_list_syntax() {
         let v = Value::List(Arc::new(vec![
             Value::Int(1),
             Value::List(Arc::new(vec![
@@ -513,7 +639,7 @@ mod tests {
                 Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
             ])),
         ]));
-        assert_eq!(format_boxed(&v), "0 | 1\n1 | (3 2) 3 (3 4)");
+        assert_eq!(format_boxed(&v), "x0\n 0 | 1\n 1 | ((3;2);3;(3;4))");
     }
 
     #[test]
@@ -527,7 +653,7 @@ mod tests {
                 Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
             ])),
         ]));
-        assert_eq!(format_boxed(&v), "0 | 1\n1 | 2 3\n2 | 4 5 (3 4)");
+        assert_eq!(format_boxed(&v), "x0\n 0 | 1\n 1 | (2;3)\n 2 | (4;5;(3;4))");
     }
 
     #[test]
@@ -544,7 +670,7 @@ mod tests {
         let v = Value::List(Arc::new(rows));
         assert_eq!(
             format_boxed(&v),
-            " 0 | 0\n 1 | 1\n 2 | 2\n 3 | 3\n 4 | 4\n 5 | 5\n 6 | 6\n 7 | 7\n 8 | 8\n 9 | 9\n10 | 10\n11 | 11"
+            "x0\n 0 | 0\n 1 | ,1\n 2 | ,2\n 3 | ,3\n 4 | ,4\n 5 | ,5\n 6 | ,6\n 7 | ,7\n 8 | ,8\n 9 | ,9\n10 | ,10\n11 | ,11"
         );
     }
 
@@ -556,7 +682,7 @@ mod tests {
         ]));
         assert_eq!(
             format_boxed(&v),
-            "  a1 0 1 2\na0   - - -\n 0 | 1 2 3\n 1 | 4 5 6"
+            "  x1 0 1 2\nx0   - - -\n 0 | 1 2 3\n 1 | 4 5 6"
         );
     }
 
@@ -578,15 +704,15 @@ mod tests {
         ]));
         assert_eq!(
             format_boxed(&v),
-            "a0 = 0\n  a2 0 1 2\na1   - - -\n 0 | 1 2 3\n 1 | 4 5 6\n\na0 = 1\n  a2 0  1  2\na1   -  -  -\n 0 | 7  8  9\n 1 | 10 11 12"
+            "x0 = 0\n  x2 0 1 2\nx1   - - -\n 0 | 1 2 3\n 1 | 4 5 6\n\nx0 = 1\n  x2 0  1  2\nx1   -  -  -\n 0 | 7  8  9\n 1 | 10 11 12"
         );
     }
 
     #[test]
-    fn axis_labels_use_bold_axis_color() {
+    fn axis_labels_use_dim_axis_color() {
         assert_eq!(
-            style_text("a1", CellRole::Axis(1), true),
-            "\x1b[1;33ma1\x1b[0m"
+            style_text("x1", CellRole::Axis(1), true),
+            "\x1b[2;33mx1\x1b[0m"
         );
     }
 
@@ -596,18 +722,42 @@ mod tests {
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
             Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
         ]));
-        let col_axis = style_text("a1", CellRole::Axis(1), true);
-        let row_axis = style_text("a0", CellRole::Axis(0), true);
+        let col_axis = style_text("x1", CellRole::Axis(1), true);
+        let row_axis = style_text("x0", CellRole::Axis(0), true);
         let fence = style_text("|", CellRole::Fence, true);
-        let alternate = style_text(" 1", axis_index_role(0, 1), true);
+        let first_index = style_text(" 0", axis_index_role(0), true);
+        let second_index = style_text(" 1", axis_index_role(0), true);
 
-        assert_eq!(col_axis, "\x1b[1;33ma1\x1b[0m");
-        assert_eq!(row_axis, "\x1b[1;36ma0\x1b[0m");
+        assert_eq!(col_axis, "\x1b[2;33mx1\x1b[0m");
+        assert_eq!(row_axis, "\x1b[2;36mx0\x1b[0m");
         assert_eq!(fence, "\x1b[2m|\x1b[0m");
-        assert_eq!(alternate, "\x1b[2;36m 1\x1b[0m");
+        assert_eq!(first_index, "\x1b[2;36m 0\x1b[0m");
+        assert_eq!(second_index, "\x1b[2;36m 1\x1b[0m");
         assert_eq!(
             format_boxed_with(&v, BoxFormatOptions::default()),
             format_boxed(&v)
+        );
+    }
+
+    #[test]
+    fn rank_one_chunks_repeat_the_axis_and_indices() {
+        let v = Value::IntList(Arc::new(vec![1234, 5, 678]));
+        assert_eq!(
+            format_boxed_for_display(&v, BoxFormatOptions::default(), Some(9), None),
+            "x0 0    1\n   -    -\n   1234 5\nx0 2\n   -\n   678"
+        );
+    }
+
+    #[test]
+    fn source_cells_are_padded_before_independent_styling() {
+        let v = Value::List(Arc::new(vec![
+            Value::List(Arc::new(vec![Value::Int(1), Value::Int(22)])),
+            Value::List(Arc::new(vec![Value::Int(333), Value::Int(4)])),
+        ]));
+        let styler = |source: &str| format!("<{source}>");
+        assert_eq!(
+            format_boxed_for_display(&v, BoxFormatOptions::default(), None, Some(&styler)),
+            "  x1 0   1\nx0   -   -\n 0 | <1  > <22>\n 1 | <333> <4>"
         );
     }
 }

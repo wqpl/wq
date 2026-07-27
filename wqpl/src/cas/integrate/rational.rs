@@ -1941,12 +1941,8 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
     if let Some(a_sq) = negated_value(&k_sq) {
         // k_sq = -a^2, so denominator is (x+b/2)^2 - a^2 = (x+b/2 - a)(x+b/2 + a)
         let a_sq = unwrap_constant_algebraic(a_sq);
-        let a = sqrt_of_quadratic_constant(&a_sq).ok_or_else(|| {
-            cas_err(format!(
-                "cannot compute sqrt of {}",
-                a_sq.format_cas().unwrap_or_default()
-            ))
-        })?;
+        let a = sqrt_of_quadratic_constant(&a_sq)
+            .ok_or_else(|| cas_err(format!("cannot compute sqrt of {}", a_sq.format_cas())))?;
         let a = simplify_cas_value(&a)?;
 
         let two_a = cas_mul(vec![Value::Int(2), a.clone()])?;
@@ -1962,12 +1958,8 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
         simplify_cas_value(&result)
     } else {
         // k_sq = a^2, denominator is (x+b/2)^2 + a^2
-        let a = sqrt_of_quadratic_constant(&k_sq).ok_or_else(|| {
-            cas_err(format!(
-                "cannot compute sqrt of {}",
-                k_sq.format_cas().unwrap_or_default()
-            ))
-        })?;
+        let a = sqrt_of_quadratic_constant(&k_sq)
+            .ok_or_else(|| cas_err(format!("cannot compute sqrt of {}", k_sq.format_cas())))?;
         let a = simplify_cas_value(&a)?;
 
         let arctan_arg = simplify_cas_value(&cas_div(x_plus_shift, a.clone())?)?;

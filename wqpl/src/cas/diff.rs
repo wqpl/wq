@@ -76,7 +76,7 @@ fn diff_cache_insert(expr: Value, var: &str, result: Value) {
 }
 
 fn fmt_cas(v: &Value) -> String {
-    v.format_cas().unwrap_or_else(|| v.to_string())
+    v.format_cas()
 }
 
 /// Compute 1 - m*sin^2(phi), used by both ellik and ellie derivatives.

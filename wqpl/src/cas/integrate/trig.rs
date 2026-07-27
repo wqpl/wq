@@ -32,7 +32,7 @@ pub(super) fn integrate_by_trig(
         debug,
         DebugLogFlags::CAS,
         "[cas] trig enter: {}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string())
+        expr.format_cas()
     );
     let simplified = simplify_cas_value(expr)?;
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Sin, var)? {
@@ -40,7 +40,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (sin_power): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -49,7 +49,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (cos_power): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -58,7 +58,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (tan_power): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -67,7 +67,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (sec_power): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -76,7 +76,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (csc_power): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -85,7 +85,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (cot_power): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -94,7 +94,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (sin_cos_product): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }
@@ -103,7 +103,7 @@ pub(super) fn integrate_by_trig(
             debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (product_to_sum): {}",
-            result.format_cas().unwrap_or_else(|| result.to_string())
+            result.format_cas()
         );
         return Ok(Some(result));
     }

@@ -2,10 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use wqpl::highlight::Highlighter;
 use wqpl::session::Session;
 
 use crate::arg::RuntimeFlags;
-use crate::display::{format_print_result, format_xray_info};
+use crate::display::{format_print_result, format_xray_info, terminal_width};
 use crate::interrupt::{CliInterrupts, INTERRUPTED_EXIT_STATUS};
 use crate::load::{eval_inline_with_load, install_module_resolver, load_script};
 use crate::msg::{print_dry_run_status, print_load_error};
@@ -47,7 +48,17 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: Runt
                 && !rtflags.dry
                 && let Some(result) = report.result
             {
-                println!("{}", format_print_result(&result, &rtflags.box_print));
+                let highlighter = Highlighter::with_builtins(evaluator.builtins().clone());
+                let style_source = |source: &str| highlighter.highlight_ansi(source);
+                println!(
+                    "{}",
+                    format_print_result(
+                        &result,
+                        &rtflags.box_print,
+                        terminal_width(),
+                        Some(&style_source),
+                    )
+                );
                 if rtflags.box_print.shows_xray() {
                     println!("{}", format_xray_info(&result, &rtflags.box_print));
                 }
@@ -104,7 +115,17 @@ pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 
                 && !rtflags.dry
                 && let Some(result) = report.result
             {
-                println!("{}", format_print_result(&result, &rtflags.box_print));
+                let highlighter = Highlighter::with_builtins(session.builtins().clone());
+                let style_source = |source: &str| highlighter.highlight_ansi(source);
+                println!(
+                    "{}",
+                    format_print_result(
+                        &result,
+                        &rtflags.box_print,
+                        terminal_width(),
+                        Some(&style_source),
+                    )
+                );
                 if rtflags.box_print.shows_xray() {
                     println!("{}", format_xray_info(&result, &rtflags.box_print));
                 }

@@ -9,7 +9,9 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
 use wqpl::builtins::BuiltinPreset;
-use wqpl::display::{BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info};
+use wqpl::display::{
+    BoxPrintConfig, ResultFormatOptions, apply_box_spec, format_print_result_with, format_xray_info,
+};
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::frontend::{Frontend, SyntaxDisplayKind};
@@ -73,7 +75,6 @@ export interface WqDiagnostic {
 
 export interface RenderedValue {
     display: string;
-    is_cas: boolean;
     category: string;
     xray: string;
 }
@@ -394,7 +395,6 @@ impl Default for WasmFrontend {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RenderedValueData {
     display: String,
-    is_cas: bool,
     category: String,
     xray: String,
 }
@@ -602,9 +602,10 @@ impl WasmWqSession {
         let (result, color_mode) = {
             let mut session = self.try_session_mut()?;
             let color_mode = session.stderr_color_mode();
-            let result = session
-                .eval_script(SourceUnit::named("<wasm>", src))
-                .map(|value| render_value(&value, self.box_config.get()));
+            let result = session.eval_script(SourceUnit::named("<wasm>", src));
+            let highlighter = Highlighter::with_builtins(session.builtins().clone());
+            let result =
+                result.map(|value| render_value(&value, self.box_config.get(), &highlighter));
             (result, color_mode)
         };
         match result {
@@ -690,7 +691,11 @@ impl WasmWqSession {
             }
             Ok(SessionEvaluationPoll::Ready(value)) => {
                 evaluation.take();
-                let rendered = render_value(&value, self.box_config.get());
+                let highlighter = {
+                    let session = self.try_session()?;
+                    Highlighter::with_builtins(session.builtins().clone())
+                };
+                let rendered = render_value(&value, self.box_config.get(), &highlighter);
                 Ok(evaluation_ready_to_js(&rendered).into())
             }
             Err(failure) => {
@@ -1157,10 +1162,22 @@ fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> TestEvaluationRes
         .map_err(Box::new)
 }
 
-fn render_value(value: &Value, config: BoxPrintConfig) -> RenderedValueData {
+fn render_value(
+    value: &Value,
+    config: BoxPrintConfig,
+    highlighter: &Highlighter,
+) -> RenderedValueData {
+    let style_source = |source: &str| highlighter.highlight_ansi(source);
     RenderedValueData {
-        display: format_print_result(value, &config, config.color),
-        is_cas: value.is_cas(),
+        display: format_print_result_with(
+            value,
+            &config,
+            ResultFormatOptions {
+                color: config.color,
+                max_width: None,
+                source_styler: config.color.then_some(&style_source),
+            },
+        ),
         category: value.category().to_string(),
         xray: format_xray_info(value, config.color),
     }
@@ -1172,7 +1189,11 @@ fn eval_rendered_value(
     src: &str,
 ) -> TestEvaluationResult<RenderedValueData> {
     let value = eval_wq_script_value(session, src)?;
-    Ok(render_value(&value, session.box_config.get()))
+    let highlighter = {
+        let session = session.session.borrow();
+        Highlighter::with_builtins(session.builtins().clone())
+    };
+    Ok(render_value(&value, session.box_config.get(), &highlighter))
 }
 
 fn format_wasm_error(err: &WqError, color_mode: ColorMode) -> String {
@@ -1391,7 +1412,6 @@ fn globals_to_js(bindings: &[GlobalBindingData]) -> Array {
 fn rendered_value_to_js(value: &RenderedValueData) -> Object {
     let object = Object::new();
     set_js_property(&object, "display", &JsValue::from_str(&value.display));
-    set_js_property(&object, "is_cas", &JsValue::from_bool(value.is_cas));
     set_js_property(&object, "category", &JsValue::from_str(&value.category));
     set_js_property(&object, "xray", &JsValue::from_str(&value.xray));
     object
@@ -2893,6 +2913,9 @@ mod tests {
     #[test]
     fn session_eval_accumulates_incomplete_blocks() {
         let session = WasmWqSession::new();
+        session
+            .apply_box_flags("-color")
+            .expect("box color should turn off");
         let result = eval_rendered_value(&session, "f:{[x]\n  x+1\n}\nf 2")
             .expect("session eval should accumulate incomplete blocks");
 
@@ -2902,11 +2925,29 @@ mod tests {
     #[test]
     fn session_eval_streams_multiline_cas_script() {
         let session = WasmWqSession::new();
+        session
+            .apply_box_flags("-color")
+            .expect("box color should turn off");
         let result = eval_rendered_value(&session, "expr:@s x^2+2*x+1\nexpr")
             .expect("session eval should run article-style scripts");
 
-        assert_eq!(result.display, "x^2 + 2*x + 1");
-        assert!(result.is_cas);
+        assert_eq!(result.display, "@s x^2 + 2*x + 1");
+    }
+
+    #[test]
+    fn rendered_values_highlight_each_source_cell() {
+        let session = WasmWqSession::new();
+        let result =
+            eval_rendered_value(&session, "(1;2.1)").expect("session eval should render a list");
+
+        assert!(result.display.contains("\x1b["));
+        assert!(result.display.contains("x0"));
+        let value_line = result
+            .display
+            .lines()
+            .last()
+            .expect("rank-one display should have a value line");
+        assert_eq!(value_line.matches("\x1b[0m").count(), 2);
     }
 
     #[test]

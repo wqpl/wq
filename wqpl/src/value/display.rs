@@ -115,64 +115,73 @@ impl fmt::Display for Value {
             }
 
             Value::CompiledFunction(func) => {
-                let mut parts: Vec<String> = Vec::new();
-                if let Some(p) = &func.params {
-                    for name in p.iter() {
-                        parts.push(name.clone());
-                    }
-                }
-                if let Some(np) = &func.named_params {
-                    for name in np.iter() {
-                        parts.push(format!("`{name}"));
-                    }
-                }
-                if parts.is_empty() {
-                    write!(f, "{{...}}")
-                } else {
-                    write!(f, "{{[{}]...}}", parts.join(";"))
-                }
+                write!(
+                    f,
+                    "/* {} */",
+                    opaque_function_shape(func.params.as_deref(), func.named_params.as_deref())
+                )
             }
             Value::Closure(c) => {
-                let mut parts: Vec<String> = Vec::new();
-                if let Some(p) = &c.params {
-                    for name in p.iter() {
-                        parts.push(name.clone());
-                    }
-                }
-                if let Some(np) = &c.named_params {
-                    for name in np.iter() {
-                        parts.push(format!("`{name}"));
-                    }
-                }
-                if parts.is_empty() {
-                    write!(f, "{{...}}")
-                } else {
-                    write!(f, "{{[{}]...}}", parts.join(";"))
-                }
+                write!(
+                    f,
+                    "/* {} */",
+                    opaque_function_shape(c.params.as_deref(), c.named_params.as_deref())
+                )
             }
-            Value::BuiltinFunction { name, .. } => write!(f, "<builtin-function '{name}'>"),
+            Value::BuiltinFunction { name, .. } => {
+                write!(f, "/* builtin-function '{name}' */")
+            }
             Value::LiftedCallable(data) => {
-                write!(f, "<fn {}>", fmt_callable_expr(&data.expr, false))
+                write!(f, "/* fn {} */", fmt_callable_expr(&data.expr, false))
             }
 
-            Value::Cas(_) => {
-                if let Some(s) = self.format_cas() {
-                    write!(f, "@s {s}")
-                } else {
-                    write!(f, "<cas>")
-                }
-            }
+            Value::Cas(_) => write!(f, "@s {}", self.format_cas()),
             Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),
 
-            Value::Rng(_) => write!(f, "<rng>"),
-            Value::Stream(_) => write!(f, "<stream>"),
+            Value::Rng(_) => f.write_str("/* rng */"),
+            Value::Stream(_) => f.write_str("/* stream */"),
         }
+    }
+}
+
+fn opaque_function_shape(params: Option<&[String]>, named_params: Option<&[Arc<str>]>) -> String {
+    let mut parts = params.unwrap_or_default().to_vec();
+    parts.extend(
+        named_params
+            .unwrap_or_default()
+            .iter()
+            .map(|name| format!("`{name}")),
+    );
+    if parts.is_empty() {
+        "{...}".to_string()
+    } else {
+        format!("{{[{}]...}}", parts.join(";"))
+    }
+}
+
+fn fmt_opaque_value_inner(value: &Value) -> Option<String> {
+    match value {
+        Value::CompiledFunction(func) => Some(opaque_function_shape(
+            func.params.as_deref(),
+            func.named_params.as_deref(),
+        )),
+        Value::Closure(closure) => Some(opaque_function_shape(
+            closure.params.as_deref(),
+            closure.named_params.as_deref(),
+        )),
+        Value::BuiltinFunction { name, .. } => Some(format!("builtin-function '{name}'")),
+        Value::LiftedCallable(data) => Some(format!("fn {}", fmt_callable_expr(&data.expr, false))),
+        Value::Rng(_) => Some("rng".to_string()),
+        Value::Stream(_) => Some("stream".to_string()),
+        _ => None,
     }
 }
 
 fn fmt_callable_expr(expr: &CallableExpr, nested: bool) -> String {
     match expr {
-        CallableExpr::Const(value) => value.to_string(),
+        CallableExpr::Const(value) => {
+            fmt_opaque_value_inner(value).unwrap_or_else(|| value.to_string())
+        }
         CallableExpr::Call(value) => fmt_callable_leaf(value),
         CallableExpr::Unary { op, operand } => {
             let operand = fmt_callable_expr(
@@ -200,7 +209,7 @@ fn fmt_callable_expr(expr: &CallableExpr, nested: bool) -> String {
 fn fmt_callable_leaf(value: &Value) -> String {
     match value {
         Value::BuiltinFunction { name, .. } => name.to_string(),
-        _ => value.to_string(),
+        _ => fmt_opaque_value_inner(value).unwrap_or_else(|| value.to_string()),
     }
 }
 
@@ -304,9 +313,26 @@ pub fn format_table_value(val: &Value) -> Option<String> {
         .flatten()
 }
 
+pub(crate) fn format_table_value_for_display(
+    val: &Value,
+    source_styler: Option<&dyn Fn(&str) -> String>,
+) -> Option<String> {
+    format_table_value_with_source_styler(val, &TableFormatOptions::default(), source_styler)
+        .ok()
+        .flatten()
+}
+
 pub fn format_table_value_with_options(
     val: &Value,
     opts: &TableFormatOptions,
+) -> Result<Option<String>, String> {
+    format_table_value_with_source_styler(val, opts, None)
+}
+
+fn format_table_value_with_source_styler(
+    val: &Value,
+    opts: &TableFormatOptions,
+    source_styler: Option<&dyn Fn(&str) -> String>,
 ) -> Result<Option<String>, String> {
     if val.is_atom() || val.is_empty() || matches!(val, Value::Complex(_) | Value::Cas(_)) {
         return Ok(None);
@@ -316,7 +342,7 @@ pub fn format_table_value_with_options(
         .or_else(|| parse_dict_table(val));
     table
         .as_ref()
-        .map(|table| format_table(table, opts).map(Some))
+        .map(|table| format_table(table, opts, source_styler).map(Some))
         .unwrap_or(Ok(None))
 }
 
@@ -469,10 +495,14 @@ fn parse_dict_of_dicts(val: &Value) -> Option<TableData> {
     None
 }
 
-fn format_table(table: &TableData, opts: &TableFormatOptions) -> Result<String, String> {
+fn format_table(
+    table: &TableData,
+    opts: &TableFormatOptions,
+    source_styler: Option<&dyn Fn(&str) -> String>,
+) -> Result<String, String> {
     let prepared = prepare_table(table, opts)?;
     Ok(match opts.style {
-        TableStyle::Plain => format_plain_table(&prepared),
+        TableStyle::Plain => format_plain_table(&prepared, source_styler),
         TableStyle::Markdown => format_markdown_table(&prepared),
     })
 }
@@ -555,11 +585,15 @@ fn format_table_cell(cell: &str, opts: &TableFormatOptions) -> String {
     }
 }
 
-fn format_plain_table(prepared: &PreparedTable) -> String {
+fn format_plain_table(
+    prepared: &PreparedTable,
+    source_styler: Option<&dyn Fn(&str) -> String>,
+) -> String {
     let mut render_rows = Vec::new();
     if !prepared.headers.is_empty() {
         render_rows.push(prepared.headers.clone());
     }
+    let first_source_row = render_rows.len();
     render_rows.extend_from_slice(&prepared.rows);
     let ncols = render_rows.iter().map(|r| r.len()).max().unwrap_or(0);
     let mut widths = vec![0usize; ncols];
@@ -573,18 +607,31 @@ fn format_plain_table(prepared: &PreparedTable) -> String {
     }
     let mut lines = Vec::with_capacity(render_rows.len());
     for (row_idx, row) in render_rows.into_iter().enumerate() {
+        let render_len = row
+            .iter()
+            .rposition(|cell| !cell.is_empty())
+            .map_or(0, |index| index + 1);
         let mut parts = Vec::new();
-        for (j, cell) in row.iter().enumerate() {
-            let padding = widths[j].saturating_sub(display_width(cell));
+        for (j, cell) in row.iter().take(render_len).enumerate() {
             let align_right =
                 row_idx > 0 && prepared.numeric_columns.get(j).copied().unwrap_or(false);
-            if align_right {
-                parts.push(format!("{}{}", " ".repeat(padding), cell));
+            let padding = if j + 1 == render_len && !align_right {
+                0
             } else {
-                parts.push(format!("{}{}", cell, " ".repeat(padding)));
-            }
+                widths[j].saturating_sub(display_width(cell))
+            };
+            let padded = if align_right {
+                format!("{}{}", " ".repeat(padding), cell)
+            } else {
+                format!("{}{}", cell, " ".repeat(padding))
+            };
+            let rendered = match (row_idx >= first_source_row, source_styler) {
+                (true, Some(styler)) => styler(&padded),
+                _ => padded,
+            };
+            parts.push(rendered);
         }
-        lines.push(parts.join(" ").trim_end().to_string());
+        lines.push(parts.join(" "));
     }
     if prepared.omitted_rows > 0 {
         lines.push(format!("... {} more rows", prepared.omitted_rows));

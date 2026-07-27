@@ -242,7 +242,7 @@ fn try_sqrt_reduction(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] sqrt_reduction enter depth={depth} expr={}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string())
+        expr.format_cas()
     );
     if depth >= MAX_SQRT_REDUCTION_DEPTH {
         cas_trace_depth!(
@@ -311,7 +311,7 @@ fn try_sqrt_reduction(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] sqrt_reduction exit depth={depth} -> {}",
-        result.format_cas().unwrap_or_else(|| result.to_string())
+        result.format_cas()
     );
     Ok(Some(result))
 }
@@ -325,7 +325,7 @@ fn try_euler_substitution(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqRes
         debug,
         DebugLogFlags::CAS,
         "[cas] euler enter: {}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string())
+        expr.format_cas()
     );
     let root_expr = find_sqrt_factor(expr, var);
     let (quad_base, _is_sqrt) = match root_expr {

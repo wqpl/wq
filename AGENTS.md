@@ -2,6 +2,8 @@
 
 - Use `cargo run -p wq-cli -- --help` to understand CLI usage
   - e.g. `cargo run -p wq-cli -- exec 'inline code' -d ast,inst -p`
+- Prefer `--box off` for machine-readable CLI probes so presentation layout and ANSI styling do not affect the observation.
+  - e.g. `cargo run -p wq-cli -- --box off exec 'inline code' -p`
 - Read `e/*.wq` to understand wq grammar
   - `lhs:rhs` is assignment
   - `a=b` is equality

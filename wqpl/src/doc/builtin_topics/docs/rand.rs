@@ -10,7 +10,7 @@ const RAND_EXAMPLES: &[DocExample] = &[DocExample {
 const RNG_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Create a reproducible generator",
     code: "str rng 42",
-    expectation: ExampleExpectation::ResultContains("<rng>"),
+    expectation: ExampleExpectation::ResultContains("/* rng */"),
 }];
 
 pub(super) const RAND: BuiltinDoc = BuiltinDoc {

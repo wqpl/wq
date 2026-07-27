@@ -115,6 +115,17 @@ test("complete backend output only uses ansi fallback when escapes are present",
   assert.equal(ansiRoot.childNodes[0].style.color, "#b03030");
 });
 
+test("ansi output preserves dim axis styling", () => {
+  const root = createRoot();
+  const renderer = createOutputRenderer(root);
+
+  renderer.appendOutput("\u001b[2;36mx0\u001b[0m");
+
+  assert.equal(root.textContent, "x0");
+  assert.equal(root.childNodes[0].style.color, "#208080");
+  assert.equal(root.childNodes[0].style.opacity, "0.68");
+});
+
 test("streamed backend output styles plain errors", () => {
   const root = createRoot();
   const renderer = createOutputRenderer(root);

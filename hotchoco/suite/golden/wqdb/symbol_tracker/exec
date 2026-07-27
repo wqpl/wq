@@ -1,4 +1,6 @@
-4 10 3
+x0 0 1  2
+   - -  -
+   4 10 3
 tracking #1 global xs
 [wqdb:track #1] global xs store at <TEST_PATH> in <script>: <unbound> -> (1;2) (int-list)
 [wqdb:track #1] global xs index-assign at <TEST_PATH> in <script>: (1;2) (int-list) -> (3;2) (int-list)

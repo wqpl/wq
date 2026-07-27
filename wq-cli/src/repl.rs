@@ -22,7 +22,7 @@ use wqpl::value::{Excerpt, Value};
 use wqpl::{completion as wq_completion, doc};
 
 use crate::arg::{BoxPrintConfig, FmtOpts, RuntimeFlags, apply_box_spec};
-use crate::display::{format_non_cas_result, format_xray_info};
+use crate::display::{format_print_result, format_xray_info};
 use crate::interrupt::CliInterrupts;
 use crate::load::eval_inline_with_load;
 use crate::msg::{
@@ -277,7 +277,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         break;
                     }
                     ReplCommand::Highlight => {
-                        editor.set_highlight(!editor.highlight_enabled());
+                        let enabled = !editor.highlight_enabled();
+                        editor.set_highlight(enabled);
+                        highlighter.set_enabled(enabled);
                         continue;
                     }
                     ReplCommand::Hint => {
@@ -1119,13 +1121,10 @@ fn format_repl_result(
     result: &Value,
     box_config: &BoxPrintConfig,
     highlighter: &WqReplHighlighter,
+    max_width: usize,
 ) -> String {
-    if result.is_cas() {
-        let expr = format!("{result}");
-        highlighter.highlight_text(&expr)
-    } else {
-        format_non_cas_result(result, box_config)
-    }
+    let style_source = |source: &str| highlighter.highlight_text(source);
+    format_print_result(result, box_config, Some(max_width), Some(&style_source))
 }
 
 fn print_repl_result_msg(msg: String) {
@@ -1225,16 +1224,17 @@ fn format_repl_result_with_category(
     highlighter: &WqReplHighlighter,
     show_category: bool,
 ) -> String {
-    let mut resstr = format_repl_result(result, box_config, highlighter);
-    if !show_category {
-        return resstr;
-    }
     let term_w = terminal_size()
         .map(|(Width(w), _)| w as usize)
         .unwrap_or(80);
+    const PREFIX_W: usize = 2; // "▍ "
+    let result_width = term_w.saturating_sub(PREFIX_W).max(1);
+    let mut resstr = format_repl_result(result, box_config, highlighter, result_width);
+    if !show_category {
+        return resstr;
+    }
     let category = result.category().as_str();
     let category_width = vis_width(category);
-    const PREFIX_W: usize = 2; // "▍ "
 
     let lines: Vec<&str> = resstr.split('\n').collect();
     let first_vis = vis_width(lines[0]);

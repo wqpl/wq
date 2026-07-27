@@ -2470,14 +2470,14 @@ pub(crate) fn simplify_cas_value_with_debug(value: &Value, debug: CasDebug<'_>) 
         debug,
         DebugLogFlags::CAS,
         "[cas] simplify enter: {}",
-        value.format_cas().unwrap_or_else(|| value.to_string())
+        value.format_cas()
     );
     let result = simplify_cas_value(value)?;
     cas_trace!(
         debug,
         DebugLogFlags::CAS,
         "[cas] simplify exit: {}",
-        result.format_cas().unwrap_or_else(|| result.to_string())
+        result.format_cas()
     );
     Ok(result)
 }

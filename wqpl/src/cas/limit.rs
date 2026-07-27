@@ -73,16 +73,16 @@ pub(crate) fn limit_cas_with_debug(
         debug,
         DebugLogFlags::CAS,
         "[cas] limit enter: expr={} var={} point={} dir={dir_fmt}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string()),
-        var.format_cas().unwrap_or_else(|| var.to_string()),
-        point.format_cas().unwrap_or_else(|| point.to_string())
+        expr.format_cas(),
+        var.format_cas(),
+        point.format_cas()
     );
     let result = limit_cas_inner(&expr, var, &point, direction, 0, debug)?;
     cas_trace!(
         debug,
         DebugLogFlags::CAS,
         "[cas] limit exit: {}",
-        result.format_cas().unwrap_or_else(|| result.to_string())
+        result.format_cas()
     );
     Ok(result)
 }
@@ -112,7 +112,7 @@ fn limit_cas_inner(
         DebugLogFlags::CAS_VERBOSE,
         lhopital_depth,
         "[cas-v] limit_cas_inner enter lhopital_depth={lhopital_depth} expr={}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string())
+        expr.format_cas()
     );
 
     macro_rules! try_strategy {
@@ -125,7 +125,7 @@ fn limit_cas_inner(
                     "[cas-v] limit_cas_inner strategy={} lhopital_depth={} -> success: {}",
                     $name,
                     lhopital_depth,
-                    result.format_cas().unwrap_or_else(|| result.to_string())
+                    result.format_cas()
                 );
                 return Ok(result);
             }
