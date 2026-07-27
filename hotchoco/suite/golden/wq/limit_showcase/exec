@@ -2,7 +2,7 @@
 3
 9
 0
-ln[2]
+@s ln[2]
 1
 2
 1
@@ -12,10 +12,10 @@ ln[2]
 0
 1
 0
-inf
+@s inf
 0
 0
-e
+@s e
 0
 0
 0
@@ -28,22 +28,22 @@ e
 1/2
 1
 1
-inf
-limit[x^-1;x;0;`direction:+]
-inf
--inf
-undef
-inf
-inf
--inf
+@s inf
+@s limit[x^-1;x;0;`direction:+]
+@s inf
+@s -inf
+@s undef
+@s inf
+@s inf
+@s -inf
 1/2
 8/3
 1.9999999999964793
-ln[2]
-e - 1
+@s ln[2]
+@s e - 1
 2
 1
 1
-inf
-inf
+@s inf
+@s inf
 ()

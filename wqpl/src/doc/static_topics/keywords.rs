@@ -56,17 +56,18 @@ const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Quote an opaque algebraic root",
         code: "@s root[t^3-t-1;t;1;2]",
-        expectation: ExampleExpectation::ResultContains("root[t^3-t-1;t;1;2]"),
+        expectation: ExampleExpectation::ResultContains("@s root[t^3-t-1;t;1;2]"),
     },
     DocExample {
         title: "Quote symbolic assumptions",
         code: "@s (integer[n];nonnegative[n])",
-        expectation: ExampleExpectation::ResultContains("integer[n]"),
+        expectation: ExampleExpectation::ResultContains("@s integer[n]"),
     },
 ];
 
 const AT_SYMBOLIC_DETAILS: &str = "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly.
 Bare arithmetic without `@s` is normal evaluation.
+Displayed CAS values retain the `@s` prefix, including CAS values nested in containers.
 Inside `@s`, `/.` and `^.` normalize to symbolic division and power.
 Single-variable CAS expressions can be called with one positional argument, while named arguments bind symbols by name.
 CAS-only special forms are recognized inside `@s` quoting. Predicates such as `integer[...]` and quoted calculus forms do not become ordinary runtime calls. Predicate arguments must be numeric or symbolic expressions; bools, strings, and containers are rejected.

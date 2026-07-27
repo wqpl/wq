@@ -2464,9 +2464,9 @@ mod tests {
 
     #[test]
     fn cas_const_infinity_displays() {
-        assert_eq!(konst(CasConst::Infinity).to_string(), "inf");
-        assert_eq!(konst(CasConst::NegInfinity).to_string(), "-inf");
-        assert_eq!(konst(CasConst::Undefined).to_string(), "undef");
+        assert_eq!(konst(CasConst::Infinity).to_string(), "@s inf");
+        assert_eq!(konst(CasConst::NegInfinity).to_string(), "@s -inf");
+        assert_eq!(konst(CasConst::Undefined).to_string(), "@s undef");
     }
 
     #[test]

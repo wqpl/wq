@@ -1213,7 +1213,7 @@ mod tests {
     #[test]
     fn integrate_variable() {
         let result = integrate_cas(&Value::from_cas_var("x"), &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "x^2/2");
+        assert_eq!(result.to_string(), "@s x^2/2");
     }
 
     #[test]
@@ -1226,84 +1226,84 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "2/3*x^(3/2)");
+        assert_eq!(result.to_string(), "@s 2/3*x^(3/2)");
     }
 
     #[test]
     fn integrate_tan() {
         let expr = call(CasFunction::Tan, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-ln[cos[x]]");
+        assert_eq!(result.to_string(), "@s -ln[cos[x]]");
     }
 
     #[test]
     fn integrate_ln() {
         let expr = call(CasFunction::Ln, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "x*(ln[x] - 1)");
+        assert_eq!(result.to_string(), "@s x*(ln[x] - 1)");
     }
 
     #[test]
     fn integrate_inverse() {
         let expr = op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(-1)]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "ln[abs[x]]");
+        assert_eq!(result.to_string(), "@s ln[abs[x]]");
     }
 
     #[test]
     fn integrate_arcsin() {
         let expr = call(CasFunction::ArcSin, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "(-x^2 + 1)^(1/2) + arcsin[x]*x");
+        assert_eq!(result.to_string(), "@s (-x^2 + 1)^(1/2) + arcsin[x]*x");
     }
 
     #[test]
     fn integrate_arccos() {
         let expr = call(CasFunction::ArcCos, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-(-x^2 + 1)^(1/2) + arccos[x]*x");
+        assert_eq!(result.to_string(), "@s -(-x^2 + 1)^(1/2) + arccos[x]*x");
     }
 
     #[test]
     fn integrate_arctan() {
         let expr = call(CasFunction::ArcTan, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "arctan[x]*x - ln[x^2 + 1]/2");
+        assert_eq!(result.to_string(), "@s arctan[x]*x - ln[x^2 + 1]/2");
     }
 
     #[test]
     fn integrate_arcsinh() {
         let expr = call(CasFunction::ArcSinh, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-(x^2 + 1)^(1/2) + arcsinh[x]*x");
+        assert_eq!(result.to_string(), "@s -(x^2 + 1)^(1/2) + arcsinh[x]*x");
     }
 
     #[test]
     fn integrate_arccosh() {
         let expr = call(CasFunction::ArcCosh, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-(x^2 - 1)^(1/2) + arccosh[x]*x");
+        assert_eq!(result.to_string(), "@s -(x^2 - 1)^(1/2) + arccosh[x]*x");
     }
 
     #[test]
     fn integrate_arctanh() {
         let expr = call(CasFunction::ArcTanh, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "arctanh[x]*x + ln[-x^2 + 1]/2");
+        assert_eq!(result.to_string(), "@s arctanh[x]*x + ln[-x^2 + 1]/2");
     }
 
     #[test]
     fn integrate_abs() {
         let expr = call(CasFunction::Abs, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "abs[x]*x/2");
+        assert_eq!(result.to_string(), "@s abs[x]*x/2");
     }
 
     #[test]
     fn integrate_sgn() {
         let expr = call(CasFunction::Sgn, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "abs[x]");
+        assert_eq!(result.to_string(), "@s abs[x]");
     }
 
     #[test]
@@ -1316,7 +1316,7 @@ mod tests {
             )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-cos[2*x]/2");
+        assert_eq!(result.to_string(), "@s -cos[2*x]/2");
     }
 
     #[test]
@@ -1329,7 +1329,7 @@ mod tests {
             )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "sin[3*x]/3");
+        assert_eq!(result.to_string(), "@s sin[3*x]/3");
     }
 
     #[test]
@@ -1342,7 +1342,7 @@ mod tests {
             )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^(2*x)/2");
+        assert_eq!(result.to_string(), "@s e^(2*x)/2");
     }
 
     #[test]
@@ -1355,7 +1355,7 @@ mod tests {
             )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "x*(ln[2*x] - 1)");
+        assert_eq!(result.to_string(), "@s x*(ln[2*x] - 1)");
     }
 
     #[test]
@@ -1371,7 +1371,7 @@ mod tests {
         assert_eq!(
             result.to_string(),
             // (2*x)^2 distributes to 4*x^2 by cas_pow
-            "(4*arctan[2*x]*x - ln[4*x^2 + 1])/4"
+            "@s (4*arctan[2*x]*x - ln[4*x^2 + 1])/4"
         );
     }
 
@@ -1379,21 +1379,21 @@ mod tests {
     fn integrate_sec() {
         let expr = call(CasFunction::Sec, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "ln[tan[x] + sec[x]]");
+        assert_eq!(result.to_string(), "@s ln[tan[x] + sec[x]]");
     }
 
     #[test]
     fn integrate_csc() {
         let expr = call(CasFunction::Csc, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-ln[csc[x] + cot[x]]");
+        assert_eq!(result.to_string(), "@s -ln[csc[x] + cot[x]]");
     }
 
     #[test]
     fn integrate_cot() {
         let expr = call(CasFunction::Cot, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "ln[sin[x]]");
+        assert_eq!(result.to_string(), "@s ln[sin[x]]");
     }
 
     #[test]
@@ -1406,7 +1406,7 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-cos[x]*x + sin[x]");
+        assert_eq!(result.to_string(), "@s -cos[x]*x + sin[x]");
     }
 
     #[test]
@@ -1434,7 +1434,7 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "ln[x]*x^2/2 - x^2/4");
+        assert_eq!(result.to_string(), "@s ln[x]*x^2/2 - x^2/4");
     }
 
     #[test]
@@ -1454,7 +1454,7 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-cos[x^2]");
+        assert_eq!(result.to_string(), "@s -cos[x^2]");
     }
 
     #[test]
@@ -1473,7 +1473,7 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^(x^2)/2");
+        assert_eq!(result.to_string(), "@s e^(x^2)/2");
     }
 
     #[test]
@@ -1492,7 +1492,7 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "ln[abs[(x - 1)/(x + 1)]]/2");
+        assert_eq!(result.to_string(), "@s ln[abs[(x - 1)/(x + 1)]]/2");
     }
 
     #[test]
@@ -1511,7 +1511,7 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "arctan[x]");
+        assert_eq!(result.to_string(), "@s arctan[x]");
     }
 
     #[test]
@@ -1531,7 +1531,7 @@ mod tests {
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x"))
             .expect("symbolic square denominator should integrate");
-        assert_eq!(result.to_string(), "arctan[x/a]/a");
+        assert_eq!(result.to_string(), "@s arctan[x/a]/a");
     }
 
     #[test]
@@ -1552,7 +1552,7 @@ mod tests {
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x"))
             .expect("symbolic square difference should integrate");
-        assert_eq!(result.to_string(), "ln[abs[(x - a)/(x + a)]]/2/a");
+        assert_eq!(result.to_string(), "@s ln[abs[(x - a)/(x + a)]]/2/a");
     }
 
     #[test]
@@ -1707,14 +1707,14 @@ mod tests {
     fn integrate_heaviside() {
         let expr = call(CasFunction::Heaviside, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "heaviside[x]*x");
+        assert_eq!(result.to_string(), "@s heaviside[x]*x");
     }
 
     #[test]
     fn integrate_delta() {
         let expr = call(CasFunction::Delta, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "heaviside[x]");
+        assert_eq!(result.to_string(), "@s heaviside[x]");
     }
 
     #[test]
@@ -2660,7 +2660,7 @@ mod tests {
         ])
         .unwrap();
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^x*(-cos[x] + sin[x])/2");
+        assert_eq!(result.to_string(), "@s e^x*(-cos[x] + sin[x])/2");
     }
 
     #[test]
@@ -2668,7 +2668,7 @@ mod tests {
         let expr = call(CasFunction::Sin, vec![Value::from_cas_var("y")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         let derivative = crate::cas::diff::diff_cas(&result, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(derivative.to_string(), "sin[y]");
+        assert_eq!(derivative.to_string(), "@s sin[y]");
     }
 
     #[test]
@@ -2705,7 +2705,7 @@ mod tests {
         let base = cas_add(vec![x.clone(), Value::from_cas_var("a")]).expect("x+a affine base");
         let expr = cas_pow(base, Value::Int(-1)).expect("inverse affine base");
         let result = integrate_cas(&expr, &x).expect("parameterized inverse affine integral");
-        assert_eq!(result.to_string(), "ln[abs[x + a]]");
+        assert_eq!(result.to_string(), "@s ln[abs[x + a]]");
         let derivative =
             crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
         assert_eq!(
@@ -2781,7 +2781,7 @@ mod tests {
         ])
         .unwrap();
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^x*(sin[x] + cos[x])/2");
+        assert_eq!(result.to_string(), "@s e^x*(sin[x] + cos[x])/2");
     }
 
     #[test]
@@ -2793,7 +2793,7 @@ mod tests {
         ])
         .unwrap();
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^x*(x - 1)");
+        assert_eq!(result.to_string(), "@s e^x*(x - 1)");
     }
 
     #[test]
@@ -2805,7 +2805,7 @@ mod tests {
         ])
         .unwrap();
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-cos[x]*x^2 + 2*sin[x]*x + 2*cos[x]");
+        assert_eq!(result.to_string(), "@s -cos[x]*x^2 + 2*sin[x]*x + 2*cos[x]");
     }
 
     #[test]
@@ -2817,7 +2817,7 @@ mod tests {
         ])
         .unwrap();
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "sin[x]*x + cos[x]");
+        assert_eq!(result.to_string(), "@s sin[x]*x + cos[x]");
     }
 
     #[test]
@@ -2835,21 +2835,24 @@ mod tests {
         ])
         .unwrap();
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^(2*x)*(2*sin[3*x] - 3*cos[3*x])/13");
+        assert_eq!(
+            result.to_string(),
+            "@s e^(2*x)*(2*sin[3*x] - 3*cos[3*x])/13"
+        );
     }
 
     #[test]
     fn integrate_si() {
         let expr = call(CasFunction::Si, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "si[x]*x + cos[x]");
+        assert_eq!(result.to_string(), "@s si[x]*x + cos[x]");
     }
 
     #[test]
     fn integrate_ci() {
         let expr = call(CasFunction::Ci, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "ci[x]*x - sin[x]");
+        assert_eq!(result.to_string(), "@s ci[x]*x - sin[x]");
     }
 
     #[test]
@@ -2858,7 +2861,7 @@ mod tests {
         let expr = cas_div(call(CasFunction::Sin, vec![x.clone()]), x.clone()).unwrap();
         let result = integrate_cas(&expr, &x).unwrap();
 
-        assert_eq!(result.to_string(), "si[x]");
+        assert_eq!(result.to_string(), "@s si[x]");
     }
 
     #[test]
@@ -2867,7 +2870,7 @@ mod tests {
         let expr = cas_div(call(CasFunction::Cos, vec![x.clone()]), x.clone()).unwrap();
         let result = integrate_cas(&expr, &x).unwrap();
 
-        assert_eq!(result.to_string(), "ci[x]");
+        assert_eq!(result.to_string(), "@s ci[x]");
     }
 
     #[test]
@@ -2881,7 +2884,7 @@ mod tests {
         let expr = cas_div(call(CasFunction::Sin, vec![arg.clone()]), arg).unwrap();
         let result = integrate_cas(&expr, &x).unwrap();
 
-        assert_eq!(result.to_string(), "si[2*x + 1]/2");
+        assert_eq!(result.to_string(), "@s si[2*x + 1]/2");
     }
 
     #[test]
@@ -2952,7 +2955,7 @@ mod tests {
             &Value::Int(2),
         )
         .unwrap();
-        assert_eq!(result.to_string(), "ln[2]");
+        assert_eq!(result.to_string(), "@s ln[2]");
     }
 
     #[test]

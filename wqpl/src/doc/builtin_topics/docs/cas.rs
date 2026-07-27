@@ -140,7 +140,7 @@ const SOLVE_SYSTEM_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Solve a system with parameters",
         code: "solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]",
-        expectation: ExampleExpectation::ResultContains("`x:(c + b)/3"),
+        expectation: ExampleExpectation::ResultContains("`x:@s (c + b)/3"),
     },
 ];
 

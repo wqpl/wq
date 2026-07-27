@@ -2124,7 +2124,7 @@ mod tests {
         let alg = Value::Algebraic(Arc::new(a));
         let product =
             Value::from_cas_op(CasOp::Multiply, vec![alg.clone(), Value::from_cas_var("x")]);
-        assert_eq!(product.to_string(), "(-1 + 2^(1/2))*x");
+        assert_eq!(product.to_string(), "@s (-1 + 2^(1/2))*x");
     }
 
     #[test]
@@ -2133,7 +2133,7 @@ mod tests {
         let a = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(0), Value::Int(1)]);
         let alg = Value::Algebraic(Arc::new(a));
         let product = Value::from_cas_op(CasOp::Multiply, vec![alg, Value::from_cas_var("x")]);
-        assert_eq!(product.to_string(), "((1-5^(1/2))/2)*x");
+        assert_eq!(product.to_string(), "@s ((1-5^(1/2))/2)*x");
     }
 
     #[test]

@@ -66,7 +66,7 @@ fn count_inverse_powers(value: &Value) -> usize {
 
 #[test]
 fn cas_var_formats_like_identifier() {
-    assert_eq!(Value::from_cas_var("x").to_string(), "x");
+    assert_eq!(Value::from_cas_var("x").to_string(), "@s x");
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn canonical_addition_orders_consistently() {
     ))
     .unwrap();
     assert_eq!(lhs, rhs);
-    assert_eq!(lhs.to_string(), "x + 1");
+    assert_eq!(lhs.to_string(), "@s x + 1");
 }
 
 #[test]
@@ -145,22 +145,22 @@ fn cas_neg_flips_infinity_constants() {
 fn typed_op_constructors_canonicalize_like_raw_ops() {
     let x = Value::from_cas_var("x");
     let add = simplify_cas_value(&op(CasOp::Add, vec![x.clone(), Value::Int(1)])).unwrap();
-    assert_eq!(add.to_string(), "x + 1");
+    assert_eq!(add.to_string(), "@s x + 1");
 
     let mul = simplify_cas_value(&op(CasOp::Multiply, vec![Value::Int(2), x.clone()])).unwrap();
-    assert_eq!(mul.to_string(), "2*x");
+    assert_eq!(mul.to_string(), "@s 2*x");
 
     let pow = simplify_cas_value(&op(CasOp::Power, vec![x.clone(), Value::Int(2)])).unwrap();
-    assert_eq!(pow.to_string(), "x^2");
+    assert_eq!(pow.to_string(), "@s x^2");
 
     let neg = simplify_cas_value(&op(CasOp::Subtract, vec![x.clone()])).unwrap();
-    assert_eq!(neg.to_string(), "-x");
+    assert_eq!(neg.to_string(), "@s -x");
 
     let sub = simplify_cas_value(&op(CasOp::Subtract, vec![x.clone(), Value::Int(1)])).unwrap();
-    assert_eq!(sub.to_string(), "x - 1");
+    assert_eq!(sub.to_string(), "@s x - 1");
 
     let div = simplify_cas_value(&op(CasOp::Divide, vec![x, Value::Int(2)])).unwrap();
-    assert_eq!(div.to_string(), "x/2");
+    assert_eq!(div.to_string(), "@s x/2");
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn simplify_combines_like_terms() {
             Value::Int(1),
         ],
     );
-    assert_eq!(simplify_cas_value(&expr).unwrap().to_string(), "3*x + 1");
+    assert_eq!(simplify_cas_value(&expr).unwrap().to_string(), "@s 3*x + 1");
 }
 
 #[test]
@@ -190,9 +190,9 @@ fn simplify_keeps_root_of_square_until_rewritten() {
     );
     assert_eq!(
         simplify_cas_value(&expr).unwrap().to_string(),
-        "(x^2)^(1/2)"
+        "@s (x^2)^(1/2)"
     );
-    assert_eq!(rewrite_cas(&expr).unwrap().to_string(), "abs[x]");
+    assert_eq!(rewrite_cas(&expr).unwrap().to_string(), "@s abs[x]");
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn simplify_large_squarefree_sqrt_stays_symbolic() {
     );
     assert_eq!(
         simplify_cas_value(&expr).unwrap().to_string(),
-        "9999999967^(1/2)"
+        "@s 9999999967^(1/2)"
     );
 }
 
@@ -235,7 +235,7 @@ fn rewrite_combines_log_terms() {
             call(CasFunction::Ln, vec![Value::from_cas_var("y")]),
         ],
     );
-    assert_eq!(rewrite_cas(&expr).unwrap().to_string(), "ln[x*y]");
+    assert_eq!(rewrite_cas(&expr).unwrap().to_string(), "@s ln[x*y]");
 }
 
 #[test]
@@ -255,7 +255,7 @@ fn rewrite_factors_common_product() {
     );
     let text = rewrite_cas(&expr).unwrap().to_string();
     assert!(
-        text == "x*(y + z)" || text == "x*(z + y)",
+        text == "@s x*(y + z)" || text == "@s x*(z + y)",
         "unexpected factored form: {text}"
     );
 }
@@ -288,7 +288,7 @@ fn rewrite_keeps_fractional_log_sum_expanded() {
 
     assert_eq!(
         rewrite_cas(&expr).unwrap().to_string(),
-        "ln[x]*x^2/2 - x^2/4"
+        "@s ln[x]*x^2/2 - x^2/4"
     );
 }
 
@@ -299,7 +299,7 @@ fn rewrite_handles_trig_rules() {
         vec![op(CasOp::Subtract, vec![Value::from_cas_var("x")])],
     ))
     .unwrap();
-    assert_eq!(odd.to_string(), "-sin[x]");
+    assert_eq!(odd.to_string(), "@s -sin[x]");
 
     let double_angle = rewrite_cas(&call(
         CasFunction::Sin,
@@ -309,7 +309,7 @@ fn rewrite_handles_trig_rules() {
         )],
     ))
     .unwrap();
-    assert_eq!(double_angle.to_string(), "2*cos[x]*sin[x]");
+    assert_eq!(double_angle.to_string(), "@s 2*cos[x]*sin[x]");
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn rewrite_removes_abs_square() {
             Value::Int(2),
         ],
     );
-    assert_eq!(rewrite_cas(&expr).unwrap().to_string(), "x^2");
+    assert_eq!(rewrite_cas(&expr).unwrap().to_string(), "@s x^2");
 }
 
 #[test]
@@ -408,7 +408,7 @@ fn substitute_evaluates_numeric_value() {
 fn substitute_recurses_into_symbolic_application_args() {
     let expr = Value::from_cas_apply("f", vec![Value::from_cas_var("x")]);
     let result = substitute_cas(&expr, &Value::from_cas_var("x"), &Value::Int(2)).unwrap();
-    assert_eq!(result.to_string(), "f[2]");
+    assert_eq!(result.to_string(), "@s f[2]");
 }
 
 #[test]
@@ -423,7 +423,7 @@ fn substitute_recurses_into_limit_point_but_not_bound_body() {
     let limit = Value::from_cas_limit(close_cas_scope(&inner, "y"), x.clone(), None);
 
     let result = substitute_cas(&limit, &x, &Value::Int(0)).unwrap();
-    assert_eq!(result.to_string(), "limit[sin[y]/y;y;0]");
+    assert_eq!(result.to_string(), "@s limit[sin[y]/y;y;0]");
 }
 
 #[test]
@@ -435,7 +435,7 @@ fn substitute_avoids_limit_capture() {
     let result = substitute_cas(&limit, &y, &x).expect("capture-free substitution");
     let (scope, _, _) = result.cas_limit_parts().expect("limit");
     assert_eq!(scope.body().cas_var_name(), Some("x"));
-    assert_eq!(result.to_string(), "limit[x;x1;0]");
+    assert_eq!(result.to_string(), "@s limit[x;x1;0]");
 }
 
 #[test]
@@ -448,7 +448,7 @@ fn substitute_avoids_integral_capture() {
     let (scope, bounds) = result.cas_integral_parts().expect("integral");
     assert_eq!(scope.body().cas_var_name(), Some("x"));
     assert_eq!(bounds, None);
-    assert_eq!(result.to_string(), "integrate[x;x1]");
+    assert_eq!(result.to_string(), "@s integrate[x;x1]");
 }
 
 #[test]
@@ -461,7 +461,7 @@ fn simplify_recurses_into_symbolic_application_args() {
         )],
     );
     let result = simplify_cas_value(&expr).unwrap();
-    assert_eq!(result.to_string(), "f[x]");
+    assert_eq!(result.to_string(), "@s f[x]");
 }
 
 #[test]
@@ -474,7 +474,7 @@ fn expand_binomial_square() {
         ],
     );
     let result = expand_cas(&expr).unwrap();
-    assert_eq!(result.to_string(), "x^2 + 2*x + 1");
+    assert_eq!(result.to_string(), "@s x^2 + 2*x + 1");
 }
 
 #[test]
@@ -532,7 +532,7 @@ fn factor_extracts_common_term() {
         ],
     );
     let result = factor_cas(&expr).unwrap();
-    assert_eq!(result.to_string(), "x*(x + 1)");
+    assert_eq!(result.to_string(), "@s x*(x + 1)");
 }
 
 #[test]
@@ -553,7 +553,7 @@ fn simplify_performs_exact_polynomial_division() {
             ),
         ],
     );
-    assert_eq!(simplify_cas_value(&expr).unwrap().to_string(), "x + 1");
+    assert_eq!(simplify_cas_value(&expr).unwrap().to_string(), "@s x + 1");
 }
 
 #[test]
@@ -592,8 +592,8 @@ fn solve_quadratic_exact_radical_roots() {
     };
     let root_text: Vec<String> = roots.iter().map(ToString::to_string).collect();
     assert_eq!(roots.len(), 2);
-    assert!(root_text.iter().any(|root| root == "2^(1/2)"));
-    assert!(root_text.iter().any(|root| root == "-2^(1/2)"));
+    assert!(root_text.iter().any(|root| root == "@s 2^(1/2)"));
+    assert!(root_text.iter().any(|root| root == "@s -2^(1/2)"));
     assert!(
         roots
             .iter()
@@ -674,7 +674,7 @@ fn solve_real_parameterized_polynomial_requires_real_coefficients() {
         error
             .msg
             .as_deref()
-            .is_some_and(|message| message.contains("real[a]")),
+            .is_some_and(|message| message.contains("real[@s a]")),
         "unexpected error: {error:?}"
     );
 }
@@ -1441,7 +1441,7 @@ fn divide_cancels_affine_over_factor() {
     .unwrap();
 
     let simplified = cas_div(lhs, rhs).unwrap();
-    assert_eq!(simplified.to_string(), "(x^2 + 1)^(-1/2)/x");
+    assert_eq!(simplified.to_string(), "@s (x^2 + 1)^(-1/2)/x");
 }
 
 #[test]
@@ -1502,7 +1502,7 @@ fn rewrite_cancels_affine_over_product_form() {
     .unwrap();
 
     let rewritten = rewrite_cas(&expr).unwrap();
-    assert_eq!(rewritten.to_string(), "(x^2 + 1)^(-1/2)/x");
+    assert_eq!(rewritten.to_string(), "@s (x^2 + 1)^(-1/2)/x");
 }
 
 #[test]
@@ -1513,7 +1513,7 @@ fn rewrite_combines_unit_with_fraction_sum() {
     let expr = cas_add(vec![Value::Int(1), cas_neg(frac).unwrap()]).unwrap();
 
     let rewritten = rewrite_cas(&expr).unwrap();
-    assert_eq!(rewritten.to_string(), "(x + 1)^-1");
+    assert_eq!(rewritten.to_string(), "@s (x + 1)^-1");
 }
 
 #[test]
@@ -1573,5 +1573,5 @@ fn diff_integrate_roundtrip_inverse_x_sqrt_is_clean() {
 
     let antiderivative = crate::cas::integrate::integrate_cas(&integrand, &x).unwrap();
     let roundtrip = crate::cas::diff::diff_cas(&antiderivative, &x).unwrap();
-    assert_eq!(roundtrip.to_string(), "(x^2 + 1)^(-1/2)/x");
+    assert_eq!(roundtrip.to_string(), "@s (x^2 + 1)^(-1/2)/x");
 }

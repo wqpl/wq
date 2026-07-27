@@ -1147,7 +1147,7 @@ mod exact_monomial_tests {
         };
 
         assert_eq!(roots.len(), 3);
-        assert_eq!(roots[0].to_string(), "2^(1/3)");
+        assert_eq!(roots[0].to_string(), "@s 2^(1/3)");
         assert!(
             roots
                 .iter()

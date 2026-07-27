@@ -1284,7 +1284,7 @@ mod tests {
             sqrt_value(&Value::Int(2))
                 .expect("exact square root")
                 .to_string(),
-            "2^(1/2)"
+            "@s 2^(1/2)"
         );
     }
 

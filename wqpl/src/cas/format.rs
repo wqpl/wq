@@ -991,7 +991,7 @@ mod tests {
 
         assert_eq!(
             expr.to_string(),
-            "(alpha1*x + alpha1^2)[`alpha1:@s root[t^3-t-1;t;1;2]]"
+            "@s (alpha1*x + alpha1^2)[`alpha1:@s root[t^3-t-1;t;1;2]]"
         );
     }
 
@@ -1023,7 +1023,7 @@ mod tests {
 
         assert_eq!(
             expr.to_string(),
-            "(alpha2*x + alpha2^2 + alpha1)[`alpha2:@s root[t^3-t-1;t;1;2]]"
+            "@s (alpha2*x + alpha2^2 + alpha1)[`alpha2:@s root[t^3-t-1;t;1;2]]"
         );
     }
 

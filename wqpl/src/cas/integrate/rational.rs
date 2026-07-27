@@ -2445,7 +2445,7 @@ mod tests {
             "x",
         )
         .unwrap();
-        assert_eq!(result.to_string(), "arctan[x/2]/2");
+        assert_eq!(result.to_string(), "@s arctan[x/2]/2");
     }
 
     #[test]
@@ -2458,7 +2458,7 @@ mod tests {
             "x",
         )
         .unwrap();
-        assert_eq!(result.to_string(), "ln[abs[(x - 2)/(x + 2)]]/4");
+        assert_eq!(result.to_string(), "@s ln[abs[(x - 2)/(x + 2)]]/4");
     }
 
     #[test]
@@ -2473,7 +2473,7 @@ mod tests {
             "x",
         )
         .unwrap();
-        assert_eq!(result.to_string(), "arctan[x/2]/2");
+        assert_eq!(result.to_string(), "@s arctan[x/2]/2");
     }
 
     #[test]
@@ -2495,7 +2495,7 @@ mod tests {
         let result = integrate_by_rational(&expr, "x", crate::cas::CasDebug::disabled())
             .unwrap()
             .unwrap();
-        assert_eq!(result.to_string(), "arctan[x/2]/2");
+        assert_eq!(result.to_string(), "@s arctan[x/2]/2");
     }
 
     #[test]
@@ -2517,7 +2517,7 @@ mod tests {
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(4)),
             ]
         );
-        assert_eq!(rational_part.to_string(), "(x/4 + 1/4)/(x^2 + 1)");
+        assert_eq!(rational_part.to_string(), "@s (x/4 + 1/4)/(x^2 + 1)");
     }
 
     #[test]
@@ -2778,7 +2778,7 @@ mod tests {
         ))
         .expect("exact perfect-square root");
 
-        assert_eq!(square_root.to_string(), "2^(1/2)");
+        assert_eq!(square_root.to_string(), "@s 2^(1/2)");
         assert_eq!(
             perfect_square,
             Value::from_fraction_parts(BigInt::from(3), BigInt::from(2))

@@ -271,7 +271,7 @@ mod tests {
         let (opened, var) = open_cas_scope(&scope);
 
         assert_eq!(var.cas_var_name(), Some("x1"));
-        assert_eq!(opened.to_string(), "x + x1");
+        assert_eq!(opened.to_string(), "@s x + x1");
     }
 
     #[test]

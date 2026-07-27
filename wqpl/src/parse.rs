@@ -5154,7 +5154,7 @@ mod symbolic_quote_tests {
             .expect("expected symbolic application");
         assert_eq!(head.as_str(), "f");
         assert_eq!(args, [Value::from_cas_var("x")]);
-        assert_eq!(value.to_string(), "f[x]");
+        assert_eq!(value.to_string(), "@s f[x]");
     }
 
     #[test]
@@ -5168,7 +5168,7 @@ mod symbolic_quote_tests {
             .expect("expected symbolic application");
         assert_eq!(head.as_str(), "f");
         assert_eq!(args.len(), 2);
-        assert_eq!(value.to_string(), "f[x + 1;sin[y]]");
+        assert_eq!(value.to_string(), "@s f[x + 1;sin[y]]");
     }
 
     #[test]
@@ -5180,7 +5180,7 @@ mod symbolic_quote_tests {
         assert!(value.is_cas_expr());
         assert!(value.cas_function_parts().is_some());
         assert!(value.cas_apply_parts().is_none());
-        assert_eq!(value.to_string(), "sin[x]");
+        assert_eq!(value.to_string(), "@s sin[x]");
     }
 
     #[test]
@@ -5211,7 +5211,7 @@ mod symbolic_quote_tests {
         assert_eq!(scope.hint().as_str(), "x");
         assert_eq!(scope.body().cas_var_name(), Some("y"));
         assert_eq!(bounds, None);
-        assert_eq!(value.to_string(), "integrate[y;x]");
+        assert_eq!(value.to_string(), "@s integrate[y;x]");
     }
 
     #[test]
@@ -5261,10 +5261,10 @@ mod symbolic_quote_tests {
             .cas_limit_parts()
             .expect("expected symbolic limit node");
         assert_eq!(scope.hint().as_str(), "x");
-        assert_eq!(crate::cas::open_cas_scope(scope).0.to_string(), "x^-1");
+        assert_eq!(crate::cas::open_cas_scope(scope).0.to_string(), "@s x^-1");
         assert_eq!(point, &Value::Int(0));
         assert_eq!(direction, Some(crate::cas::limit::LimitDirection::Right));
-        assert_eq!(value.to_string(), "limit[x^-1;x;0;`direction:+]");
+        assert_eq!(value.to_string(), "@s limit[x^-1;x;0;`direction:+]");
     }
 
     #[test]
@@ -5285,8 +5285,8 @@ mod symbolic_quote_tests {
     #[test]
     fn symbolic_quote_normalizes_exact_operators() {
         for (exact_input, classic_input, expected_display) in [
-            ("@s x/.y", "@s x/y", "x/y"),
-            ("@s x^.y", "@s x^y", "x^y"),
+            ("@s x/.y", "@s x/y", "@s x/y"),
+            ("@s x^.y", "@s x^y", "@s x^y"),
             ("@s 1/.2", "@s 1/2", "1/2"),
             ("@s 2^.3", "@s 2^3", "8"),
         ] {
@@ -5334,7 +5334,7 @@ mod symbolic_quote_tests {
             .expect("expected named symbolic argument");
         assert_eq!(name.as_str(), "a");
         assert_eq!(named_value, &Value::from_cas_var("y"));
-        assert_eq!(value.to_string(), "f[x;`a:y]");
+        assert_eq!(value.to_string(), "@s f[x;`a:y]");
     }
 
     #[test]
@@ -5375,7 +5375,7 @@ mod symbolic_quote_tests {
         let AstNode::Literal(value, _) = input.as_ref() else {
             panic!("expected symbolic input, got {input:?}");
         };
-        assert_eq!(value.to_string(), "x^2");
+        assert_eq!(value.to_string(), "@s x^2");
         assert!(matches!(effect.as_ref(), AstNode::Variable(name, _) if name == "diff"));
     }
 }

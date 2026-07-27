@@ -466,7 +466,7 @@ mod cas_tests {
         let other_head = Value::from_cas_apply("g", vec![Value::from_cas_var("x")]);
         let builtin = Value::from_cas_function(CasFunction::Sin, vec![Value::from_cas_var("x")]);
 
-        assert_eq!(lhs.to_string(), "f[x]");
+        assert_eq!(lhs.to_string(), "@s f[x]");
         assert_eq!(lhs, rhs);
         assert_ne!(lhs, other_head);
         assert_ne!(lhs, builtin);
@@ -487,7 +487,7 @@ mod cas_tests {
         assert!(predicate.is_cas());
         assert!(!predicate.is_cas_expr());
         assert!(!predicate.is_cas_equation());
-        assert_eq!(predicate.to_string(), "nonzero[x]");
+        assert_eq!(predicate.to_string(), "@s nonzero[x]");
         assert!(crate::cas::cas_add(vec![predicate, Value::Int(1)]).is_err());
     }
 

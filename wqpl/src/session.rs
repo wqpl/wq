@@ -2157,7 +2157,7 @@ mod tests {
             .eval_string("expr:@s x^2+2*x+1\nexpr")
             .expect("symbolic assignment should bind before the next statement");
 
-        assert_eq!(result.to_string(), "x^2 + 2*x + 1");
+        assert_eq!(result.to_string(), "@s x^2 + 2*x + 1");
         assert!(session.bindings().contains_key("expr"));
     }
 

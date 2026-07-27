@@ -2220,7 +2220,7 @@ mod tests {
         .expect("sum");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "x*(z + y)");
+        assert_eq!(result.to_string(), "@s x*(z + y)");
     }
 
     #[test]
@@ -2238,7 +2238,7 @@ mod tests {
         .expect("sum");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "a*b*(x^3 + 1)");
+        assert_eq!(result.to_string(), "@s a*b*(x^3 + 1)");
     }
 
     #[test]
@@ -2285,7 +2285,7 @@ mod tests {
         .expect("product");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "x*z + 1");
+        assert_eq!(result.to_string(), "@s x*z + 1");
     }
 
     #[test]
@@ -2316,7 +2316,7 @@ mod tests {
         .expect("sum");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "2*x");
+        assert_eq!(result.to_string(), "@s 2*x");
     }
 
     #[test]
@@ -2328,7 +2328,7 @@ mod tests {
         .expect("sum");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "2*(y + x)");
+        assert_eq!(result.to_string(), "@s 2*(y + x)");
     }
 
     #[test]
@@ -2346,7 +2346,7 @@ mod tests {
         let expr = cas_pow(Value::from_cas_const(CasConst::E), exponent).expect("exponential");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "e^(2*x)");
+        assert_eq!(result.to_string(), "@s e^(2*x)");
     }
 
     #[test]
@@ -2400,7 +2400,7 @@ mod tests {
         .expect("rational expression");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "(x - 1)^-3");
+        assert_eq!(result.to_string(), "@s (x - 1)^-3");
     }
 
     #[test]
@@ -2545,7 +2545,7 @@ mod tests {
         .expect("expression");
 
         let result = rewrite_expr(&expr).expect("rewrite");
-        assert_eq!(result.to_string(), "e^(x^2)*(2*x^2 - 2*x - 2)/(x - 1)^3");
+        assert_eq!(result.to_string(), "@s e^(x^2)*(2*x^2 - 2*x - 2)/(x - 1)^3");
     }
 
     #[test]

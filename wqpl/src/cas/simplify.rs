@@ -2726,7 +2726,7 @@ mod exact_call_tests {
             substitute_expr(&predicate, "x", &Value::Int(2))
                 .expect("predicate substitution")
                 .to_string(),
-            "integer[2]"
+            "@s integer[2]"
         );
     }
 }

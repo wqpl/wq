@@ -654,7 +654,7 @@ mod tests {
             ],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "2*x + 2");
+        assert_eq!(result.to_string(), "@s 2*x + 2");
     }
 
     #[test]
@@ -671,14 +671,14 @@ mod tests {
         let expr = op(CasOp::Multiply, vec![call(CasFunction::Exp, vec![x]), poly]);
 
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^x*x^2");
+        assert_eq!(result.to_string(), "@s e^x*x^2");
     }
 
     #[test]
     fn differentiate_tanh() {
         let expr = call(CasFunction::Tanh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "cosh[x]^-2");
+        assert_eq!(result.to_string(), "@s cosh[x]^-2");
     }
 
     #[test]
@@ -712,56 +712,56 @@ mod tests {
             ],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "x^(-1/2)/2");
+        assert_eq!(result.to_string(), "@s x^(-1/2)/2");
     }
 
     #[test]
     fn differentiate_arcsin() {
         let expr = call(CasFunction::ArcSin, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "(-x^2 + 1)^(-1/2)");
+        assert_eq!(result.to_string(), "@s (-x^2 + 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arccos() {
         let expr = call(CasFunction::ArcCos, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-(-x^2 + 1)^(-1/2)");
+        assert_eq!(result.to_string(), "@s -(-x^2 + 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arctan() {
         let expr = call(CasFunction::ArcTan, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "(x^2 + 1)^-1");
+        assert_eq!(result.to_string(), "@s (x^2 + 1)^-1");
     }
 
     #[test]
     fn differentiate_arcsinh() {
         let expr = call(CasFunction::ArcSinh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "(x^2 + 1)^(-1/2)");
+        assert_eq!(result.to_string(), "@s (x^2 + 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arccosh() {
         let expr = call(CasFunction::ArcCosh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "(x^2 - 1)^(-1/2)");
+        assert_eq!(result.to_string(), "@s (x^2 - 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arctanh() {
         let expr = call(CasFunction::ArcTanh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "(-x^2 + 1)^-1");
+        assert_eq!(result.to_string(), "@s (-x^2 + 1)^-1");
     }
 
     #[test]
     fn differentiate_abs() {
         let expr = call(CasFunction::Abs, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "sgn[x]");
+        assert_eq!(result.to_string(), "@s sgn[x]");
     }
 
     #[test]
@@ -778,35 +778,35 @@ mod tests {
             vec![call(CasFunction::Abs, vec![Value::from_cas_var("x")])],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "x^-1");
+        assert_eq!(result.to_string(), "@s x^-1");
     }
 
     #[test]
     fn differentiate_sec() {
         let expr = call(CasFunction::Sec, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "sec[x]*tan[x]");
+        assert_eq!(result.to_string(), "@s sec[x]*tan[x]");
     }
 
     #[test]
     fn differentiate_csc() {
         let expr = call(CasFunction::Csc, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-cot[x]*csc[x]");
+        assert_eq!(result.to_string(), "@s -cot[x]*csc[x]");
     }
 
     #[test]
     fn differentiate_cot() {
         let expr = call(CasFunction::Cot, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-csc[x]^2");
+        assert_eq!(result.to_string(), "@s -csc[x]^2");
     }
 
     #[test]
     fn differentiate_sqrt() {
         let expr = call(CasFunction::Sqrt, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "x^(-1/2)/2");
+        assert_eq!(result.to_string(), "@s x^(-1/2)/2");
     }
 
     #[test]
@@ -819,7 +819,7 @@ mod tests {
             )],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "2*sec[2*x]*tan[2*x]");
+        assert_eq!(result.to_string(), "@s 2*sec[2*x]*tan[2*x]");
     }
 
     #[test]
@@ -840,28 +840,28 @@ mod tests {
     fn differentiate_heaviside() {
         let expr = call(CasFunction::Heaviside, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "delta[x]");
+        assert_eq!(result.to_string(), "@s delta[x]");
     }
 
     #[test]
     fn differentiate_si() {
         let expr = call(CasFunction::Si, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "sin[x]/x");
+        assert_eq!(result.to_string(), "@s sin[x]/x");
     }
 
     #[test]
     fn differentiate_ci() {
         let expr = call(CasFunction::Ci, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "cos[x]/x");
+        assert_eq!(result.to_string(), "@s cos[x]/x");
     }
 
     #[test]
     fn differentiate_ei() {
         let expr = call(CasFunction::Ei, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "e^x/x");
+        assert_eq!(result.to_string(), "@s e^x/x");
     }
 
     #[test]
@@ -871,7 +871,7 @@ mod tests {
             vec![Value::Int(2), Value::from_cas_var("x")],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-en[1;x]");
+        assert_eq!(result.to_string(), "@s -en[1;x]");
     }
 
     #[test]
@@ -881,7 +881,7 @@ mod tests {
             vec![Value::Int(0), Value::from_cas_var("x")],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result.to_string(), "-e^(-x)*(x + 1)/x^2");
+        assert_eq!(result.to_string(), "@s -e^(-x)*(x + 1)/x^2");
     }
 
     #[test]
@@ -945,7 +945,7 @@ mod tests {
             ],
         );
         let result2 = diff_cas(&expr2, &Value::from_cas_var("x")).unwrap();
-        assert_eq!(result2.to_string(), "2^(1/3)/(x^2 + 1)");
+        assert_eq!(result2.to_string(), "@s 2^(1/3)/(x^2 + 1)");
     }
 
     #[test]
@@ -1074,7 +1074,7 @@ mod tests {
         let integral = integrate_cas(&integrand, &Value::from_cas_var("x")).unwrap();
         let derivative = diff_cas(&integral, &Value::from_cas_var("x")).unwrap();
 
-        assert_eq!(derivative.to_string(), "(x^5 - 2)^-1");
+        assert_eq!(derivative.to_string(), "@s (x^5 - 2)^-1");
     }
 
     #[test]
@@ -1098,7 +1098,7 @@ mod tests {
         let integral = integrate_cas(&integrand, &x).unwrap();
         let derivative = diff_cas(&integral, &x).unwrap();
 
-        assert_eq!(derivative.to_string(), "(x^3 + 1)^(1/2)");
+        assert_eq!(derivative.to_string(), "@s (x^3 + 1)^(1/2)");
     }
 
     #[test]
@@ -1119,7 +1119,7 @@ mod tests {
         let integral = integrate_cas(&integrand, &x).unwrap();
         let derivative = diff_cas(&integral, &x).unwrap();
 
-        assert_eq!(derivative.to_string(), "((2*x + 1)^3 + 1)^(-1/2)");
+        assert_eq!(derivative.to_string(), "@s ((2*x + 1)^3 + 1)^(-1/2)");
     }
 
     #[test]
@@ -1140,6 +1140,6 @@ mod tests {
         let integral = integrate_cas(&integrand, &x).unwrap();
         let derivative = diff_cas(&integral, &x).unwrap();
 
-        assert_eq!(derivative.to_string(), "((2*x + 1)^3 + 1)^(1/2)");
+        assert_eq!(derivative.to_string(), "@s ((2*x + 1)^3 + 1)^(1/2)");
     }
 }

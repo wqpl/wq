@@ -157,7 +157,7 @@ impl fmt::Display for Value {
 
             Value::Cas(_) => {
                 if let Some(s) = self.format_cas() {
-                    write!(f, "{s}")
+                    write!(f, "@s {s}")
                 } else {
                     write!(f, "<cas>")
                 }
