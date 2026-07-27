@@ -74,7 +74,6 @@ Binary Continuation Lines
                           (primary
                             (literal
                               (integer))))))))
-                (newline)
                 (multiplicative_expr
                   (range_expr
                     (unary_expr
@@ -83,7 +82,6 @@ Binary Continuation Lines
                           (primary
                             (literal
                               (integer))))))))
-                (newline)
                 (multiplicative_expr
                   (range_expr
                     (unary_expr
@@ -110,7 +108,6 @@ Binary Continuation Lines
                             (literal
                               (integer)))))))))
               operator: (comparison_operator)
-              (newline)
               (additive_expr
                 (multiplicative_expr
                   (range_expr
@@ -121,7 +118,6 @@ Binary Continuation Lines
                             (literal
                               (integer)))))))))
               operator: (comparison_operator)
-              (newline)
               (additive_expr
                 (multiplicative_expr
                   (range_expr

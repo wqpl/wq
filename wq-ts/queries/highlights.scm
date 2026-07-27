@@ -1,7 +1,7 @@
 ;; comments
 (comment) @comment
 (shebang) @comment
-((magic_command) @meta)
+((directive) @meta)
 
 ;; literals
 (integer)   @number

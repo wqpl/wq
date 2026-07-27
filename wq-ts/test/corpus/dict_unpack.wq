@@ -64,18 +64,9 @@ Dictionary unpack patterns
           (dict_unpack_items
             (dict_unpack_item
               (tag)
-              (pipe_expr
-                (comma_expr
-                  (comparison_expr
-                    (additive_expr
-                      (multiplicative_expr
-                        (range_expr
-                          (unary_expr
-                            (power_expr
-                              (postfix_expr
-                                (primary
-                                  (variable_ref
-                                    (identifier)))))))))))))
+              (unpack_target
+                (variable_ref
+                  (identifier))))
             (dict_unpack_item
               (tag))))
         (assignment_operator)
@@ -101,54 +92,23 @@ Dictionary unpack patterns
           (dict_unpack_items
             (dict_unpack_item
               (tag)
-              (dict_unpack_pattern
-                (dict_unpack_items
-                  (dict_unpack_item
-                    (tag))
-                  (dict_unpack_item
-                    (tag)))))
+              (unpack_target
+                (dict_unpack_pattern
+                  (dict_unpack_items
+                    (dict_unpack_item
+                      (tag))
+                    (dict_unpack_item
+                      (tag))))))
             (dict_unpack_item
               (tag)
-              (pipe_expr
-                (comma_expr
-                  (comparison_expr
-                    (additive_expr
-                      (multiplicative_expr
-                        (range_expr
-                          (unary_expr
-                            (power_expr
-                              (postfix_expr
-                                (primary
-                                  (paren_expr
-                                    (paren_list
-                                      (expression
-                                        (assignment_expr
-                                          (pipe_expr
-                                            (comma_expr
-                                              (comparison_expr
-                                                (additive_expr
-                                                  (multiplicative_expr
-                                                    (range_expr
-                                                      (unary_expr
-                                                        (power_expr
-                                                          (postfix_expr
-                                                            (primary
-                                                              (variable_ref
-                                                                (identifier))))))))))))))
-                                      (expression
-                                        (assignment_expr
-                                          (pipe_expr
-                                            (comma_expr
-                                              (comparison_expr
-                                                (additive_expr
-                                                  (multiplicative_expr
-                                                    (range_expr
-                                                      (unary_expr
-                                                        (power_expr
-                                                          (postfix_expr
-                                                            (primary
-                                                              (variable_ref
-                                                                (identifier)))))))))))))))))))))))))))
+              (unpack_target
+                (list_unpack_pattern
+                  (unpack_target
+                    (variable_ref
+                      (identifier)))
+                  (unpack_target
+                    (variable_ref
+                      (identifier))))))
             (dict_unpack_item
               (tag))))
         (assignment_operator)

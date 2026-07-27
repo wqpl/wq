@@ -38,13 +38,22 @@ const separated1 = (rule, sep) => seq(rule, repeat(seq(sep, rule)));
 export default grammar({
   name: "wq",
 
-  extras: ($) => [/[ \t\r]/, $.comment],
+  extras: ($) => [
+    /[ \t\r\f\v\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/,
+    $.comment,
+  ],
 
   externals: ($) => [
     $.block_comment,
     $._string_content, // scanner validates quoted escape syntax
     $._raw_string_content,
-    $._format_string_content,
+    $._format_string_start,
+    $._format_string_end,
+    $._format_spec_content,
+    $._unicode_scalar_content,
+    $._indented_newline,
+    $.directive,
+    $.shebang,
   ],
 
   word: ($) => $.identifier,
@@ -67,21 +76,23 @@ export default grammar({
   },
 
   conflicts: ($) => [
-    [$.literal, $.dict_pair],
     [$.literal, $.dict_unpack_item],
-    [$.literal, $.dict_pair, $.dict_unpack_item],
-    [$.assignment_expr, $.dict_unpack_item],
+    [$.unpack_target, $.primary],
+    [$.unpack_target, $.power_expr],
     [$.operator_identifier, $.unary_expr],
     [$._non_comma_operator_identifier, $._non_terminator_unary_expr],
     [$._leading_comma_expr, $.operator_identifier],
+    [$._juxtaposition_unary_expr, $._juxtaposition_primary],
+    [$._param_separator],
     [$.pause_form],
+    [$.pipe_debug_form, $.debug_form],
   ],
 
   rules: {
     source_file: ($) =>
       seq(optional($.shebang), optional($._statement_sequence)),
 
-    statement: ($) => choice($.magic_command, $.expression),
+    statement: ($) => choice($.directive, $.expression),
 
     separator: ($) => choice(";", $.newline),
 
@@ -105,12 +116,58 @@ export default grammar({
         prec.right(
           PREC.ASSIGN,
           seq(
-            field("left", choice($.dict_unpack_pattern, $.pipe_expr)),
+            field(
+              "left",
+              choice(
+                $.list_unpack_pattern,
+                $.dict_unpack_pattern,
+                $.pipe_expr,
+              ),
+            ),
             field("operator", $.assignment_operator),
             field("right", $.assignment_expr),
           ),
         ),
+        prec.dynamic(
+          -10,
+          prec.right(
+            PREC.ASSIGN,
+            seq(
+              field("left", $.tag),
+              field("operator", ":"),
+              field("right", $.assignment_expr),
+            ),
+          ),
+        ),
         $.pipe_expr,
+      ),
+
+    list_unpack_pattern: ($) =>
+      prec.dynamic(
+        3,
+        seq(
+          "(",
+          optional(repeat1($.newline)),
+          $.unpack_target,
+          $._item_separator,
+          optional(
+            seq(
+              $.unpack_target,
+              repeat(seq($._item_separator, $.unpack_target)),
+              optional($._item_separator),
+            ),
+          ),
+          ")",
+        ),
+      ),
+
+    unpack_target: ($) =>
+      choice(
+        $.variable_ref,
+        $.ellipsis,
+        $.list_unpack_pattern,
+        $.dict_unpack_pattern,
+        $.postfix_expr,
       ),
 
     assignment_operator: (_) =>
@@ -134,7 +191,12 @@ export default grammar({
           PREC.PIPE,
           seq(
             $.comma_expr,
-            repeat1(seq(field("operator", $.pipe_operator), $.pipe_rhs_expr)),
+            repeat1(
+              seq(
+                field("operator", $.pipe_operator),
+                continuation($, $.pipe_rhs_expr),
+              ),
+            ),
           ),
         ),
         $.comma_expr,
@@ -143,7 +205,11 @@ export default grammar({
     pipe_operator: (_) => choice("||.", "||", "|.", "|"),
 
     pipe_rhs_expr: ($) =>
-      choice($.pipe_checkpoint_assignment, $.pipe_postfix_expr),
+      choice(
+        $.pipe_checkpoint_assignment,
+        $.pipe_debug_form,
+        $.pipe_postfix_expr,
+      ),
 
     pipe_checkpoint_assignment: ($) =>
       prec.right(
@@ -153,6 +219,8 @@ export default grammar({
           field("operator", $.assignment_operator),
         ),
       ),
+
+    pipe_debug_form: (_) => "@d",
 
     pipe_postfix_expr: ($) =>
       choice(
@@ -408,7 +476,21 @@ export default grammar({
       ),
 
     postfix_expr: ($) =>
-      choice($.primary, prec.left(PREC.POSTFIX, seq($.postfix_expr, $.suffix))),
+      choice(
+        $.primary,
+        prec.dynamic(
+          2,
+          prec.left(
+            PREC.POSTFIX,
+            seq(
+              $.operator_identifier,
+              $.negative_juxtaposition_suffix,
+              repeat($.suffix),
+            ),
+          ),
+        ),
+        prec.left(PREC.POSTFIX, seq($.postfix_expr, $.suffix)),
+      ),
 
     suffix: ($) =>
       choice($.call_suffix, $.mutating_index_suffix, $.juxtaposition_suffix),
@@ -424,6 +506,12 @@ export default grammar({
 
     juxtaposition_suffix: ($) =>
       prec(PREC.POSTFIX, seq(optional($.depth_modifier), $.juxtaposition_arg)),
+
+    negative_juxtaposition_suffix: ($) =>
+      prec(
+        PREC.POSTFIX,
+        seq(optional($.depth_modifier), "-", $._juxtaposition_power_expr),
+      ),
 
     juxtaposition_arg: ($) => $._juxtaposition_range_expr,
 
@@ -481,6 +569,7 @@ export default grammar({
     _juxtaposition_primary: ($) =>
       choice(
         $.literal,
+        alias("#", $.operator_identifier),
         $.outer_variable,
         $.variable_ref,
         $.function_literal,
@@ -492,17 +581,14 @@ export default grammar({
         $.w_loop,
         $.n_loop,
         $.block_form,
-        $.return_form,
-        $.break_form,
-        $.continue_form,
-        $.try_form,
         $.debug_form,
         $.pause_form,
         $.symbolic_form,
         $.import_form,
       ),
 
-    depth_modifier: (_) => token(seq("@", /[0-9](?:_?[0-9])*/)),
+    depth_modifier: (_) =>
+      token(seq("@", optional("-"), /[0-9](?:_?[0-9])*/)),
 
     arg_list: ($) => prec(2, seq("[", optional($.argument_items), "]")),
 
@@ -512,10 +598,39 @@ export default grammar({
         choice(
           $._item_separator,
           seq(
+            optional(repeat1($.newline)),
             $.expression,
             repeat(seq($._item_separator, $.expression)),
             optional($._item_separator),
           ),
+        ),
+      ),
+
+    nonempty_arg_list: ($) =>
+      prec(
+        3,
+        seq(
+          "[",
+          optional(repeat1($.newline)),
+          $.expression,
+          repeat(seq($._item_separator, $.expression)),
+          optional($._item_separator),
+          "]",
+        ),
+      ),
+
+    pair_arg_list: ($) =>
+      prec(
+        4,
+        seq(
+          "[",
+          optional(repeat1($.newline)),
+          $.expression,
+          $._item_separator,
+          $.expression,
+          repeat(seq($._item_separator, $.expression)),
+          optional($._item_separator),
+          "]",
         ),
       ),
 
@@ -620,7 +735,7 @@ export default grammar({
       ),
 
     lazy_bool_form: ($) =>
-      prec.dynamic(1, seq(choice("A", "and", "O", "or"), $.arg_list)),
+      prec.dynamic(1, seq(choice("A", "and", "O", "or"), $.pair_arg_list)),
 
     function_literal: ($) =>
       seq(optional("'"), "{", optional($.param_list), optional($.block), "}"),
@@ -630,6 +745,7 @@ export default grammar({
         2,
         seq(
           "[",
+          optional(repeat1($.newline)),
           optional(separated1($.param, $._param_separator)),
           optional($._param_separator),
           "]",
@@ -684,7 +800,7 @@ export default grammar({
 
     dict_unpack_pattern: ($) =>
       prec.dynamic(
-        2,
+        4,
         seq(
           "(",
           optional(repeat1($.newline)),
@@ -708,16 +824,16 @@ export default grammar({
         optional(
           seq(
             ":",
-            field("target", choice($.dict_unpack_pattern, $.pipe_expr)),
+            field("target", $.unpack_target),
           ),
         ),
       ),
 
-    conditional: ($) => seq("$", $.arg_list),
-    conditional_dot: ($) => seq("$.", $.arg_list),
-    conditional_chain: ($) => seq("$$", $.arg_list),
-    w_loop: ($) => prec.dynamic(1, seq("W", $.arg_list)),
-    n_loop: ($) => prec.dynamic(1, seq("N", $.arg_list)),
+    conditional: ($) => seq("$", $.nonempty_arg_list),
+    conditional_dot: ($) => seq("$.", $.nonempty_arg_list),
+    conditional_chain: ($) => seq("$$", $.pair_arg_list),
+    w_loop: ($) => prec.dynamic(1, seq("W", $.nonempty_arg_list)),
+    n_loop: ($) => prec.dynamic(1, seq("N", $.nonempty_arg_list)),
     block_form: ($) =>
       prec.dynamic(1, choice(seq("B", $.block_arg_list), $.block_arg_list)),
 
@@ -725,6 +841,7 @@ export default grammar({
 
     block_items: ($) =>
       seq(
+        optional(repeat1($.newline)),
         $.expression,
         repeat(seq($._item_separator, $.expression)),
         optional($._item_separator),
@@ -742,8 +859,6 @@ export default grammar({
     symbolic_form: ($) => seq("@s", $.comma_expr),
     import_form: ($) => seq("@i", choice($.string, $.raw_string)),
 
-    magic_command: (_) => token(seq("!", /[^\n]*/)),
-
     identifier: (_) => token(seq(IDENT_START, repeat(IDENT_CONTINUE))),
 
     integer: (_) => token(integerBody),
@@ -751,15 +866,40 @@ export default grammar({
     imaginary: (_) => token(seq(choice(decimalFloat, integerBody), "i")),
 
     string: ($) => $._string_content,
-    unicode_scalar: ($) =>
-      seq(
-        "@u",
-        optional(/[ \t\r]*/),
-        choice($._string_content, token(/\{[0-9a-fA-F]{1,6}\}/)),
-      ),
+    unicode_scalar: ($) => $._unicode_scalar_content,
     raw_string: ($) => seq("@l", optional(/[ \t\r]*/), $._raw_string_content),
     format_string: ($) =>
-      seq("@f", optional(/[ \t\r]*/), $._format_string_content),
+      seq(
+        "@f",
+        optional(/[ \t\r]*/),
+        $._format_string_start,
+        repeat(choice($.format_string_text, $.format_interpolation)),
+        $._format_string_end,
+      ),
+
+    format_string_text: (_) =>
+      token.immediate(
+        repeat1(
+          choice(
+            /[^"\\{}]+/,
+            /\\x[0-9a-fA-F]{2}/,
+            /\\u\{[0-9a-fA-F]{1,6}\}/,
+            /\\[^xu]/,
+            "{{",
+            "}}",
+          ),
+        ),
+      ),
+
+    format_interpolation: ($) =>
+      seq(
+        "{",
+        optional($.format_spec),
+        field("expression", $.expression),
+        "}",
+      ),
+
+    format_spec: ($) => $._format_spec_content,
 
     tag: (_) => token(seq("`", IDENT)),
     backtick: (_) => "`",
@@ -771,7 +911,6 @@ export default grammar({
     comment: ($) => choice($.line_comment, $.block_comment),
     line_comment: (_) => token(seq("//", /[^\n]*/)),
     newline: (_) => token(/\r?\n/),
-    shebang: (_) => token(seq("#!", /[^\n]*/)),
   },
 });
 
@@ -789,5 +928,5 @@ function binary($, leftOperand, rightOperand, precedence, operator) {
 }
 
 function continuation($, operand) {
-  return seq(optional(repeat1($.newline)), operand);
+  return choice(operand, seq($._indented_newline, operand));
 }
