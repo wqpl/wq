@@ -84,6 +84,7 @@ pub(crate) struct Compiler {
     pub(crate) has_runtime_debug: bool,
     trace_symbol_operands: bool,
     module_root: bool,
+    isolated_module: bool,
 }
 
 impl Default for Compiler {
@@ -127,6 +128,7 @@ impl Compiler {
             has_runtime_debug: false,
             trace_symbol_operands: false,
             module_root: false,
+            isolated_module: false,
         }
     }
 
@@ -138,6 +140,7 @@ impl Compiler {
         let stmt_spans = self.cur_stmt_spans.clone();
         self.fn_depth = 1;
         self.module_root = true;
+        self.isolated_module = true;
         self.compile(node)?;
         if let Some(Capture::Global(name, span)) = self.captures.first() {
             return Err(self.error_at(
@@ -1098,6 +1101,7 @@ impl Compiler {
                     }
                     let mut c = Compiler::new_with_builtins(self.builtins.clone());
                     c.fn_depth = self.fn_depth + 1;
+                    c.isolated_module = self.isolated_module;
                     c.defining_name = Some(name.clone());
                     if *ref_capture {
                         c.ref_default_names = capture_needs.by_ref.clone();
@@ -1696,6 +1700,7 @@ impl Compiler {
                 }
                 let mut c = Compiler::new_with_builtins(self.builtins.clone());
                 c.fn_depth = self.fn_depth + 1;
+                c.isolated_module = self.isolated_module;
                 if *ref_capture {
                     c.ref_default_names = capture_needs.by_ref.clone();
                 }
@@ -2569,6 +2574,16 @@ impl Compiler {
             Ok(LoopVarRestore::Function {
                 old_var,
                 was_bound_var: None,
+            })
+        } else if self.isolated_module {
+            let was_bound_var = format!("--vm-loop-was-bound-{name}-{id}");
+            self.emit_load_const(Value::Bool(false));
+            self.emit_store(&was_bound_var)?;
+            self.emit_load_const(Value::empty_list());
+            self.emit_store(&old_var)?;
+            Ok(LoopVarRestore::Function {
+                old_var,
+                was_bound_var: Some(was_bound_var),
             })
         } else {
             let was_bound_var = format!("--vm-loop-was-bound-{name}-{id}");

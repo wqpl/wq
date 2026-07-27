@@ -1608,6 +1608,21 @@ mod tests {
     }
 
     #[test]
+    fn imported_n_loop_counter_stays_isolated() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([(
+            "counter",
+            "counter:{N[3;_n];_n};counter",
+        )]));
+
+        let value = session
+            .eval_string("_n:99;counter:@i\"counter\";counter[]")
+            .expect("module n-loop counter should stay private");
+
+        assert_eq!(value, Value::Int(2));
+    }
+
+    #[test]
     fn imported_module_cannot_capture_a_caller_binding() {
         let mut session = Session::new();
         session.set_module_resolver(TestModuleResolver::new([("module", "{secret}")]));
