@@ -387,12 +387,18 @@ fn word_range_at(src: &str, offset: usize) -> Option<(usize, usize)> {
 }
 
 fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_' || c == '?'
+    crate::identifier::is_identifier_continue(c)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_ranges_follow_unicode_identifier_rules() {
+        let source = "λe\u{301}?";
+        assert_eq!(word_range_at(source, source.len()), Some((0, source.len())));
+    }
 
     #[test]
     fn expression_candidates_include_symbols_and_builtins() {

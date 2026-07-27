@@ -4,6 +4,7 @@ use std::str::Chars;
 use num_bigint::BigInt;
 use num_traits::{Num, ToPrimitive};
 
+use crate::identifier::{is_identifier_continue, is_identifier_start};
 use crate::token::{Keyword, Token, TokenType};
 use crate::value::WqResult;
 use crate::wqerror::{WqError, WqErrorType};
@@ -397,7 +398,7 @@ impl<'a> Lexer<'a> {
     fn read_identifier(&mut self) -> String {
         let mut identifier = String::new();
         while let Some(ch) = self.current_char {
-            if ch.is_alphanumeric() || ch == '_' || ch == '?' {
+            if is_identifier_continue(ch) {
                 identifier.push(ch);
                 self.advance();
             } else {
@@ -407,13 +408,29 @@ impl<'a> Lexer<'a> {
         identifier
     }
 
-    fn read_tag(&mut self) -> TokenType {
+    fn read_tag(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+        start_byte: usize,
+    ) -> WqResult<TokenType> {
         self.advance(); // consume the backtick
-        let tag_name = self.read_identifier();
-        if tag_name.is_empty() {
-            TokenType::Backtick
-        } else {
-            TokenType::Tag(tag_name)
+        match self.current_char {
+            Some(ch) if is_identifier_start(ch) => Ok(TokenType::Tag(self.read_identifier())),
+            Some(ch) if is_identifier_continue(ch) => {
+                self.advance();
+                while self.current_char.is_some_and(is_identifier_continue) {
+                    self.advance();
+                }
+                Err(self.syntax_error_span(
+                    start_line,
+                    start_column,
+                    start_byte,
+                    self.byte_pos,
+                    "tag name must start with a Unicode identifier character or '_'",
+                ))
+            }
+            _ => Ok(TokenType::Backtick),
         }
     }
 
@@ -1443,7 +1460,7 @@ impl<'a> Lexer<'a> {
 
                 // Backtick-quoted symbol
                 Some('`') => {
-                    let symbol = self.read_tag();
+                    let symbol = self.read_tag(token_line, token_column, token_byte_start)?;
                     return emit(symbol, self.byte_pos);
                 }
 
@@ -1460,7 +1477,7 @@ impl<'a> Lexer<'a> {
                 }
 
                 // Identifiers and keywords
-                Some(c) if c.is_alphabetic() || c == '_' => {
+                Some(c) if is_identifier_start(c) => {
                     // Otherwise, read an identifier and map to keywords if any.
                     let ident = self.read_identifier();
                     let tt = match ident.as_str() {
@@ -1689,6 +1706,33 @@ mod tests {
 
         assert_eq!(tokens[0].token_type, TokenType::Tag("hello".to_string()));
         assert_eq!(tokens[1].token_type, TokenType::Tag("world".to_string()));
+    }
+
+    #[test]
+    fn tag_names_use_identifier_character_rules() {
+        let mut lexer = Lexer::new("`a? `_x `λ `e\u{301}");
+        let tokens = lexer.tokenize().expect("identifier-shaped tags should lex");
+        assert_eq!(tokens[0].token_type, TokenType::Tag("a?".to_string()));
+        assert_eq!(tokens[1].token_type, TokenType::Tag("_x".to_string()));
+        assert_eq!(tokens[2].token_type, TokenType::Tag("λ".to_string()));
+        assert_eq!(tokens[3].token_type, TokenType::Tag("e\u{301}".to_string()));
+    }
+
+    #[test]
+    fn tag_names_reject_identifier_continuations_at_the_start() {
+        for source in ["`?a", "`1a", "`\u{301}a"] {
+            let error = Lexer::new(source)
+                .tokenize()
+                .expect_err("tag should reject an invalid first character");
+            assert_eq!(
+                error.msg.as_deref(),
+                Some("tag name must start with a Unicode identifier character or '_'")
+            );
+        }
+
+        Lexer::new("`\u{37a}")
+            .tokenize()
+            .expect_err("a non-XID Unicode character should not start a tag");
     }
 
     #[test]

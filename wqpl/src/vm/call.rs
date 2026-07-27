@@ -421,6 +421,7 @@ impl Vm {
             pushed_debug_frame: pushed_dbg,
             pending_trace_probe: self.pending_trace_probe.take(),
             module_identity: None,
+            unpack_depth: self.unpack_frames.len(),
         });
         Ok(())
     }
@@ -523,6 +524,7 @@ impl Vm {
             return_locals_to_pool(&mut self.locals_pool, locals);
         }
         self.captures.pop();
+        self.unpack_frames.truncate(frame.unpack_depth);
         let callee_stack = std::mem::replace(&mut self.stack, frame.stack);
         return_stack_to_pool(&mut self.stack_pool, callee_stack);
         let cache_len = self.instructions.len();

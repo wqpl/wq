@@ -374,13 +374,17 @@ impl WqReplHighlighter {
     /// Find the start index of the "word" that ends at `pos`.
     /// For REPL commands the leading `\` is included.
     fn current_word_start(line: &str, pos: usize) -> usize {
-        let bytes = line.as_bytes();
-        let pos = pos.min(bytes.len());
+        let pos = pos.min(line.len());
+        if !line.is_char_boundary(pos) {
+            return pos;
+        }
         let mut start = pos;
         while start > 0 {
-            let b = bytes[start - 1];
-            if b.is_ascii_alphanumeric() || b == b'_' || b == b'?' || b == b'\\' {
-                start -= 1;
+            let Some((index, ch)) = line[..start].char_indices().next_back() else {
+                break;
+            };
+            if wqpl::identifier::is_identifier_continue(ch) || ch == '\\' {
+                start = index;
             } else {
                 break;
             }
@@ -922,6 +926,15 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn current_word_start_follows_unicode_identifier_rules() {
+        let line = "1+λe\u{301}?";
+        assert_eq!(
+            WqReplHighlighter::current_word_start(line, line.len()),
+            "1+".len()
+        );
     }
 
     #[test]

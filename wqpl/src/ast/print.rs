@@ -7,7 +7,7 @@ use crate::tree_pretty::{self, HeadStyle, Pretty};
 
 fn atom_ident(s: &str) -> String {
     // bare if simple symbol, otherwise quoted like Rust's Debug string
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    if crate::identifier::is_identifier(s) {
         s.to_string()
     } else {
         format!("{s:?}")
@@ -86,7 +86,7 @@ fn fmt_span_note(src: &PrettySource<'_>, span: Option<(usize, usize)>) -> String
 fn node_color(node: &AstNode) -> AnsiColor {
     use AstNode::*;
     match node {
-        Literal(..) | FString { .. } => AnsiColor::Cyan,
+        Literal(..) | UnpackValue { .. } | FString { .. } => AnsiColor::Cyan,
         Variable(..) | OuterVariable(..) => AnsiColor::Blue,
         Assignment { .. }
         | OuterAssignment { .. }
@@ -174,6 +174,7 @@ impl AstNode {
                 let text = format!("LIT[{v:?}]").chars().take(1000).collect::<String>();
                 pretty_leaf(&text, &note, color)
             }
+            UnpackValue { slot, .. } => pretty_leaf(&format!("UNPACK-VALUE[{slot}]"), &note, color),
             Variable(name, _) => pretty_leaf(&format!("VAR[{}]", atom_ident(name)), &note, color),
             OuterVariable(name, _) => {
                 pretty_leaf(&format!("OUTER-VAR[{}]", atom_ident(name)), &note, color)

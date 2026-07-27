@@ -18,3 +18,14 @@ echo (a;b;missing 0)
 
 (`a;`b)+:(`b:2;`a:1)
 echo (a;b)
+
+a:10;b:20
+missing_list:@t ((a;b):,1)
+echo (a;b;missing_list 0)
+
+(first;...;penultimate;last):iota 4
+echo (first;penultimate;last)
+
+a:10
+missing_discard:@t ((a;_):,1)
+echo (a;missing_discard 0)

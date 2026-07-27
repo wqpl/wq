@@ -453,6 +453,7 @@ impl SymbolAnalyzer {
                     self.literals.push((span, v.clone()));
                 }
             }
+            AstNode::UnpackValue { .. } => {}
             AstNode::Import { .. } => {}
             AstNode::Variable(name, span) => {
                 let (kind, def_idx) = self.read_use(name);
@@ -1151,11 +1152,11 @@ mod tests {
     fn unpack_assignment_individual_spans() {
         let ast = parse("(a;b):h");
         let index = SymbolIndex::analyze(&ast, &crate::builtins::Builtins::new());
-        // Filter out builtins and resolver-unpack temp vars
+        // Filter out builtins
         let user_defs: Vec<_> = index
             .defs
             .iter()
-            .filter(|d| d.kind != DefKind::Builtin && !d.name.starts_with("--"))
+            .filter(|d| d.kind != DefKind::Builtin)
             .collect();
         let a_def = user_defs
             .iter()

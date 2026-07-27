@@ -3558,6 +3558,137 @@ mod tests {
                 Value::Tag(Arc::from("error")),
             ]))
         );
+        assert!(session.vm.unpack_frames.is_empty());
+        assert!(
+            session
+                .bindings()
+                .keys()
+                .all(|name| !name.starts_with("--"))
+        );
+    }
+
+    #[test]
+    fn list_unpack_preflights_positions_before_writing_bindings() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("a:10;b:20;result:@t ((a;b):,1);(a;b;result 0)")
+            .expect("try should catch the missing list position");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::Int(10),
+                Value::Int(20),
+                Value::Tag(Arc::from("error")),
+            ]))
+        );
+        assert!(session.vm.unpack_frames.is_empty());
+        assert!(
+            session
+                .bindings()
+                .keys()
+                .all(|name| !name.starts_with("--"))
+        );
+    }
+
+    #[test]
+    fn uncaught_unpack_preflight_failure_leaves_no_anonymous_state() {
+        let mut session = Session::new();
+        session
+            .eval_string("a:10;b:20")
+            .expect("initial bindings should succeed");
+
+        session
+            .eval_string("(a;b):,1")
+            .expect_err("missing list position should fail");
+
+        assert_eq!(session.bindings().get("a"), Some(&Value::Int(10)));
+        assert_eq!(session.bindings().get("b"), Some(&Value::Int(20)));
+        assert!(session.vm.unpack_frames.is_empty());
+        assert!(
+            session
+                .bindings()
+                .keys()
+                .all(|name| !name.starts_with("--"))
+        );
+    }
+
+    #[test]
+    fn list_unpack_evaluates_rhs_once_and_orders_ellipsis_suffix_from_the_end() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("n:0;f:'{[]n+:1;iota 4};(a;...;b;c):f[];(n;a;b;c)")
+            .expect("list unpack should evaluate its rhs once");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![1, 0, 2, 3])));
+        assert!(session.vm.unpack_frames.is_empty());
+    }
+
+    #[test]
+    fn discard_only_unpacking_remains_a_value_expression() {
+        let mut session = Session::new();
+
+        assert_eq!(
+            session
+                .eval_string("discarded:(_;_):(1;2);discarded")
+                .expect("discard-only unpack should return its source"),
+            Value::IntList(Arc::new(vec![1, 2]))
+        );
+        assert_eq!(
+            session
+                .eval_string("(_;_):(3;4);42")
+                .expect("a discarded unpack statement should leave the stack balanced"),
+            Value::Int(42)
+        );
+    }
+
+    #[test]
+    fn unpacked_bindings_replace_stale_callable_and_container_facts() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string(
+                "x:(10;20);callable:'{x+1};(x;unused):(callable;0);called:x 2;\
+                 f:'{x+1};(f;unused):((30;40);0);indexed:f 1;(called;indexed)",
+            )
+            .expect("postfix resolution should follow the unpacked runtime values");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![3, 40])));
+    }
+
+    #[test]
+    fn successful_unpacking_exposes_only_user_bindings() {
+        let mut session = Session::new();
+
+        session
+            .eval_string("(a;b):(1;2);(`c:d):(`c:3)")
+            .expect("list and dict unpacking should succeed");
+
+        let bindings = session.bindings();
+        assert_eq!(bindings.get("a"), Some(&Value::Int(1)));
+        assert_eq!(bindings.get("b"), Some(&Value::Int(2)));
+        assert_eq!(bindings.get("d"), Some(&Value::Int(3)));
+        assert!(bindings.keys().all(|name| !name.starts_with("--")));
+        assert!(session.vm.unpack_frames.is_empty());
+    }
+
+    #[test]
+    fn bindings_hide_compiler_only_global_slots() {
+        let mut session = Session::new();
+
+        session
+            .eval_string("xs:(10;20);i:0;xs[i]+:1")
+            .expect("dynamic augmented index assignment should succeed");
+
+        let bindings = session.bindings();
+        assert_eq!(
+            bindings.get("xs"),
+            Some(&Value::IntList(Arc::new(vec![11, 20])))
+        );
+        assert_eq!(bindings.get("i"), Some(&Value::Int(0)));
+        assert!(bindings.keys().all(|name| !name.starts_with("--")));
     }
 
     #[test]

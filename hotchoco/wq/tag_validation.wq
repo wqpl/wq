@@ -1,0 +1,7 @@
+echo tag "λ?"
+
+invalid_tag:@t tag "?a"
+echo (invalid_tag 0;(invalid_tag 1)`kind)
+
+invalid_dict:@t dict[,("a";1)]
+echo (invalid_dict 0;(invalid_dict 1)`kind)

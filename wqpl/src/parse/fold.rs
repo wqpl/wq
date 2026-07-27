@@ -15,6 +15,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
         | Import { .. }
         | Variable(_, _)
         | OuterVariable(_, _)
+        | UnpackValue { .. }
         | Break(..)
         | Continue(..)
         | Ellipsis(..)
@@ -411,9 +412,12 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             value: Box::new(fold(*value)),
             span,
         },
-        UnpackAssignment { .. } => {
-            unreachable!("UnpackAssignment should have been resolved before fold")
-        }
+        UnpackAssignment { lhs, op, rhs, span } => UnpackAssignment {
+            lhs: lhs.into_iter().map(fold).collect(),
+            op,
+            rhs: Box::new(fold(*rhs)),
+            span,
+        },
         DictUnpackPattern(entries, span) => DictUnpackPattern(
             entries
                 .into_iter()

@@ -3342,14 +3342,14 @@
         "members": [
           {
             "type": "PATTERN",
-            "value": "[\\p{ID_Start}_]",
+            "value": "[\\p{XID_Start}_]",
             "flags": "u"
           },
           {
             "type": "REPEAT",
             "content": {
               "type": "PATTERN",
-              "value": "[\\p{ID_Continue}_?]",
+              "value": "[\\p{XID_Continue}_?]",
               "flags": "u"
             }
           }
@@ -3745,7 +3745,7 @@
           },
           {
             "type": "PATTERN",
-            "value": "[\\p{ID_Start}_][\\p{ID_Continue}_?]*",
+            "value": "[\\p{XID_Start}_][\\p{XID_Continue}_?]*",
             "flags": "u"
           }
         ]

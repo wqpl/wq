@@ -11,9 +11,9 @@ const PREC = {
   POSTFIX: 10,
 };
 
-const IDENT_START = /[\p{ID_Start}_]/u;
-const IDENT_CONTINUE = /[\p{ID_Continue}_?]/u;
-const IDENT = /[\p{ID_Start}_][\p{ID_Continue}_?]*/u;
+const IDENT_START = /[\p{XID_Start}_]/u;
+const IDENT_CONTINUE = /[\p{XID_Continue}_?]/u;
+const IDENT = /[\p{XID_Start}_][\p{XID_Continue}_?]*/u;
 const DEC = /[0-9](?:_?[0-9])*/;
 const BIN = /[01](?:_?[01])*/;
 const OCT = /[0-7](?:_?[0-7])*/;

@@ -104,6 +104,11 @@ pub enum AstNode {
         rhs: Box<AstNode>,
         span: AstSpan,
     },
+    /// Compiler-only reference to a value in the active anonymous unpack plan.
+    UnpackValue {
+        slot: usize,
+        span: AstSpan,
+    },
     /// Ellipsis (for unpack patterns)
     Ellipsis(AstSpan),
     /// Keyed dictionary unpack pattern like (`a;`b:alias)
@@ -279,6 +284,7 @@ impl AstNode {
             | Assignment { span, .. }
             | OuterAssignment { span, .. }
             | UnpackAssignment { span, .. }
+            | UnpackValue { span, .. }
             | Postfix { span, .. }
             | Pipe { span, .. }
             | PipeTap { span, .. }

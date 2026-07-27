@@ -12,7 +12,9 @@ use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
 use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_bool_op, eval_unary};
 use crate::vm::debug::DebugBoundary;
-use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
+use crate::vm::inst::{
+    BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand, UnpackPathSegment,
+};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
@@ -489,6 +491,31 @@ impl VanillaInterpreter {
                                 new,
                             );
                         }
+                    }
+
+                    Instruction::Unpack(plan) => {
+                        let source =
+                            pop1_stack(&mut vm.stack, || "unpack assignment source".into())?;
+                        let mut values = Vec::with_capacity(plan.paths.len() + 1);
+                        values.push(source.clone());
+                        for path in &plan.paths {
+                            values.push(extract_unpack_path(&source, path)?);
+                        }
+                        vm.unpack_frames.push(values.into_boxed_slice());
+                    }
+                    Instruction::LoadUnpack(slot) => {
+                        let value = vm
+                            .unpack_frames
+                            .last()
+                            .and_then(|frame| frame.get(*slot))
+                            .cloned()
+                            .ok_or_else(|| vm_err("invalid anonymous unpack slot"))?;
+                        vm.stack.push(value);
+                    }
+                    Instruction::EndUnpack => {
+                        vm.unpack_frames
+                            .pop()
+                            .ok_or_else(|| vm_err("missing anonymous unpack frame"))?;
                     }
 
                     Instruction::BinaryOp(data) => {
@@ -1504,6 +1531,7 @@ impl VanillaInterpreter {
                             saved_trace_depth: vm.trace_depth,
                             saved_trace_bases_len: vm.trace_bases.len(),
                             saved_trace_buf_len: vm.trace_buf.len(),
+                            unpack_depth: vm.unpack_frames.len(),
                         });
                     }
                     Instruction::Import(import) => {
@@ -1631,6 +1659,7 @@ impl VanillaInterpreter {
     }
 
     fn restore_try_state(vm: &mut Vm, frame: TryFrame, rollback_trace: bool) {
+        vm.unpack_frames.truncate(frame.unpack_depth);
         vm.pending_named_meta = frame.saved_pending_named_meta;
         if rollback_trace {
             vm.trace_depth = frame.saved_trace_depth;
@@ -1921,6 +1950,20 @@ fn eval_int_comparison(op: BinaryOperator, left: i64, right: i64) -> Option<bool
         Add | Subtract | Multiply | Power | PowerDot | Divide | DivideDot | Modulo | Matmul
         | Cat | BitAnd | BitOr | Shl | Shr | BitXor | FloorDiv => None,
     }
+}
+
+fn extract_unpack_path(source: &Value, path: &[UnpackPathSegment]) -> WqResult<Value> {
+    let mut value = source.clone();
+    for segment in path {
+        let index = match segment {
+            UnpackPathSegment::Index(index) => Value::Int(*index),
+            UnpackPathSegment::Key(key) => Value::Tag(Arc::clone(key)),
+        };
+        value = value
+            .index(&index)
+            .ok_or_else(|| index_load_err(&index, &value))?;
+    }
+    Ok(value)
 }
 
 fn take_index_args(stack: &mut Vec<Value>, argc: usize) -> WqResult<Sv4> {

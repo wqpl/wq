@@ -385,7 +385,16 @@ pub(super) const ASSIGNMENT: StaticDoc = StaticDoc {
         "unpack",
     ],
     summary: "Bind, update, unpack, or checkpoint values with assignment forms.",
-    details: "`name:expr` binds a value. Operator-colon forms such as `x+:1` update from the old value, and `xs,:x` appends with comma assignment. If a right operand runs code that mutates a binding used on the left, binary expressions and operator-colon updates still use the left value from before that mutation. List-shaped left sides unpack by position, so `(a;b):(1;2)` binds both names; patterns can nest, and `...` skips the middle. Tag-shaped left sides unpack dicts by key: ``(`a;`b:alias):dict`` binds key `a` to `a` and key `b` to `alias`, independent of dict order. Extra dict keys are ignored, while a missing requested key raises an index error before any target is written. Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
+    details: "`name:expr` binds a value.
+Operator-colon forms such as `x+:1` update from the old value, and `xs,:x` appends with comma assignment.
+If a right operand runs code that mutates a binding used on the left, binary expressions and operator-colon updates still use the left value from before that mutation.
+List-shaped left sides unpack by position, so `(a;b):(1;2)` binds both names; patterns can nest, and `...` skips the middle.
+Tag-shaped left sides unpack dicts by key: ``(`a;`b:alias):dict`` binds key `a` to `a` and key `b` to `alias`, independent of dict order.
+A shorthand tag requires a bindable identifier; use an explicit alias for reserved or builtin key spellings.
+List and dict unpacking evaluate the right side once and validate every requested path before writing any target.
+Extra dict keys are ignored.
+A missing list position or dict key raises an index error without partially updating the pattern targets.
+Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
     examples: ASSIGNMENT_EXAMPLES,
     related: &["equality", "index-mutation", "pipes"],
 };
@@ -527,7 +536,7 @@ pub(super) const NAMED_ARGUMENTS: StaticDoc = StaticDoc {
         "`name:value",
     ],
     summary: "Use backtick tags for named call arguments and dict keys.",
-    details: "A tag is a backtick-prefixed name. In a call, a backtick-tagged `name:value` pair passes a named argument; in a function parameter list, a backtick-tagged `name:default` declares a named parameter with a default. Named call arguments may appear out of order, and each callee decides which names it accepts. The same tag syntax also names dict keys, so `(`a:1)`a` reads the value stored under `a`.",
+    details: "A tag is a backtick-prefixed, identifier-shaped name. It starts with a Unicode identifier character or `_`; remaining characters can also include `?`. In a call, a backtick-tagged `name:value` pair passes a named argument; in a function parameter list, a backtick-tagged `name:default` declares a named parameter with a default. Named call arguments accept any order, and each callee decides which names it accepts. The same tag syntax also names dict keys, so `(`a:1)`a` reads the value stored under `a`.",
     examples: NAMED_ARGUMENT_EXAMPLES,
     related: &["functions", "calls", "dicts"],
 };

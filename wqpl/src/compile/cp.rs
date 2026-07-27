@@ -407,6 +407,16 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.set_capture(*slot, state.peek());
             fallthrough(pc, state)
         }
+        I::Unpack(_) => {
+            state.pop();
+            state.clear_volatile_facts();
+            fallthrough(pc, state)
+        }
+        I::LoadUnpack(_) => {
+            state.push_unknown();
+            fallthrough(pc, state)
+        }
+        I::EndUnpack => fallthrough(pc, state),
         I::BinaryOp(data) => {
             let right = resolve_transfer_operand(&mut state, &data.right);
             let left = resolve_transfer_operand(&mut state, &data.left);

@@ -5,6 +5,7 @@ mod cephes;
 mod compile;
 pub mod completion;
 mod escape;
+pub mod identifier;
 mod lex;
 mod parse;
 mod range;

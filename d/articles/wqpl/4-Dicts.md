@@ -2,6 +2,8 @@
 
 A dict stores named pieces of data. Dict keys are tags, written with a leading backtick.
 
+Bare tag names follow identifier character rules. They start with a Unicode identifier character or `_`; later characters can also include `?`. For example, `` `ready? `` is valid, while `` `?ready `` and `` `1st `` are not.
+
 ```wq
 cat:(`name:"Ada";`age:3)
 cat|echo
@@ -25,6 +27,20 @@ Bracket indexing works too:
 cat:(`name:"Ada";`age:3)
 cat[`name]|echo
 ```
+
+## Unpacking Fields
+
+A tag-shaped assignment target selects fields by key. A shorthand tag binds to the same identifier, while `key:name` chooses a different target name.
+
+```wq
+cat:(`name:"Ada";`age:3)
+(`name;`age:years):cat
+(name;years)|echo
+```
+
+Shorthand requires a bindable identifier. Use an explicit alias for a reserved or builtin key spelling, as in ``(`T:truth):record``.
+
+List and dict unpacking evaluate the source once and validate every requested path before writing any target. A missing position or key leaves all pattern targets unchanged.
 
 ## Stored Order
 
@@ -72,6 +88,8 @@ values rgb|echo
 
 `list rgb` returns an ordered list of `(key;value)` pairs. Passing that list to `dict` reconstructs the dict.
 
+`dict` accepts only pairs whose first item is a tag. Convert a string key explicitly with `tag` before building the pair.
+
 ## Transforming Dicts
 
 Generic transforms operate on values. `map` and `filter` retain the associated keys, while `sort` reorders whole entries by value. Use the named `by` option to sort by key.
@@ -109,5 +127,6 @@ Here `by` is a named parameter with a default.
 - Read with ``d`key`` or ``d[`key]``.
 - Read by position with `d 0` or `d[-1]`.
 - Update with forms like ``d`key+:1``.
+- Unpack selected fields with a tag-shaped assignment target.
 - Use `keys` and `values` to project stored entries explicitly.
 - Tags are also used for named arguments.

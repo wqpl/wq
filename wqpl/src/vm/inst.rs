@@ -118,6 +118,17 @@ pub(crate) struct ImportData {
     pub(crate) importer: Arc<str>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum UnpackPathSegment {
+    Index(i64),
+    Key(Arc<str>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnpackPlan {
+    pub(crate) paths: Box<[Box<[UnpackPathSegment]>]>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Instruction {
     LoadConst(Box<Value>),
@@ -151,6 +162,12 @@ pub(crate) enum Instruction {
     // StoreCapture(u16),
     /// Store into a captured variable slot and keep value on stack
     StoreCaptureKeep(u16),
+    /// Extract every path from one source value before exposing any result.
+    Unpack(Box<UnpackPlan>),
+    /// Load one value from the active anonymous unpack frame.
+    LoadUnpack(usize),
+    /// Discard the active anonymous unpack frame.
+    EndUnpack,
     BinaryOp(Box<BinaryOpData>),
     /// Evaluate a chain of comparison operators; expects N+1 operands
     CmpChain(Box<[BinaryOperator]>),
@@ -347,6 +364,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::LoadVar(_)
         | I::LoadCallTarget(_)
         | I::LoadVarExists(_)
+        | I::LoadUnpack(_)
         => (Load, false),
         I::LoadSelf => (Load, true),
 
@@ -388,7 +406,13 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         I::PrepareNamedArgs(_) => (Stack, false),
 
         // Stack-ish
-        I::Pop | I::Return | I::Debug | I::Pause | I::TraceBegin => (Stack, false),
+        I::Unpack(_)
+        | I::EndUnpack
+        | I::Pop
+        | I::Return
+        | I::Debug
+        | I::Pause
+        | I::TraceBegin => (Stack, false),
 
         // Arithmetic / logic
         I::UnaryOp(_) | I::BinaryOp(_) | I::CmpChain(_) | I::BoolCombine(_) => (Op, false),

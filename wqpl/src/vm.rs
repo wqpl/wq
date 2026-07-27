@@ -65,6 +65,8 @@ pub(crate) struct Vm {
     pub(crate) locals: Vec<Vec<Slot>>,
     /// Stack of capture vectors (per frame), for closures
     pub(crate) captures: Vec<Arc<[ValueCell]>>,
+    /// Anonymous extraction values for active unpack assignments.
+    pub(crate) unpack_frames: Vec<Box<[Value]>>,
     /// Inline caches for global lookups and call sites
     pub(crate) inline_cache: Vec<InlineCache>,
     /// Pool of cleared per-instruction caches, keyed by instruction count.
@@ -175,6 +177,7 @@ pub(crate) struct ExecutionFrame {
     pub(crate) pushed_debug_frame: bool,
     pub(crate) pending_trace_probe: Option<usize>,
     pub(crate) module_identity: Option<Arc<str>>,
+    pub(crate) unpack_depth: usize,
 }
 
 const TAIL_CALL_JOURNAL_CAP: usize = 128;
@@ -229,6 +232,7 @@ pub(crate) struct TryFrame {
     pub(crate) saved_trace_depth: u32,
     pub(crate) saved_trace_bases_len: usize,
     pub(crate) saved_trace_buf_len: usize,
+    pub(crate) unpack_depth: usize,
 }
 
 #[derive(Clone, Default)]
@@ -298,6 +302,7 @@ impl Vm {
             color_mode: ColorMode::Auto,
             locals: Vec::new(),
             captures: Vec::new(),
+            unpack_frames: Vec::new(),
             inline_cache: vec![InlineCache::default(); len],
             cache_pool: AHashMap::new(),
             locals_pool: AHashMap::new(),
@@ -351,6 +356,7 @@ impl Vm {
         self.stack.clear();
         self.locals.clear();
         self.captures.clear();
+        self.unpack_frames.clear();
         self.inline_cache = vec![InlineCache::default(); self.instructions.len()];
         self.current_closure_stack.clear();
         self.execution_frames.clear();

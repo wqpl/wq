@@ -12,6 +12,7 @@ use crate::cas::{cas_binary_expr, cas_symbolic_call_expr, cas_unary_expr};
 use crate::cst::{
     Checkpoint, GreenNode, GreenNodeBuilder, SyntaxKind, SyntaxNode, syntax_kind_of_token,
 };
+use crate::identifier::is_bindable_identifier;
 use crate::lex::Lexer;
 use crate::token::{Keyword, Token, TokenType};
 use crate::value::cas::{CasConst, CasOp};
@@ -1311,11 +1312,7 @@ impl Parser {
                 AstNode::Literal(Value::Tag(key), key_span) => {
                     let key = key.to_string();
                     Ok(AstNode::DictUnpackPattern(
-                        vec![DictUnpackEntry {
-                            target: AstNode::Variable(key.clone(), key_span),
-                            key,
-                            key_span,
-                        }],
+                        vec![self.dict_unpack_shorthand_entry(key, key_span, colon_tok)?],
                         span,
                     ))
                 }
@@ -1326,6 +1323,27 @@ impl Parser {
             },
             other => Ok(other),
         }
+    }
+
+    fn dict_unpack_shorthand_entry(
+        &self,
+        key: String,
+        key_span: AstSpan,
+        colon_tok: &Token,
+    ) -> WqResult<DictUnpackEntry> {
+        if !is_bindable_identifier(&key) || self.builtins.has_function(&key) {
+            return Err(self.syntax_err(
+                colon_tok,
+                format!(
+                    "dict unpack shorthand key '`{key}' is not a bindable identifier; use '`{key}:name' to choose a binding"
+                ),
+            ));
+        }
+        Ok(DictUnpackEntry {
+            target: AstNode::Variable(key.clone(), key_span),
+            key,
+            key_span,
+        })
     }
 
     fn dict_unpack_pattern_from_list(
@@ -1367,11 +1385,7 @@ impl Parser {
             .map(|item| match item {
                 AstNode::Literal(Value::Tag(key), key_span) => {
                     let key = key.to_string();
-                    Ok(DictUnpackEntry {
-                        target: AstNode::Variable(key.clone(), key_span),
-                        key,
-                        key_span,
-                    })
+                    self.dict_unpack_shorthand_entry(key, key_span, colon_tok)
                 }
                 AstNode::NamedArg {
                     name,
@@ -2587,6 +2601,7 @@ impl Parser {
             // These variants are created and wrapped by higher-precedence parse layers.
             // If one appears here, a refactor bypassed the precedence ladder.
             AstNode::PipeInput
+            | AstNode::UnpackValue { .. }
             | AstNode::Postfix { .. }
             | AstNode::CallName { .. }
             | AstNode::CallAnonymous { .. }
@@ -3036,7 +3051,8 @@ impl Parser {
             }
             AstNode::Literal(_, span)
             | AstNode::Variable(_, span)
-            | AstNode::OuterVariable(_, span) => {
+            | AstNode::OuterVariable(_, span)
+            | AstNode::UnpackValue { span, .. } => {
                 if let Some(span) = span {
                     span.0 += offset;
                     span.1 += offset;
@@ -3674,6 +3690,7 @@ impl Parser {
             | AstNode::Import { .. }
             | AstNode::Variable(_, _)
             | AstNode::OuterVariable(_, _)
+            | AstNode::UnpackValue { .. }
             | AstNode::PipeInput
             | AstNode::Ellipsis(_)
             | AstNode::Break(_)
@@ -4925,6 +4942,25 @@ mod diagnostic_wording_tests {
     }
 
     #[test]
+    fn dict_unpack_shorthand_requires_a_bindable_identifier() {
+        for source in ["(`T):(`T:1)", "(`_):(`_:1)", "(`assert):(`assert:1)"] {
+            let err = recovered_error(source);
+            assert!(
+                err.msg
+                    .as_deref()
+                    .is_some_and(|message| message.contains("is not a bindable identifier")),
+                "unexpected error for {source}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dict_unpack_alias_can_bind_a_reserved_tag_name() {
+        parse_input("(`T:truth):(`T:1)")
+            .expect("an explicit alias should avoid shorthand bindability");
+    }
+
+    #[test]
     fn unpack_pattern_names_the_ellipsis_limit() {
         let err = recovered_error("(x;...;...):(1;2;3)");
 
@@ -6115,6 +6151,7 @@ mod cst_integration_tests {
             AstNode::Literal(_, s)
             | AstNode::Variable(_, s)
             | AstNode::OuterVariable(_, s)
+            | AstNode::UnpackValue { span: s, .. }
             | AstNode::Error(_, s) => *s,
             AstNode::BinaryOp { span, .. }
             | AstNode::LazyBool { span, .. }
@@ -6240,6 +6277,7 @@ mod cst_integration_tests {
             AstNode::Literal(..) => "Literal",
             AstNode::Variable(..) => "Variable",
             AstNode::OuterVariable(..) => "OuterVariable",
+            AstNode::UnpackValue { .. } => "UnpackValue",
             AstNode::Function { .. } => "Function",
             AstNode::Conditional { .. } => "Conditional",
             AstNode::ConditionalDot { .. } => "ConditionalDot",
@@ -6425,6 +6463,7 @@ mod cst_integration_tests {
             } => out.push(expr),
             AstNode::NamedArg { value, .. } => out.push(value),
             AstNode::Literal(_, _)
+            | AstNode::UnpackValue { .. }
             | AstNode::Import { .. }
             | AstNode::Variable(_, _)
             | AstNode::OuterVariable(_, _)

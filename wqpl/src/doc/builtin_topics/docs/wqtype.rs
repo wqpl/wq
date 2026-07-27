@@ -68,7 +68,9 @@ Use predicates such as `atom?` and length comparisons such as `#x~0` for structu
 pub(super) const TAG: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Tag,
     summary: "Convert a string to a tag.",
-    details: "`tag[x]` converts string to a tag name and leaves tags unchanged. Tag names must be non-empty and contain only alphanumeric characters, `_`, or `?`; invalid names raise a domain error.",
+    details: "`tag[x]` converts a string to a tag name and leaves tags unchanged.
+Tag names follow identifier character rules: they start with a Unicode identifier character or `_`, and remaining characters can also include `?`.
+Invalid names raise a domain error.",
     examples: TAG_EXAMPLES,
     related: &["type", "dict", "str"],
 };
@@ -108,7 +110,7 @@ pub(super) const LIST: BuiltinDoc = BuiltinDoc {
 pub(super) const DICT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Dict,
     summary: "Convert a list of pairs to a dict.",
-    details: "`dict[x]` expects a list whose items are two-item pairs. Pair keys may be tags, strings, or chars; a two-int pair such as `(1;2)` becomes key `\"1\"` with value `2`. Later duplicate keys replace earlier values.",
+    details: "`dict[x]` expects a list whose items are two-item pairs with tag keys. Later duplicate keys replace earlier values.",
     examples: DICT_EXAMPLES,
     related: &["list", "tag", "keys"],
 };

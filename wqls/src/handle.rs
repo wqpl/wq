@@ -1207,7 +1207,7 @@ fn word_range_at(src: &str, offset: usize) -> Option<(usize, usize)> {
 }
 
 fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_' || c == '?'
+    wqpl::identifier::is_identifier_continue(c)
 }
 
 fn extract_error_location(err: &WqError) -> Option<(u32, u32)> {
@@ -1299,7 +1299,7 @@ fn find_call_context(content: &str, byte_offset: usize) -> Option<(&str, usize)>
     let mut start = end;
     while start > 0 {
         let ch = prefix[start - 1..].chars().next()?;
-        if ch.is_alphanumeric() || ch == '_' || ch == '?' {
+        if wqpl::identifier::is_identifier_continue(ch) {
             start -= ch.len_utf8();
         } else {
             break;

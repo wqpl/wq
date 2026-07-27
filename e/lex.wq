@@ -1,4 +1,4 @@
-// Lexer: tokenize strings containing + - * / and identifiers (A-Za-z0-9)
+// Lexer: tokenize ASCII letter-start identifiers, ints, and + - * /
 
 is_op:{or[x=@u"+";x=@u"-";x=@u"*";x=@u"/"]}
 is_digit:{and[x>=@u"0";x<=@u"9"]}

@@ -14,6 +14,7 @@ use crate::value::func::FunctionData;
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{
     Capture, DebugStmtMark, ImportData, Instruction, MutationOp, Operand, StoreTarget,
+    UnpackPathSegment, UnpackPlan,
 };
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -26,6 +27,11 @@ enum IndexPathRoot<'a> {
 struct IndexPathTarget<'a> {
     root: IndexPathRoot<'a>,
     indices: Vec<&'a AstNode>,
+}
+
+struct PlannedUnpack {
+    paths: Vec<Box<[UnpackPathSegment]>>,
+    writes: Vec<AstNode>,
 }
 
 enum IndexArgPlan {
@@ -256,6 +262,149 @@ impl Compiler {
         let end = self.instructions.len();
         self.fill_span_range(start, end, Self::ast_node_span(node));
         result
+    }
+
+    fn compile_unpack_assignment(
+        &mut self,
+        lhs: &[AstNode],
+        op: Option<BinaryOperator>,
+        rhs: &AstNode,
+        span: AstSpan,
+    ) -> WqResult<()> {
+        let mut plan = PlannedUnpack {
+            paths: Vec::new(),
+            writes: Vec::new(),
+        };
+        if let [AstNode::DictUnpackPattern(..)] = lhs {
+            self.plan_unpack_target(&lhs[0], Vec::new(), op, span, &mut plan)?;
+        } else {
+            self.plan_list_unpack(lhs, Vec::new(), op, span, &mut plan)?;
+        }
+
+        self.compile_expr(rhs)?;
+        self.instructions
+            .push(Instruction::Unpack(Box::new(UnpackPlan {
+                paths: plan.paths.into_boxed_slice(),
+            })));
+
+        if plan.writes.is_empty() {
+            self.instructions.push(Instruction::LoadUnpack(0));
+        } else {
+            self.compile_stmt_sequence_inner(
+                &AstNode::Block(plan.writes, span),
+                self.value_needed,
+            )?;
+        }
+        self.instructions.push(Instruction::EndUnpack);
+        Ok(())
+    }
+
+    fn plan_list_unpack(
+        &self,
+        items: &[AstNode],
+        prefix: Vec<UnpackPathSegment>,
+        op: Option<BinaryOperator>,
+        span: AstSpan,
+        plan: &mut PlannedUnpack,
+    ) -> WqResult<()> {
+        let ellipsis = items
+            .iter()
+            .position(|item| matches!(item, AstNode::Ellipsis(_)));
+        let prefix_len = ellipsis.unwrap_or(items.len());
+        for (position, item) in items.iter().take(prefix_len).enumerate() {
+            let mut path = prefix.clone();
+            path.push(UnpackPathSegment::Index(position as i64));
+            self.plan_unpack_target(item, path, op, span, plan)?;
+        }
+        if let Some(ellipsis) = ellipsis {
+            let suffix = &items[ellipsis + 1..];
+            for (offset, item) in suffix.iter().enumerate() {
+                let distance_from_end = suffix.len() - offset;
+                let mut path = prefix.clone();
+                path.push(UnpackPathSegment::Index(-(distance_from_end as i64)));
+                self.plan_unpack_target(item, path, op, span, plan)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn plan_unpack_target(
+        &self,
+        target: &AstNode,
+        path: Vec<UnpackPathSegment>,
+        op: Option<BinaryOperator>,
+        span: AstSpan,
+        plan: &mut PlannedUnpack,
+    ) -> WqResult<()> {
+        match target {
+            AstNode::DictUnpackPattern(entries, _) => {
+                for entry in entries {
+                    let mut entry_path = path.clone();
+                    entry_path.push(UnpackPathSegment::Key(entry.key.clone().into()));
+                    self.plan_unpack_target(&entry.target, entry_path, op, span, plan)?;
+                }
+            }
+            AstNode::List(items, _) => {
+                self.plan_list_unpack(items, path, op, span, plan)?;
+            }
+            AstNode::Ellipsis(_) => {}
+            target => {
+                let slot = plan.paths.len() + 1;
+                plan.paths.push(path.into_boxed_slice());
+                if !matches!(target, AstNode::Variable(name, _) if name == "_") {
+                    plan.writes.push(self.unpack_write(target, slot, op, span)?);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn unpack_write(
+        &self,
+        target: &AstNode,
+        slot: usize,
+        op: Option<BinaryOperator>,
+        span: AstSpan,
+    ) -> WqResult<AstNode> {
+        let value = Box::new(AstNode::UnpackValue { slot, span });
+        match target {
+            AstNode::Variable(name, name_span) => Ok(AstNode::Assignment {
+                name: name.clone(),
+                op,
+                value,
+                span: *name_span,
+                name_span: *name_span,
+            }),
+            AstNode::Index { object, index, .. } => Ok(AstNode::IndexAssign {
+                object: object.clone(),
+                index: index.clone(),
+                op,
+                value,
+                span,
+            }),
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: false,
+                ..
+            } => {
+                let index = if items.len() == 1 {
+                    Box::new(items[0].clone())
+                } else {
+                    Box::new(AstNode::List(items.clone(), None))
+                };
+                Ok(AstNode::IndexAssign {
+                    object: object.clone(),
+                    index,
+                    op,
+                    value,
+                    span,
+                })
+            }
+            _ => Err(self.internal_err_here(
+                "internal compiler error while compiling an unpack assignment target",
+            )),
+        }
     }
 
     /// Compile call arguments to the stack.  If any are `NamedArg` nodes,
@@ -1036,6 +1185,9 @@ impl Compiler {
             }
             AstNode::Variable(name, span) => self.emit_load(name, *span)?,
             AstNode::OuterVariable(name, span) => self.emit_outer_load(name, *span)?,
+            AstNode::UnpackValue { slot, .. } => {
+                self.instructions.push(Instruction::LoadUnpack(*slot));
+            }
             AstNode::PipeInput => {
                 return Err(self.syntax_err_here("pipe input placeholder escaped its pipe context"));
             }
@@ -2033,8 +2185,8 @@ impl Compiler {
             AstNode::Block(..) | AstNode::BlockExpr(..) => {
                 self.compile_stmt_sequence_inner(node, self.value_needed)?;
             }
-            AstNode::UnpackAssignment { .. } => {
-                unreachable!("UnpackAssignment should have been resolved before compilation")
+            AstNode::UnpackAssignment { lhs, op, rhs, span } => {
+                self.compile_unpack_assignment(lhs, *op, rhs, *span)?
             }
             AstNode::Group { expr, .. } => {
                 self.compile_expr(expr)?;
@@ -2468,7 +2620,10 @@ impl Compiler {
     fn rhs_cannot_mutate_bindings(node: &AstNode) -> bool {
         matches!(
             node,
-            AstNode::Literal(..) | AstNode::Variable(..) | AstNode::OuterVariable(..)
+            AstNode::Literal(..)
+                | AstNode::Variable(..)
+                | AstNode::OuterVariable(..)
+                | AstNode::UnpackValue { .. }
         )
     }
 
@@ -2773,6 +2928,7 @@ fn collect_ref_default_assignment_needs_inner(
         | AstNode::Literal(..)
         | AstNode::Variable(..)
         | AstNode::OuterVariable(..)
+        | AstNode::UnpackValue { .. }
         | AstNode::Ellipsis(_)
         | AstNode::DictUnpackPattern(..)
         | AstNode::PipeInput
@@ -2929,16 +3085,55 @@ fn collect_ref_default_assignment_needs_inner(
             collect_ref_default_assignment_needs_inner(count, available, excluded, needs);
             collect_ref_default_assignment_needs_inner(body, available, excluded, needs);
         }
-        AstNode::UnpackAssignment { .. } => {
-            unreachable!(
-                "UnpackAssignment should have been resolved before collect_ref_default_assignment_needs"
-            )
+        AstNode::UnpackAssignment { lhs, rhs, .. } => {
+            collect_ref_default_assignment_needs_inner(rhs, available, excluded, needs);
+            for target in lhs {
+                collect_ref_default_unpack_target(target, available, excluded, needs);
+            }
         }
         AstNode::FString { .. } => {
             unreachable!(
                 "FString should have been resolved before collect_ref_default_assignment_needs"
             )
         }
+    }
+}
+
+fn collect_ref_default_unpack_target(
+    target: &AstNode,
+    available: &IndexSet<String>,
+    excluded: &IndexSet<String>,
+    needs: &mut CaptureNeeds,
+) {
+    match target {
+        AstNode::Variable(name, _) if name == "_" => {}
+        AstNode::Variable(name, _) => {
+            if available.contains(name) && !excluded.contains(name) {
+                needs.by_ref.insert(name.clone());
+            }
+        }
+        AstNode::Index { object, index, .. } => {
+            collect_ref_default_assignment_needs_inner(object, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(index, available, excluded, needs);
+        }
+        AstNode::Postfix { object, items, .. } => {
+            collect_ref_default_assignment_needs_inner(object, available, excluded, needs);
+            for item in items {
+                collect_ref_default_assignment_needs_inner(item, available, excluded, needs);
+            }
+        }
+        AstNode::List(items, _) => {
+            for item in items {
+                collect_ref_default_unpack_target(item, available, excluded, needs);
+            }
+        }
+        AstNode::DictUnpackPattern(entries, _) => {
+            for entry in entries {
+                collect_ref_default_unpack_target(&entry.target, available, excluded, needs);
+            }
+        }
+        AstNode::Ellipsis(_) => {}
+        _ => collect_ref_default_assignment_needs_inner(target, available, excluded, needs),
     }
 }
 
@@ -3013,9 +3208,7 @@ fn has_ctrl(node: &AstNode) -> bool {
         AstNode::NamedArg { value, .. } => has_ctrl(value),
         AstNode::Try(expr, _) => has_ctrl(expr),
         AstNode::Group { expr, .. } => has_ctrl(expr),
-        AstNode::UnpackAssignment { .. } => {
-            unreachable!("UnpackAssignment should have been resolved before compilation")
-        }
+        AstNode::UnpackAssignment { lhs, rhs, .. } => has_ctrl(rhs) || lhs.iter().any(has_ctrl),
         AstNode::FString { .. } => {
             unreachable!("FString should have been resolved before compilation")
         }
@@ -3024,6 +3217,7 @@ fn has_ctrl(node: &AstNode) -> bool {
         | AstNode::Import { .. }
         | AstNode::Variable(..)
         | AstNode::OuterVariable(..)
+        | AstNode::UnpackValue { .. }
         | AstNode::Ellipsis(_)
         | AstNode::PipeInput => false,
     }
@@ -3084,6 +3278,7 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
         | AstNode::Import { .. }
         | AstNode::Variable(_, _)
         | AstNode::OuterVariable(_, _)
+        | AstNode::UnpackValue { .. }
         | AstNode::Ellipsis(_)
         | AstNode::Break(_)
         | AstNode::Continue(_) => node.clone(),
@@ -3366,9 +3561,15 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             value: Box::new(replace_pipe_input(value, temp_name)),
             span: *span,
         },
-        AstNode::UnpackAssignment { .. } => {
-            unreachable!("UnpackAssignment should have been resolved before replace_pipe_input")
-        }
+        AstNode::UnpackAssignment { lhs, op, rhs, span } => AstNode::UnpackAssignment {
+            lhs: lhs
+                .iter()
+                .map(|target| replace_pipe_input(target, temp_name))
+                .collect(),
+            op: *op,
+            rhs: Box::new(replace_pipe_input(rhs, temp_name)),
+            span: *span,
+        },
         AstNode::FString { .. } => {
             unreachable!("FString should have been resolved before replace_pipe_input")
         }
@@ -3437,6 +3638,7 @@ fn collect_capture_needs(
         AstNode::Error(..)
         | AstNode::Literal(..)
         | AstNode::Import { .. }
+        | AstNode::UnpackValue { .. }
         | AstNode::Ellipsis(_)
         | AstNode::DictUnpackPattern(..)
         | AstNode::PipeInput
@@ -3650,12 +3852,81 @@ fn collect_capture_needs(
         AstNode::Group { expr, .. } => {
             collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
         }
-        AstNode::UnpackAssignment { .. } => {
-            unreachable!("UnpackAssignment should have been resolved before collect_capture_needs")
+        AstNode::UnpackAssignment { lhs, op, rhs, .. } => {
+            collect_capture_needs(rhs, locals, needs, ref_capture, defining_name);
+            for target in lhs {
+                collect_unpack_target_capture_needs(
+                    target,
+                    *op,
+                    locals,
+                    needs,
+                    ref_capture,
+                    defining_name,
+                );
+            }
         }
         AstNode::FString { .. } => {
             unreachable!("FString should have been resolved before collect_capture_needs")
         }
+    }
+}
+
+fn collect_unpack_target_capture_needs(
+    target: &AstNode,
+    op: Option<BinaryOperator>,
+    locals: &mut IndexSet<String>,
+    needs: &mut CaptureNeeds,
+    ref_capture: bool,
+    defining_name: Option<&str>,
+) {
+    match target {
+        AstNode::Variable(name, _) if name == "_" => {}
+        AstNode::Variable(name, _) => {
+            if op.is_some() && !scope_has(locals, name) && defining_name != Some(name.as_str()) {
+                if ref_capture {
+                    needs.by_ref.insert(name.clone());
+                } else {
+                    needs.by_value.insert(name.clone());
+                }
+            }
+            locals.insert(name.clone());
+        }
+        AstNode::Index { object, index, .. } => {
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(index, locals, needs, ref_capture, defining_name);
+        }
+        AstNode::Postfix { object, items, .. } => {
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
+            for item in items {
+                collect_capture_needs(item, locals, needs, ref_capture, defining_name);
+            }
+        }
+        AstNode::List(items, _) => {
+            for item in items {
+                collect_unpack_target_capture_needs(
+                    item,
+                    op,
+                    locals,
+                    needs,
+                    ref_capture,
+                    defining_name,
+                );
+            }
+        }
+        AstNode::DictUnpackPattern(entries, _) => {
+            for entry in entries {
+                collect_unpack_target_capture_needs(
+                    &entry.target,
+                    op,
+                    locals,
+                    needs,
+                    ref_capture,
+                    defining_name,
+                );
+            }
+        }
+        AstNode::Ellipsis(_) => {}
+        _ => collect_capture_needs(target, locals, needs, ref_capture, defining_name),
     }
 }
 
@@ -3769,6 +4040,52 @@ mod tests {
         assert_eq!(
             err.msg.as_deref(),
             Some("internal compiler error while compiling an index assignment")
+        );
+    }
+
+    #[test]
+    fn destructuring_compiles_to_an_anonymous_extraction_plan() {
+        let insts = compile_source("(a;(`key:b)):(1;(`key:2))");
+        let unpack = insts
+            .iter()
+            .find_map(|inst| match inst {
+                Instruction::Unpack(plan) => Some(plan.as_ref()),
+                _ => None,
+            })
+            .expect("destructuring should emit an unpack plan");
+
+        assert_eq!(
+            unpack.paths.as_ref(),
+            [
+                Box::from([UnpackPathSegment::Index(0)]),
+                Box::from([
+                    UnpackPathSegment::Index(1),
+                    UnpackPathSegment::Key(Arc::from("key")),
+                ]),
+            ]
+        );
+        assert!(
+            insts
+                .iter()
+                .any(|inst| matches!(inst, Instruction::LoadUnpack(1)))
+        );
+        assert!(
+            insts
+                .iter()
+                .any(|inst| matches!(inst, Instruction::LoadUnpack(2)))
+        );
+        assert!(
+            insts.iter().all(|inst| !matches!(
+                inst,
+                Instruction::StoreVar(name) | Instruction::StoreVarKeep(name)
+                    if name.starts_with("--")
+            )),
+            "unpack values should never be stored under synthetic names: {insts:#?}"
+        );
+        assert!(
+            insts
+                .iter()
+                .any(|inst| matches!(inst, Instruction::EndUnpack))
         );
     }
 

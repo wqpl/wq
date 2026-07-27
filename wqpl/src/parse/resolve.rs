@@ -27,12 +27,6 @@ struct ResolverSnapshot {
     binding_facts: HashMap<BindingId, BindingFact>,
 }
 
-#[derive(Default)]
-struct UnpackPlan {
-    extracts: Vec<AstNode>,
-    writes: Vec<AstNode>,
-}
-
 /// Expression resolver that lowers certain postfix patterns into explicit
 /// Call/CallAnonymous/Index nodes.
 pub(crate) struct Resolver {
@@ -42,7 +36,6 @@ pub(crate) struct Resolver {
     binding_facts: HashMap<BindingId, BindingFact>,
     symbol_defs_by_span: HashMap<(String, AstSpan), usize>,
     symbol_def_names: Vec<String>,
-    gensym: usize,
     binding_gensym: usize,
 }
 
@@ -59,7 +52,6 @@ impl Resolver {
             binding_facts: HashMap::new(),
             symbol_defs_by_span: HashMap::new(),
             symbol_def_names: Vec::new(),
-            gensym: 0,
             binding_gensym: 0,
         }
     }
@@ -87,17 +79,6 @@ impl Resolver {
                 .src("resolver")
                 .msg("bang indexing can mutate only a variable")
                 .attach_note("assign the container to a variable before using '[!...]'"),
-            span,
-        )
-    }
-
-    fn invalid_unpack_target(span: AstSpan) -> AstNode {
-        AstNode::Error(
-            crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
-                .src("resolver")
-                .msg(
-                    "unpack assignment target must be an identifier, index target, '_', '...', or a nested pattern",
-                ),
             span,
         )
     }
@@ -542,9 +523,13 @@ impl Resolver {
             ),
             AstNode::UnpackAssignment { lhs, op, rhs, span } => {
                 let rhs = Box::new(self.resolve_node(*rhs));
-                let lhs = lhs.into_iter().map(|n| self.resolve_node(n)).collect();
-                self.expand_unpack_assignment(lhs, op, *rhs, span)
+                let lhs = lhs
+                    .into_iter()
+                    .map(|target| self.resolve_unpack_target(target))
+                    .collect();
+                AstNode::UnpackAssignment { lhs, op, rhs, span }
             }
+            AstNode::UnpackValue { slot, span } => AstNode::UnpackValue { slot, span },
             AstNode::DictUnpackPattern(entries, span) => AstNode::DictUnpackPattern(
                 entries
                     .into_iter()
@@ -641,544 +626,36 @@ impl Resolver {
         resolved
     }
 
-    fn expand_unpack_assignment(
-        &mut self,
-        lhs: Vec<AstNode>,
-        op: Option<crate::ast::BinaryOperator>,
-        rhs: AstNode,
-        span: AstSpan,
-    ) -> AstNode {
-        if let [AstNode::DictUnpackPattern(entries, _)] = lhs.as_slice() {
-            return self.expand_dict_unpack_assignment(entries.clone(), op, rhs, span);
-        }
-
-        // Optimization: if rhs is a literal list/dict and no augmented op,
-        // expand directly without creating a temporary.
-        if op.is_none() {
-            let values_opt = match &rhs {
-                AstNode::List(items, _) => Some(items.clone()),
-                AstNode::Dict(pairs, _) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
-                _ => None,
-            };
-
-            if let Some(values) = values_opt
-                && let Some(stmts) = self.try_lower_literal_unpack(&lhs, values, span)
-            {
-                return AstNode::Block(stmts, span);
-            }
-        }
-
-        let tmp_name = self.next_unpack_temp();
-        let mut stmts = vec![AstNode::Assignment {
-            name: tmp_name.clone(),
-            op: None,
-            value: Box::new(rhs),
-            span,
-            name_span: span,
-        }];
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
-        for (pos, item) in lhs.iter().enumerate() {
-            if matches!(item, AstNode::Ellipsis(_)) {
-                break;
-            }
-            stmts.extend(self.make_unpack_assign(item, &tmp_name, pos as i64, span, op));
-        }
-        if let Some(ei) = ellipsis_idx {
-            for (offset, item) in lhs.iter().skip(ei + 1).enumerate() {
-                let pos = -1 - (offset as i64);
-                stmts.extend(self.make_unpack_assign(item, &tmp_name, pos, span, op));
-            }
-        }
-        AstNode::Block(stmts, span)
-    }
-
-    fn expand_dict_unpack_assignment(
-        &mut self,
-        entries: Vec<DictUnpackEntry>,
-        op: Option<BinaryOperator>,
-        rhs: AstNode,
-        span: AstSpan,
-    ) -> AstNode {
-        let source_name = self.next_unpack_temp();
-        let mut plan = UnpackPlan {
-            extracts: vec![AstNode::Assignment {
-                name: source_name.clone(),
-                op: None,
-                value: Box::new(rhs),
-                span,
-                name_span: span,
-            }],
-            writes: Vec::new(),
-        };
-        self.preflight_dict_pattern(&entries, &source_name, op, span, &mut plan);
-
-        if plan.writes.is_empty() {
-            plan.writes.push(AstNode::Variable(source_name, span));
-        }
-        plan.extracts.extend(plan.writes);
-        AstNode::Block(plan.extracts, span)
-    }
-
-    fn next_unpack_temp(&mut self) -> String {
-        let name = format!("--resolver-unpack-{}", self.gensym);
-        self.gensym += 1;
-        name
-    }
-
-    fn preflight_dict_pattern(
-        &mut self,
-        entries: &[DictUnpackEntry],
-        source_name: &str,
-        op: Option<BinaryOperator>,
-        span: AstSpan,
-        plan: &mut UnpackPlan,
-    ) {
-        for entry in entries {
-            let value_name = self.next_unpack_temp();
-            plan.extracts.push(AstNode::Assignment {
-                name: value_name.clone(),
-                op: None,
-                value: Box::new(AstNode::Index {
-                    object: Box::new(AstNode::Variable(source_name.into(), None)),
-                    index: Box::new(AstNode::Literal(
-                        Value::Tag(entry.key.clone().into()),
-                        entry.key_span,
-                    )),
-                    span: entry.key_span,
-                }),
-                span: entry.key_span.or(span),
-                name_span: None,
-            });
-            self.preflight_unpack_target(&entry.target, &value_name, op, span, plan);
-        }
-    }
-
-    fn preflight_unpack_target(
-        &mut self,
-        target: &AstNode,
-        source_name: &str,
-        op: Option<BinaryOperator>,
-        span: AstSpan,
-        plan: &mut UnpackPlan,
-    ) {
+    fn resolve_unpack_target(&mut self, target: AstNode) -> AstNode {
         match target {
-            AstNode::DictUnpackPattern(entries, _) => {
-                self.preflight_dict_pattern(entries, source_name, op, span, plan);
-            }
-            AstNode::List(items, _) => {
-                let ellipsis_idx = items
-                    .iter()
-                    .position(|item| matches!(item, AstNode::Ellipsis(_)));
-                for (position, item) in items.iter().enumerate() {
-                    if matches!(item, AstNode::Ellipsis(_)) {
-                        break;
-                    }
-                    self.preflight_indexed_target(
-                        item,
-                        source_name,
-                        position as i64,
-                        op,
-                        span,
-                        plan,
-                    );
+            AstNode::Variable(name, span) => {
+                if name != "_" {
+                    let binding = self.binding_for_named_def(&name, span);
+                    self.bind_current_scope(name.clone(), binding.clone());
+                    self.set_binding_fact(&binding, BindingFact::Unknown);
                 }
-                if let Some(ellipsis_idx) = ellipsis_idx {
-                    for (offset, item) in items.iter().skip(ellipsis_idx + 1).enumerate() {
-                        self.preflight_indexed_target(
-                            item,
-                            source_name,
-                            -1 - offset as i64,
-                            op,
-                            span,
-                            plan,
-                        );
-                    }
-                }
+                AstNode::Variable(name, span)
             }
-            AstNode::Ellipsis(_) => {}
-            _ => plan
-                .writes
-                .extend(Self::make_unpack_write(target, source_name, op, span)),
-        }
-    }
-
-    fn preflight_indexed_target(
-        &mut self,
-        target: &AstNode,
-        source_name: &str,
-        position: i64,
-        op: Option<BinaryOperator>,
-        span: AstSpan,
-        plan: &mut UnpackPlan,
-    ) {
-        let value_name = self.next_unpack_temp();
-        plan.extracts.push(AstNode::Assignment {
-            name: value_name.clone(),
-            op: None,
-            value: Box::new(AstNode::Index {
-                object: Box::new(AstNode::Variable(source_name.into(), None)),
-                index: Box::new(AstNode::Literal(Value::Int(position), None)),
+            AstNode::List(items, span) => AstNode::List(
+                items
+                    .into_iter()
+                    .map(|item| self.resolve_unpack_target(item))
+                    .collect(),
                 span,
-            }),
-            span,
-            name_span: None,
-        });
-        self.preflight_unpack_target(target, &value_name, op, span, plan);
-    }
-
-    fn make_unpack_write(
-        target: &AstNode,
-        source_name: &str,
-        op: Option<BinaryOperator>,
-        span: AstSpan,
-    ) -> Vec<AstNode> {
-        let value = Box::new(AstNode::Variable(source_name.into(), None));
-        match target {
-            AstNode::Variable(name, _) if name == "_" => Vec::new(),
-            AstNode::Variable(name, name_span) => vec![AstNode::Assignment {
-                name: name.clone(),
-                op,
-                value,
-                span: *name_span,
-                name_span: *name_span,
-            }],
-            AstNode::Index { object, index, .. } => vec![AstNode::IndexAssign {
-                object: object.clone(),
-                index: index.clone(),
-                op,
-                value,
+            ),
+            AstNode::DictUnpackPattern(entries, span) => AstNode::DictUnpackPattern(
+                entries
+                    .into_iter()
+                    .map(|entry| DictUnpackEntry {
+                        key: entry.key,
+                        key_span: entry.key_span,
+                        target: self.resolve_unpack_target(entry.target),
+                    })
+                    .collect(),
                 span,
-            }],
-            AstNode::Postfix {
-                object,
-                items,
-                explicit_call: false,
-                ..
-            } => {
-                let index = if items.len() == 1 {
-                    Box::new(items[0].clone())
-                } else {
-                    Box::new(AstNode::List(items.clone(), None))
-                };
-                vec![AstNode::IndexAssign {
-                    object: object.clone(),
-                    index,
-                    op,
-                    value,
-                    span,
-                }]
-            }
-            _ => vec![Self::invalid_unpack_target(span)],
-        }
-    }
-
-    /// Try to lower an unpack assignment when RHS is a literal list/dict.
-    /// Returns `None` if the expansion would change evaluation order semantics
-    /// or if lengths are incompatible, so the caller should fall back to
-    /// temp+index.
-    fn try_lower_literal_unpack(
-        &mut self,
-        lhs: &[AstNode],
-        values: Vec<AstNode>,
-        span: AstSpan,
-    ) -> Option<Vec<AstNode>> {
-        let bound_names = collect_bound_names(lhs);
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
-
-        // Length check
-        match ellipsis_idx {
-            None => {
-                if lhs.len() > values.len() {
-                    return None;
-                }
-            }
-            Some(ei) => {
-                let suffix_len = lhs.len() - ei - 1;
-                if ei > values.len() || suffix_len > values.len() {
-                    return None;
-                }
-            }
-        }
-
-        // Safety check: no value may reference a variable bound at a prior
-        // position, because sequential assignment would see the updated value.
-        for (i, value) in values.iter().enumerate() {
-            let mut forbidden = HashSet::new();
-            for (pos, name) in &bound_names {
-                if *pos < i {
-                    forbidden.insert(name.as_str());
-                }
-            }
-            if expr_uses_vars(value, &forbidden) {
-                return None;
-            }
-        }
-
-        let mut stmts = Vec::new();
-        self.lower_literal_unpack_items(lhs, &values, span, &mut stmts, &bound_names)?;
-        Some(stmts)
-    }
-
-    fn lower_literal_unpack_items(
-        &mut self,
-        lhs: &[AstNode],
-        values: &[AstNode],
-        span: AstSpan,
-        stmts: &mut Vec<AstNode>,
-        bound_names: &[(usize, String)],
-    ) -> Option<()> {
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
-
-        // Prefix items
-        for (i, item) in lhs.iter().enumerate() {
-            if matches!(item, AstNode::Ellipsis(_)) {
-                break;
-            }
-            let value = values.get(i)?.clone();
-            self.lower_literal_unpack_item(item, value, span, stmts, bound_names, i);
-        }
-
-        // Suffix items (after ellipsis)
-        if let Some(ei) = ellipsis_idx {
-            let suffix_len = lhs.len() - ei - 1;
-            for (offset, item) in lhs.iter().skip(ei + 1).enumerate() {
-                let idx = values.len() - suffix_len + offset;
-                let value = values.get(idx)?.clone();
-                self.lower_literal_unpack_item(item, value, span, stmts, bound_names, idx);
-            }
-        }
-
-        Some(())
-    }
-
-    fn lower_literal_unpack_item(
-        &mut self,
-        item: &AstNode,
-        value: AstNode,
-        span: AstSpan,
-        stmts: &mut Vec<AstNode>,
-        bound_names: &[(usize, String)],
-        pos: usize,
-    ) {
-        match item {
-            AstNode::Variable(name, item_span) if name == "_" => {}
-            AstNode::Variable(name, item_span) => {
-                stmts.push(AstNode::Assignment {
-                    name: name.clone(),
-                    op: None,
-                    value: Box::new(value),
-                    span: *item_span,
-                    name_span: *item_span,
-                });
-            }
-            AstNode::Index { object, index, .. } => {
-                stmts.push(AstNode::IndexAssign {
-                    object: object.clone(),
-                    index: index.clone(),
-                    op: None,
-                    value: Box::new(value),
-                    span,
-                });
-            }
-            AstNode::Postfix {
-                object,
-                items,
-                explicit_call: false,
-                ..
-            } => {
-                let index = if items.len() == 1 {
-                    Box::new(items[0].clone())
-                } else {
-                    Box::new(AstNode::List(items.clone(), None))
-                };
-                stmts.push(AstNode::IndexAssign {
-                    object: object.clone(),
-                    index,
-                    op: None,
-                    value: Box::new(value),
-                    span,
-                });
-            }
-            AstNode::Ellipsis(_) => {}
-            AstNode::List(inner_items, _) => {
-                // Try recursive optimization if value is also a literal list/dict
-                let sub_values_opt = match &value {
-                    AstNode::List(inner, _) => Some(inner.clone()),
-                    AstNode::Dict(pairs, _) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
-                    _ => None,
-                };
-
-                if let Some(sub_values) = sub_values_opt {
-                    let mut prior_forbidden = HashSet::new();
-                    for (p, name) in bound_names {
-                        if *p < pos {
-                            prior_forbidden.insert(name.as_str());
-                        }
-                    }
-                    if let Some(sub_stmts) = self.try_lower_literal_unpack_nested(
-                        inner_items,
-                        sub_values,
-                        span,
-                        &prior_forbidden,
-                    ) {
-                        stmts.extend(sub_stmts);
-                        return;
-                    }
-                }
-
-                // Fallback: temp + index for this nested pattern
-                let sub_tmp = self.next_unpack_temp();
-                stmts.push(AstNode::Assignment {
-                    name: sub_tmp.clone(),
-                    op: None,
-                    value: Box::new(value),
-                    span,
-                    name_span: span,
-                });
-                let ellipsis_idx = inner_items
-                    .iter()
-                    .position(|n| matches!(n, AstNode::Ellipsis(_)));
-                for (pos, item) in inner_items.iter().enumerate() {
-                    if matches!(item, AstNode::Ellipsis(_)) {
-                        break;
-                    }
-                    stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos as i64, span, None));
-                }
-                if let Some(ei) = ellipsis_idx {
-                    for (offset, item) in inner_items.iter().skip(ei + 1).enumerate() {
-                        let pos = -1 - (offset as i64);
-                        stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos, span, None));
-                    }
-                }
-            }
-            _ => {
-                stmts.push(Self::invalid_unpack_target(span));
-            }
-        }
-    }
-
-    /// Like `try_lower_literal_unpack` but with an additional set of names
-    /// that must not be referenced because they were bound in an outer
-    /// pattern at a prior position.
-    fn try_lower_literal_unpack_nested(
-        &mut self,
-        lhs: &[AstNode],
-        values: Vec<AstNode>,
-        span: AstSpan,
-        prior_forbidden: &HashSet<&str>,
-    ) -> Option<Vec<AstNode>> {
-        let bound_names = collect_bound_names(lhs);
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
-
-        match ellipsis_idx {
-            None => {
-                if lhs.len() > values.len() {
-                    return None;
-                }
-            }
-            Some(ei) => {
-                let suffix_len = lhs.len() - ei - 1;
-                if ei > values.len() || suffix_len > values.len() {
-                    return None;
-                }
-            }
-        }
-
-        for (i, value) in values.iter().enumerate() {
-            let mut forbidden = prior_forbidden.clone();
-            for (pos, name) in &bound_names {
-                if *pos < i {
-                    forbidden.insert(name.as_str());
-                }
-            }
-            if expr_uses_vars(value, &forbidden) {
-                return None;
-            }
-        }
-
-        let mut stmts = Vec::new();
-        self.lower_literal_unpack_items(lhs, &values, span, &mut stmts, &bound_names)?;
-        Some(stmts)
-    }
-
-    fn make_unpack_assign(
-        &mut self,
-        item: &AstNode,
-        tmp_name: &str,
-        pos: i64,
-        span: AstSpan,
-        aug_op: Option<crate::ast::BinaryOperator>,
-    ) -> Vec<AstNode> {
-        let rhs_value = AstNode::Postfix {
-            object: Box::new(AstNode::Variable(tmp_name.into(), None)),
-            items: vec![AstNode::Literal(Value::Int(pos), None)],
-            explicit_call: false,
-            depth: None,
-            span: None,
-        };
-        match item {
-            AstNode::Variable(name, item_span) if name == "_" => vec![],
-            AstNode::Variable(name, item_span) => vec![AstNode::Assignment {
-                name: name.clone(),
-                op: aug_op,
-                value: Box::new(rhs_value),
-                span: *item_span,
-                name_span: *item_span,
-            }],
-            AstNode::Index { object, index, .. } => vec![AstNode::IndexAssign {
-                object: object.clone(),
-                index: index.clone(),
-                op: aug_op,
-                value: Box::new(rhs_value),
-                span,
-            }],
-            AstNode::Postfix {
-                object,
-                items,
-                explicit_call: false,
-                ..
-            } => {
-                let index = if items.len() == 1 {
-                    Box::new(items[0].clone())
-                } else {
-                    Box::new(AstNode::List(items.clone(), None))
-                };
-                vec![AstNode::IndexAssign {
-                    object: object.clone(),
-                    index,
-                    op: aug_op,
-                    value: Box::new(rhs_value),
-                    span,
-                }]
-            }
-            AstNode::Ellipsis(_) => vec![],
-            AstNode::List(inner_items, _) => {
-                let sub_tmp = self.next_unpack_temp();
-                let mut stmts = vec![AstNode::Assignment {
-                    name: sub_tmp.clone(),
-                    op: None,
-                    value: Box::new(rhs_value),
-                    span,
-                    name_span: span,
-                }];
-                let ellipsis_idx = inner_items
-                    .iter()
-                    .position(|n| matches!(n, AstNode::Ellipsis(_)));
-                for (pos, item) in inner_items.iter().enumerate() {
-                    if matches!(item, AstNode::Ellipsis(_)) {
-                        break;
-                    }
-                    stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos as i64, span, None));
-                }
-                if let Some(ei) = ellipsis_idx {
-                    for (offset, item) in inner_items.iter().skip(ei + 1).enumerate() {
-                        let pos = -1 - (offset as i64);
-                        stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos, span, None));
-                    }
-                }
-                stmts
-            }
-            _ => vec![Self::invalid_unpack_target(span)],
+            ),
+            AstNode::Ellipsis(span) => AstNode::Ellipsis(span),
+            other => self.resolve_node(other),
         }
     }
 
@@ -1702,139 +1179,6 @@ impl Default for Resolver {
     }
 }
 
-/// Collect bound variable names from an unpack-assignment lhs.
-/// Each entry is `(position, name)`. For nested lists the outer
-/// position is used so that dependency checks work correctly.
-fn collect_bound_names(items: &[AstNode]) -> Vec<(usize, String)> {
-    let mut names = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        match item {
-            AstNode::Variable(name, _) if name != "_" => {
-                names.push((i, name.clone()));
-            }
-            AstNode::List(inner, _) => {
-                for (_, inner_name) in collect_bound_names(inner) {
-                    names.push((i, inner_name));
-                }
-            }
-            _ => {}
-        }
-    }
-    names
-}
-
-/// Return `true` if `node` contains a reference to any variable whose name
-/// is in `vars`.
-fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
-    match node {
-        AstNode::Variable(name, _) | AstNode::OuterVariable(name, _) => {
-            vars.contains(name.as_str())
-        }
-        AstNode::BinaryOp { left, right, .. } => {
-            expr_uses_vars(left, vars) || expr_uses_vars(right, vars)
-        }
-        AstNode::LazyBool { operands, .. } => {
-            operands.iter().any(|operand| expr_uses_vars(operand, vars))
-        }
-        AstNode::ComparisonChain { first, rest, .. } => {
-            expr_uses_vars(first, vars) || rest.iter().any(|(_, n)| expr_uses_vars(n, vars))
-        }
-        AstNode::UnaryOp { operand, .. } => expr_uses_vars(operand, vars),
-        AstNode::Group { expr, .. } => expr_uses_vars(expr, vars),
-        AstNode::Range {
-            start, end, step, ..
-        } => {
-            expr_uses_vars(start, vars)
-                || expr_uses_vars(end, vars)
-                || step.as_ref().is_some_and(|s| expr_uses_vars(s, vars))
-        }
-        AstNode::Assignment { value, .. } | AstNode::OuterAssignment { value, .. } => {
-            expr_uses_vars(value, vars)
-        }
-        AstNode::Cat(items, _) | AstNode::List(items, _) => {
-            items.iter().any(|item| expr_uses_vars(item, vars))
-        }
-        AstNode::Dict(pairs, _) => pairs.iter().any(|(_, v)| expr_uses_vars(v, vars)),
-        AstNode::Postfix { object, items, .. } => {
-            expr_uses_vars(object, vars) || items.iter().any(|item| expr_uses_vars(item, vars))
-        }
-        AstNode::Pipe { input, effect, .. } => {
-            expr_uses_vars(input, vars) || expr_uses_vars(effect, vars)
-        }
-        AstNode::PipeTap { input, effect, .. } => {
-            expr_uses_vars(input, vars) || expr_uses_vars(effect, vars)
-        }
-        AstNode::CallName { args, .. } => args.iter().any(|arg| expr_uses_vars(arg, vars)),
-        AstNode::CallAnonymous { object, args, .. } => {
-            expr_uses_vars(object, vars) || args.iter().any(|arg| expr_uses_vars(arg, vars))
-        }
-        AstNode::Index { object, index, .. } => {
-            expr_uses_vars(object, vars) || expr_uses_vars(index, vars)
-        }
-        AstNode::IndexAssign {
-            object,
-            index,
-            value,
-            ..
-        } => {
-            expr_uses_vars(object, vars)
-                || expr_uses_vars(index, vars)
-                || expr_uses_vars(value, vars)
-        }
-        AstNode::Function { body, .. } => expr_uses_vars(body, vars),
-        AstNode::Conditional {
-            condition,
-            true_branch,
-            false_branch,
-            ..
-        } => {
-            expr_uses_vars(condition, vars)
-                || expr_uses_vars(true_branch, vars)
-                || false_branch
-                    .as_ref()
-                    .is_some_and(|b| expr_uses_vars(b, vars))
-        }
-        AstNode::ConditionalDot {
-            condition,
-            true_branch,
-            ..
-        } => expr_uses_vars(condition, vars) || expr_uses_vars(true_branch, vars),
-        AstNode::ConditionalChain {
-            pairs,
-            default_branch,
-            ..
-        } => {
-            pairs
-                .iter()
-                .any(|(cond, branch)| expr_uses_vars(cond, vars) || expr_uses_vars(branch, vars))
-                || expr_uses_vars(default_branch, vars)
-        }
-        AstNode::WLoop {
-            condition, body, ..
-        } => expr_uses_vars(condition, vars) || expr_uses_vars(body, vars),
-        AstNode::NLoop { count, body, .. } => {
-            expr_uses_vars(count, vars) || expr_uses_vars(body, vars)
-        }
-        AstNode::Return(expr, _) => expr.as_ref().is_some_and(|e| expr_uses_vars(e, vars)),
-        AstNode::Debug { expr, .. } => expr_uses_vars(expr, vars),
-        AstNode::Pause { expr, .. } => expr.as_ref().is_some_and(|expr| expr_uses_vars(expr, vars)),
-        AstNode::Try(expr, _) => expr_uses_vars(expr, vars),
-        AstNode::Block(items, _) | AstNode::BlockExpr(items, ..) => {
-            items.iter().any(|item| expr_uses_vars(item, vars))
-        }
-        AstNode::FString { parts, .. } => parts.iter().any(|p| match p {
-            crate::ast::FStringPart::Text(_) => false,
-            crate::ast::FStringPart::Expr {
-                expr, spec_exprs, ..
-            } => expr_uses_vars(expr, vars) || spec_exprs.iter().any(|e| expr_uses_vars(e, vars)),
-        }),
-        AstNode::UnpackAssignment { lhs, rhs, .. } => {
-            lhs.iter().any(|item| expr_uses_vars(item, vars)) || expr_uses_vars(rhs, vars)
-        }
-        _ => false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -1991,6 +1335,7 @@ mod tests {
             }
             AstNode::NamedArg { value, .. } => contains_call_name(value, target),
             AstNode::Literal(..)
+            | AstNode::UnpackValue { .. }
             | AstNode::Import { .. }
             | AstNode::Variable(..)
             | AstNode::OuterVariable(..)

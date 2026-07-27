@@ -3,6 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
+use crate::identifier::is_identifier;
 use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult, expected_string1, into_wq_string};
 use crate::wqerror::{Requirement, WqError, WqErrorType};
@@ -17,13 +18,6 @@ pub(super) fn is_atom(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::Bool(args[0].is_atom()))
 }
 
-fn is_valid_tag_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '?')
-}
-
 pub(super) fn to_tag(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Tag, [1], &args)?;
     let input = args.into_iter().next().unwrap();
@@ -33,13 +27,13 @@ pub(super) fn to_tag(args: BuiltinFnArgs) -> WqResult<Value> {
     let name = input
         .try_to_rust_string()
         .ok_or_else(|| expected_string1(&input).src(BE::Tag).at_arg(0))?;
-    if !is_valid_tag_name(&name) {
+    if !is_identifier(&name) {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Tag)
             .msg("invalid tag name")
             .at_arg(0)
             .attach_note(
-                "tag names must be non-empty and contain only alphanumeric characters, '_' or '?'",
+                "tag names must start with a Unicode identifier character or '_'; remaining characters must be Unicode identifier characters, '_', or '?'",
             ));
     }
     Ok(Value::Tag(name.into()))
@@ -132,19 +126,10 @@ pub(super) fn to_dict(args: BuiltinFnArgs) -> WqResult<Value> {
         let key_value = pair.get(0).expect("two-item pair has a key");
         let key = match key_value {
             Value::Tag(s) => s,
-            Value::String(s) => Arc::from(s.as_str()),
-            Value::Char(c) => Arc::from(c.to_string()),
-            Value::Int(i) => Arc::from(i.to_string()),
-            Value::BigInt(i) => Arc::from(i.to_string()),
             other => {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Dict)
-                    .expected(Requirement::one_of([
-                        Requirement::TAG,
-                        Requirement::STRING,
-                        Requirement::CHAR,
-                        Requirement::INT,
-                    ]))
+                    .expected(Requirement::TAG)
                     .at_arg(0)
                     .attach_note(format!("at index {index}, pair key"))
                     .got1(&other));
@@ -180,15 +165,23 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    // use crate::value::IntoWqValue;
 
-    // #[test]
-    // fn tag_accepts_question_mark() {
-    //     let mut vm = Vm::new(vec![]);
-    //     let val = "a?".into_wq_value();
-    //     let result = to_tag(BuiltinFnArgs::from(val)).unwrap();
-    //     assert_eq!(result, Value::Tag("a?".to_string()));
-    // }
+    #[test]
+    fn tag_conversion_uses_identifier_character_rules() {
+        for name in ["a?", "λx", "e\u{301}"] {
+            let input = Value::String(Arc::new(name.to_string()));
+            let result = to_tag(BuiltinFnArgs::from(input)).expect("valid tag name");
+            assert_eq!(result, Value::Tag(Arc::from(name)));
+        }
+
+        for name in ["?a", "1a", "\u{301}a"] {
+            let input = Value::String(Arc::new(name.to_string()));
+            let error =
+                to_tag(BuiltinFnArgs::from(input)).expect_err("invalid tag name should fail");
+            assert_eq!(error.err_type, WqErrorType::Domain);
+            assert_eq!(error.msg.as_deref(), Some("invalid tag name"));
+        }
+    }
 
     #[test]
     fn counts_as_atom() {
@@ -213,17 +206,17 @@ mod tests {
     }
 
     #[test]
-    fn dict_conversion_reads_pairs_through_the_list_abstraction() {
+    fn dict_conversion_accepts_tag_keyed_pairs() {
         let pairs = Value::List(Arc::new(vec![
-            Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 2))),
-            Value::String(Arc::new("ab".to_owned())),
+            Value::List(Arc::new(vec![Value::Tag("a".into()), Value::Int(1)])),
+            Value::List(Arc::new(vec![Value::Tag("b".into()), Value::Int(2)])),
         ]));
         let converted = to_dict(BuiltinFnArgs::from(pairs)).expect("dict succeeds");
         let Value::Dict(entries) = converted else {
             unreachable!("dict conversion should return a dict");
         };
-        assert_eq!(entries.get("1"), Some(&Value::Int(2)));
-        assert_eq!(entries.get("a"), Some(&Value::Char('b')));
+        assert_eq!(entries.get("a"), Some(&Value::Int(1)));
+        assert_eq!(entries.get("b"), Some(&Value::Int(2)));
     }
 
     #[test]
@@ -247,18 +240,18 @@ mod tests {
             ["at argument 1", "at index 0", "got ,1 (list)"]
         );
 
-        let invalid_key = Value::List(Arc::new(vec![Value::Bool(true), Value::Int(1)]));
+        let invalid_key = Value::List(Arc::new(vec![
+            Value::String(Arc::new("a".to_string())),
+            Value::Int(1),
+        ]));
         let key_error = to_dict(BuiltinFnArgs::from(Value::List(Arc::new(vec![
             invalid_key,
         ]))))
-        .expect_err("a bool is not a valid dict key");
-        assert_eq!(
-            key_error.msg.as_deref(),
-            Some("expected tag, string, char, or int")
-        );
+        .expect_err("a string is not a valid dict key");
+        assert_eq!(key_error.msg.as_deref(), Some("expected tag"));
         assert_eq!(
             key_error.notes.as_slice(),
-            ["at argument 1", "at index 0, pair key", "got T (bool)"]
+            ["at argument 1", "at index 0, pair key", "got \"a\" (list)"]
         );
     }
 }
