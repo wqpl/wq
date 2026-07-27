@@ -137,4 +137,4 @@ Here `by` is a named parameter with a default.
 - Update with forms like ``d`key+:1``.
 - Unpack selected fields with a tag-shaped assignment target.
 - Use `keys` and `values` to project stored entries explicitly.
-- Tags are also used for named arguments.
+- Tags also name arguments inside bracketed call argument lists.

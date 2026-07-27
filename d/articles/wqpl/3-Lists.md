@@ -64,6 +64,7 @@ xs[-3..=-1]|echo
 ## Mutating Lists
 
 List indexes can be assigned.
+The assignment path must start from an identifier or outer binding reference.
 
 ```wq
 xs:(10;20;30)
@@ -71,7 +72,7 @@ xs[1]:99
 xs|echo
 ```
 
-`[!]` pops from the end. `[!i]` removes at an index, and `[!i]:v` inserts there.
+`[!]` pops from the end. `[!i]` removes at an index, and `[!i]:v` inserts there. Bang indexing acts directly on a binding, and insertion uses plain `:` rather than an operator-colon form.
 
 ```wq
 stack:()

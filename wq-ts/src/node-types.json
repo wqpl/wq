@@ -61,6 +61,10 @@
           "named": true
         },
         {
+          "type": "named_argument",
+          "named": true
+        },
+        {
           "type": "newline",
           "named": true
         }
@@ -72,7 +76,7 @@
     "named": true,
     "fields": {
       "left": {
-        "multiple": false,
+        "multiple": true,
         "required": false,
         "types": [
           {
@@ -80,15 +84,31 @@
             "named": true
           },
           {
+            "type": "index_juxtaposition_suffix",
+            "named": true
+          },
+          {
+            "type": "index_suffix",
+            "named": true
+          },
+          {
             "type": "list_unpack_pattern",
             "named": true
           },
           {
-            "type": "pipe_expr",
+            "type": "mutating_index_suffix",
             "named": true
           },
           {
-            "type": "tag",
+            "type": "outer_variable",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "variable_ref",
             "named": true
           }
         ]
@@ -97,10 +117,6 @@
         "multiple": false,
         "required": false,
         "types": [
-          {
-            "type": ":",
-            "named": false
-          },
           {
             "type": "assignment_operator",
             "named": true
@@ -411,6 +427,10 @@
         },
         {
           "type": "pause_form",
+          "named": true
+        },
+        {
+          "type": "postfix_expr",
           "named": true
         },
         {
@@ -751,6 +771,180 @@
     }
   },
   {
+    "type": "index_items",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "index_juxtaposition_suffix",
+    "named": true,
+    "fields": {
+      "final_operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "..",
+            "named": false
+          },
+          {
+            "type": "..=",
+            "named": false
+          }
+        ]
+      },
+      "operator": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "..",
+            "named": false
+          },
+          {
+            "type": "..=",
+            "named": false
+          },
+          {
+            "type": "^",
+            "named": false
+          },
+          {
+            "type": "^.",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block_form",
+          "named": true
+        },
+        {
+          "type": "conditional",
+          "named": true
+        },
+        {
+          "type": "conditional_chain",
+          "named": true
+        },
+        {
+          "type": "conditional_dot",
+          "named": true
+        },
+        {
+          "type": "debug_form",
+          "named": true
+        },
+        {
+          "type": "format_string",
+          "named": true
+        },
+        {
+          "type": "function_literal",
+          "named": true
+        },
+        {
+          "type": "import_form",
+          "named": true
+        },
+        {
+          "type": "integer",
+          "named": true
+        },
+        {
+          "type": "lazy_bool_form",
+          "named": true
+        },
+        {
+          "type": "n_loop",
+          "named": true
+        },
+        {
+          "type": "operator_identifier",
+          "named": true
+        },
+        {
+          "type": "outer_variable",
+          "named": true
+        },
+        {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
+          "type": "pause_form",
+          "named": true
+        },
+        {
+          "type": "postfix_expr",
+          "named": true
+        },
+        {
+          "type": "suffix",
+          "named": true
+        },
+        {
+          "type": "symbolic_form",
+          "named": true
+        },
+        {
+          "type": "tag",
+          "named": true
+        },
+        {
+          "type": "unary_expr",
+          "named": true
+        },
+        {
+          "type": "variable_ref",
+          "named": true
+        },
+        {
+          "type": "w_loop",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "index_suffix",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "juxtaposition_arg",
     "named": true,
     "fields": {
@@ -849,6 +1043,10 @@
         },
         {
           "type": "pause_form",
+          "named": true
+        },
+        {
+          "type": "postfix_expr",
           "named": true
         },
         {
@@ -1041,7 +1239,7 @@
       "required": false,
       "types": [
         {
-          "type": "argument_items",
+          "type": "index_items",
           "named": true
         }
       ]
@@ -1060,6 +1258,32 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "named_argument",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "tag",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "assignment_expr",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -1143,6 +1367,10 @@
         },
         {
           "type": "pause_form",
+          "named": true
+        },
+        {
+          "type": "postfix_expr",
           "named": true
         },
         {
@@ -1326,11 +1554,31 @@
     "named": true,
     "fields": {
       "left": {
-        "multiple": false,
+        "multiple": true,
         "required": true,
         "types": [
           {
-            "type": "pipe_postfix_expr",
+            "type": "index_juxtaposition_suffix",
+            "named": true
+          },
+          {
+            "type": "index_suffix",
+            "named": true
+          },
+          {
+            "type": "mutating_index_suffix",
+            "named": true
+          },
+          {
+            "type": "outer_variable",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "variable_ref",
             "named": true
           }
         ]
@@ -1423,6 +1671,10 @@
           "named": true
         },
         {
+          "type": "postfix_expr",
+          "named": true
+        },
+        {
           "type": "primary",
           "named": true
         }
@@ -1484,11 +1736,19 @@
       "required": true,
       "types": [
         {
+          "type": "mutating_index_suffix",
+          "named": true
+        },
+        {
           "type": "negative_juxtaposition_suffix",
           "named": true
         },
         {
           "type": "operator_identifier",
+          "named": true
+        },
+        {
+          "type": "outer_variable",
           "named": true
         },
         {
@@ -1501,6 +1761,10 @@
         },
         {
           "type": "suffix",
+          "named": true
+        },
+        {
+          "type": "variable_ref",
           "named": true
         }
       ]
@@ -1861,7 +2125,7 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
@@ -1873,11 +2137,19 @@
           "named": true
         },
         {
+          "type": "index_juxtaposition_suffix",
+          "named": true
+        },
+        {
+          "type": "index_suffix",
+          "named": true
+        },
+        {
           "type": "list_unpack_pattern",
           "named": true
         },
         {
-          "type": "postfix_expr",
+          "type": "outer_variable",
           "named": true
         },
         {

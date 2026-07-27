@@ -1190,7 +1190,7 @@ impl Parser {
     }
 
     fn parse_expression(&mut self) -> WqResult<AstNode> {
-        self.parse_assignment()
+        self.parse_assignment(false)
     }
 
     // Lower an unpack assignment like (x;y):rhs into a Block of simpler AST nodes.
@@ -1425,7 +1425,7 @@ impl Parser {
         Ok(AstNode::DictUnpackPattern(entries, span))
     }
 
-    fn parse_assignment(&mut self) -> WqResult<AstNode> {
+    fn parse_assignment(&mut self, allow_named_arg: bool) -> WqResult<AstNode> {
         // One bookmark covers both the CST wrap and the AST span. If no
         // assignment operator follows we never close it, the checkpoint
         // simply dies, and we pass `expr` through unchanged.
@@ -1442,7 +1442,7 @@ impl Parser {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
                     let lhs = match self.dict_unpack_pattern_from_list(
                         items.clone(),
@@ -1461,7 +1461,7 @@ impl Parser {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
                     let pattern =
                         self.dict_unpack_pattern_from_pairs(pairs, dict_span, &colon_tok)?;
@@ -1477,7 +1477,7 @@ impl Parser {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
                     let pattern = self.normalize_unpack_target(
                         AstNode::DictUnpackPattern(entries, pattern_span),
@@ -1498,7 +1498,7 @@ impl Parser {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
                     let pattern = self.normalize_unpack_target(
                         AstNode::Group {
@@ -1524,7 +1524,7 @@ impl Parser {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::AssignExpr);
                     expr = AstNode::Assignment {
                         name,
@@ -1543,7 +1543,7 @@ impl Parser {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::OuterAssignExpr);
                     expr = AstNode::OuterAssignment {
                         name,
@@ -1554,10 +1554,24 @@ impl Parser {
                     };
                 }
                 AstNode::Index { object, index, .. } => {
+                    if Self::has_named_assignment_index(&object)
+                        || Self::is_named_assignment_index(&index)
+                    {
+                        return Err(self.syntax_err(
+                            token,
+                            "named argument is only valid in a call argument list",
+                        ));
+                    }
+                    if !self.is_index_assignment_object(&object) {
+                        return Err(self.syntax_err(
+                            token,
+                            "index assignment target must be an index path rooted in an identifier or outer binding",
+                        ));
+                    }
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
                     expr = AstNode::IndexAssign {
                         object,
@@ -1568,10 +1582,15 @@ impl Parser {
                     };
                 }
                 AstNode::MutatingIndex { object, index, .. } => {
+                    if assign_op.is_some() {
+                        return Err(
+                            self.syntax_err(token, "mutating index assignment only supports ':'")
+                        );
+                    }
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span =
                         self.cst_close_with_span(pending, SyntaxKind::MutatingIndexAssignExpr);
                     expr = AstNode::MutatingIndexAssign {
@@ -1585,12 +1604,29 @@ impl Parser {
                     object,
                     items,
                     explicit_call: false,
+                    depth,
                     ..
                 } => {
+                    if items
+                        .iter()
+                        .any(|item| matches!(item, AstNode::NamedArg { .. }))
+                        || Self::has_named_assignment_index(&object)
+                    {
+                        return Err(self.syntax_err(
+                            token,
+                            "named argument is only valid in a call argument list",
+                        ));
+                    }
+                    if depth.is_some() || !self.is_index_assignment_object(&object) {
+                        return Err(self.syntax_err(
+                            token,
+                            "index assignment target must be an index path rooted in an identifier or outer binding",
+                        ));
+                    }
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
                     let index = if items.len() == 1 {
                         Box::new(items.into_iter().next().expect("len == 1"))
@@ -1606,6 +1642,12 @@ impl Parser {
                     };
                 }
                 AstNode::Literal(Value::Tag(tag_name), _tag_span) => {
+                    if !allow_named_arg {
+                        return Err(self.syntax_err(
+                            token,
+                            "named argument is only valid in a call argument list",
+                        ));
+                    }
                     if assign_op.is_some() {
                         return Err(self.syntax_err(
                             token,
@@ -1616,7 +1658,7 @@ impl Parser {
                     let colon_tok = token.clone();
                     self.advance(); // consume ':'
                     self.ensure_rhs(&colon_tok, "named argument separator")?;
-                    let value = self.parse_assignment()?;
+                    let value = self.parse_assignment(false)?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::NamedArgExpr);
                     expr = AstNode::NamedArg {
                         name,
@@ -2006,7 +2048,7 @@ impl Parser {
 
     // postfix ====================================================================================
 
-    fn parse_bracket_items(&mut self) -> WqResult<(Vec<AstNode>, bool)> {
+    fn parse_bracket_items(&mut self, allow_named_args: bool) -> WqResult<(Vec<AstNode>, bool)> {
         // Accept [] and ;]
         if self.is_token(&TokenType::Semicolon) {
             self.advance();
@@ -2029,7 +2071,7 @@ impl Parser {
                 self.advance();
                 break;
             }
-            let expr = self.parse_expression()?;
+            let expr = self.parse_assignment(allow_named_args)?;
             items.push(expr);
             // after item: either ']' or a required ';'
             self.eat_trivia(false, true);
@@ -2062,7 +2104,7 @@ impl Parser {
     ) -> WqResult<AstNode> {
         let cp_args = self.cst_checkpoint();
         self.advance();
-        let (items, _) = self.parse_bracket_items()?;
+        let (items, _) = self.parse_bracket_items(false)?;
         self.cst_start_node_at(cp_args, SyntaxKind::ArgList);
         self.cst_finish_node();
         let end_token = self.tokens[self.current.saturating_sub(1)].clone();
@@ -2110,6 +2152,51 @@ impl Parser {
         matches!(expr, AstNode::Variable(_, _) | AstNode::OuterVariable(_, _))
     }
 
+    fn is_index_assignment_object(&self, expr: &AstNode) -> bool {
+        match expr {
+            AstNode::Variable(name, _) | AstNode::OuterVariable(name, _) => {
+                is_bindable_identifier(name) && !self.builtins.has_function(name)
+            }
+            AstNode::Index { object, .. } => self.is_index_assignment_object(object),
+            AstNode::Postfix {
+                object,
+                explicit_call: false,
+                depth: None,
+                ..
+            } => self.is_index_assignment_object(object),
+            _ => false,
+        }
+    }
+
+    fn has_named_assignment_index(expr: &AstNode) -> bool {
+        match expr {
+            AstNode::Index { object, index, .. } => {
+                Self::has_named_assignment_index(object) || Self::is_named_assignment_index(index)
+            }
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: false,
+                ..
+            } => {
+                Self::has_named_assignment_index(object)
+                    || items
+                        .iter()
+                        .any(|item| matches!(item, AstNode::NamedArg { .. }))
+            }
+            _ => false,
+        }
+    }
+
+    fn is_named_assignment_index(expr: &AstNode) -> bool {
+        matches!(expr, AstNode::NamedArg { .. })
+            || matches!(
+                expr,
+                AstNode::List(items, _)
+                    if items.iter().any(|item| matches!(item, AstNode::NamedArg { .. }))
+            )
+    }
+
     fn parse_postfix_internal<F>(&mut self, mut parse_arg: F) -> WqResult<AstNode>
     where
         F: FnMut(&mut Self) -> WqResult<AstNode>,
@@ -2152,7 +2239,7 @@ impl Parser {
                     if is_mutating {
                         self.advance(); // consume Bang
                     }
-                    let (items, _call_flag) = self.parse_bracket_items()?;
+                    let (items, _call_flag) = self.parse_bracket_items(!is_mutating)?;
                     self.cst_start_node_at(cp_args, SyntaxKind::ArgList);
                     self.cst_finish_node();
                     let end_byte = self.tokens[self.current.saturating_sub(1)].byte_end;
@@ -2343,6 +2430,20 @@ impl Parser {
                 })
             }
             AstNode::Index { object, index, .. } => {
+                if Self::has_named_assignment_index(&object)
+                    || Self::is_named_assignment_index(&index)
+                {
+                    return Err(self.syntax_err(
+                        &token,
+                        "named argument is only valid in a call argument list",
+                    ));
+                }
+                if !self.is_index_assignment_object(&object) {
+                    return Err(self.syntax_err(
+                        &token,
+                        "index assignment target must be an index path rooted in an identifier or outer binding",
+                    ));
+                }
                 self.advance();
                 let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
                 Ok(AstNode::IndexAssign {
@@ -2354,6 +2455,11 @@ impl Parser {
                 })
             }
             AstNode::MutatingIndex { object, index, .. } => {
+                if assign_op.is_some() {
+                    return Err(
+                        self.syntax_err(&token, "mutating index assignment only supports ':'")
+                    );
+                }
                 self.advance();
                 let span = self.cst_close_with_span(pending, SyntaxKind::MutatingIndexAssignExpr);
                 Ok(AstNode::MutatingIndexAssign {
@@ -2367,8 +2473,25 @@ impl Parser {
                 object,
                 items,
                 explicit_call: false,
+                depth,
                 ..
             } => {
+                if items
+                    .iter()
+                    .any(|item| matches!(item, AstNode::NamedArg { .. }))
+                    || Self::has_named_assignment_index(&object)
+                {
+                    return Err(self.syntax_err(
+                        &token,
+                        "named argument is only valid in a call argument list",
+                    ));
+                }
+                if depth.is_some() || !self.is_index_assignment_object(&object) {
+                    return Err(self.syntax_err(
+                        &token,
+                        "index assignment target must be an index path rooted in an identifier or outer binding",
+                    ));
+                }
                 self.advance();
                 let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
                 let index = if items.len() == 1 {
@@ -2417,7 +2540,7 @@ impl Parser {
                 if self.is_token(&TokenType::Eof) {
                     return Err(self.eof_error_here("unexpected end of input in list"));
                 }
-                let expr = self.parse_expression()?;
+                let expr = self.parse_assignment(true)?;
                 elements.push(expr);
                 self.eat_trivia(false, true);
                 if self.is_token(&TokenType::RightParen) {
@@ -2445,7 +2568,16 @@ impl Parser {
                 }
             } else {
                 let span = Some((lparen_start, self.last_consumed_byte_end()));
-                AstNode::List(elements, span)
+                if elements
+                    .iter()
+                    .any(|item| matches!(item, AstNode::NamedArg { .. }))
+                {
+                    let closing_paren = self.tokens[self.current.saturating_sub(1)].clone();
+                    self.dict_unpack_pattern_from_list(elements, span, &closing_paren)?
+                        .expect("a named entry guarantees a dict unpack pattern")
+                } else {
+                    AstNode::List(elements, span)
+                }
             })
         })();
         self.bracket_depth -= 1;
@@ -4828,6 +4960,24 @@ mod diagnostic_wording_tests {
         err
     }
 
+    fn first_recovered_error(input: &str) -> WqError {
+        let ast = parse_input(input).expect("parser should recover with an error node");
+        match ast {
+            AstNode::Error(err, _) => err,
+            AstNode::Block(items, _) => items
+                .into_iter()
+                .find_map(|item| {
+                    if let AstNode::Error(err, _) = item {
+                        Some(err)
+                    } else {
+                        None
+                    }
+                })
+                .expect("expected parser error node in block"),
+            other => unreachable!("expected parser error node, got {other:?}"),
+        }
+    }
+
     #[test]
     fn consume_error_uses_source_token_spellings() {
         let src = ")";
@@ -4887,6 +5037,107 @@ mod diagnostic_wording_tests {
             err.msg.as_deref(),
             Some("expected expression after assignment operator ':'")
         );
+    }
+
+    #[test]
+    fn literal_assignment_targets_are_rejected() {
+        for source in ["1:1", "\"x\":1", "T:1"] {
+            let err = first_recovered_error(source);
+
+            assert_eq!(
+                err.msg.as_deref(),
+                Some("unexpected token ':'"),
+                "source: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn named_arguments_require_call_argument_lists() {
+        for source in [
+            "`a:1",
+            "A[`a:T;T]",
+            "x[!`a:1]",
+            "x[`a:1]:2",
+            "x[0][`a:1]:2",
+            "0|x[`a:1]:",
+        ] {
+            let err = first_recovered_error(source);
+
+            assert_eq!(
+                err.msg.as_deref(),
+                Some("named argument is only valid in a call argument list"),
+                "source: {source}"
+            );
+        }
+
+        let err = first_recovered_error("(x;`a:1)");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("dict unpack pattern cannot mix keyed entries with positional targets")
+        );
+
+        for source in ["f[`a:1]", "(`a:1)", "{[`a:1]a}"] {
+            let ast = parse_input(source).expect("valid tag-key context should parse");
+            assert!(
+                !matches!(ast, AstNode::Error(..)),
+                "expected valid tag-key context for {source}, got {ast:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn index_assignment_targets_require_binding_roots() {
+        for source in [
+            "1[0]:1",
+            "(1;2)[0]:1",
+            "f[] 0:1",
+            "x@1 0:1",
+            "x[!0] 0:1",
+            "+[0]:1",
+            "echo[0]:1",
+            "0|1[0]:",
+            "0|1 0:",
+        ] {
+            let err = first_recovered_error(source);
+
+            assert_eq!(
+                err.msg.as_deref(),
+                Some(
+                    "index assignment target must be an index path rooted in an identifier or outer binding"
+                ),
+                "source: {source}"
+            );
+        }
+
+        for source in ["x[0]:1", "x[0][1]:1", "x[0] 1:1", "'x[0]:1"] {
+            let ast = parse_input(source).expect("rooted index assignment should parse");
+            assert!(
+                matches!(ast, AstNode::IndexAssign { .. }),
+                "expected rooted index assignment for {source}, got {ast:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mutating_index_assignments_require_plain_colon() {
+        for source in ["x!+:1", "x[!0]/:1", "0|x!+:"] {
+            let err = first_recovered_error(source);
+
+            assert_eq!(
+                err.msg.as_deref(),
+                Some("mutating index assignment only supports ':'"),
+                "source: {source}"
+            );
+        }
+
+        for source in ["x!:1", "x[!0]:1", "'x[!0]:1"] {
+            let ast = parse_input(source).expect("rooted mutating assignment should parse");
+            assert!(
+                matches!(ast, AstNode::MutatingIndexAssign { .. }),
+                "expected mutating index assignment for {source}, got {ast:?}"
+            );
+        }
     }
 
     #[test]

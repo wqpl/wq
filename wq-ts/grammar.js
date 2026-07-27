@@ -1,5 +1,5 @@
 const PREC = {
-  ASSIGN: 1,
+  ASSIGN: -1,
   PIPE: 2,
   COMMA: 3,
   COMPARE: 4,
@@ -58,6 +58,12 @@ export default grammar({
 
   word: ($) => $.identifier,
 
+  inline: ($) => [
+    $._assignment_target,
+    $._mutating_assignment_target,
+    $._index_assignment_target,
+  ],
+
   reserved: {
     global: (_) => [
       "W",
@@ -78,7 +84,14 @@ export default grammar({
   conflicts: ($) => [
     [$.literal, $.dict_unpack_item],
     [$.unpack_target, $.primary],
-    [$.unpack_target, $.power_expr],
+    [$._call_argument, $.block_items],
+    [
+      $._assignment_juxtaposition_unary_expr,
+      $._assignment_juxtaposition_primary,
+    ],
+    [$._assignment_store_root, $.primary],
+    [$._pipe_assignment_target, $.primary],
+    [$.pipe_postfix_expr, $.postfix_expr],
     [$.operator_identifier, $.unary_expr],
     [$._non_comma_operator_identifier, $._non_terminator_unary_expr],
     [$._leading_comma_expr, $.operator_identifier],
@@ -113,19 +126,15 @@ export default grammar({
 
     assignment_expr: ($) =>
       choice(
-        prec.right(
-          PREC.ASSIGN,
-          seq(
-            field(
-              "left",
-              choice(
-                $.list_unpack_pattern,
-                $.dict_unpack_pattern,
-                $.pipe_expr,
-              ),
+        prec.dynamic(
+          -10,
+          prec.right(
+            PREC.ASSIGN,
+            seq(
+              field("left", $._assignment_target),
+              field("operator", $.assignment_operator),
+              field("right", $.assignment_expr),
             ),
-            field("operator", $.assignment_operator),
-            field("right", $.assignment_expr),
           ),
         ),
         prec.dynamic(
@@ -133,14 +142,164 @@ export default grammar({
           prec.right(
             PREC.ASSIGN,
             seq(
-              field("left", $.tag),
-              field("operator", ":"),
+              field("left", $._mutating_assignment_target),
+              field("operator", alias(":", $.assignment_operator)),
               field("right", $.assignment_expr),
             ),
           ),
         ),
         $.pipe_expr,
       ),
+
+    _assignment_target: ($) =>
+      choice(
+        $.variable_ref,
+        $.outer_variable,
+        $.list_unpack_pattern,
+        $.dict_unpack_pattern,
+        $._index_assignment_target,
+      ),
+
+    _mutating_assignment_target: ($) =>
+      choice(
+        alias($._bare_mutating_index_expr, $.postfix_expr),
+        $._bracket_mutating_assignment_target,
+      ),
+
+    _bracket_mutating_assignment_target: ($) =>
+      prec.left(
+        PREC.POSTFIX,
+        seq($.postfix_expr, $.mutating_index_suffix),
+      ),
+
+    _assignment_store_root: ($) =>
+      choice($.variable_ref, $.outer_variable),
+
+    _index_assignment_target: ($) =>
+      prec.left(
+        PREC.POSTFIX,
+        seq(
+          $._assignment_store_root,
+          repeat1(
+            choice($.index_suffix, $.index_juxtaposition_suffix),
+          ),
+        ),
+      ),
+
+    _bare_mutating_index_expr: ($) =>
+      prec.left(
+        PREC.POSTFIX,
+        seq(
+          $._assignment_store_root,
+          alias(
+            $._assignment_bare_mutating_index_suffix,
+            $.mutating_index_suffix,
+          ),
+        ),
+      ),
+
+    index_suffix: ($) =>
+      prec(
+        0,
+        seq(
+          "[",
+          optional(repeat1($.newline)),
+          $.expression,
+          repeat(seq($._item_separator, $.expression)),
+          "]",
+        ),
+      ),
+
+    _assignment_bare_mutating_index_suffix: (_) => "!",
+
+    index_juxtaposition_suffix: ($) =>
+      prec(-10, $._assignment_juxtaposition_arg),
+
+    _assignment_juxtaposition_arg: ($) =>
+      $._assignment_juxtaposition_range_expr,
+
+    _assignment_juxtaposition_range_expr: ($) =>
+      choice(
+        prec.right(
+          PREC.RANGE,
+          seq(
+            $._assignment_juxtaposition_unary_expr,
+            field("operator", ".."),
+            $.unary_expr,
+            field("final_operator", choice("..=", "..")),
+            $.unary_expr,
+          ),
+        ),
+        prec.right(
+          PREC.RANGE,
+          seq(
+            $._assignment_juxtaposition_unary_expr,
+            field("operator", choice("..=", "..")),
+            $.unary_expr,
+          ),
+        ),
+        $._assignment_juxtaposition_unary_expr,
+      ),
+
+    _assignment_juxtaposition_unary_expr: ($) =>
+      choice(
+        prec(
+          PREC.UNARY,
+          seq(repeat1("#"), $._assignment_juxtaposition_power_expr),
+        ),
+        $._assignment_juxtaposition_power_expr,
+      ),
+
+    _assignment_juxtaposition_power_expr: ($) =>
+      choice(
+        prec.right(
+          PREC.POWER,
+          seq(
+            $._assignment_juxtaposition_postfix_expr,
+            field("operator", choice("^.", "^")),
+            continuation($, $.unary_expr),
+          ),
+        ),
+        $._assignment_juxtaposition_postfix_expr,
+      ),
+
+    _assignment_juxtaposition_postfix_expr: ($) =>
+      choice(
+        $._assignment_juxtaposition_primary,
+        alias($._bare_mutating_index_expr, $.postfix_expr),
+        prec.left(
+          PREC.POSTFIX,
+          seq($._assignment_juxtaposition_postfix_expr, $.suffix),
+        ),
+      ),
+
+    _assignment_juxtaposition_primary: ($) =>
+      choice(
+        $.integer,
+        $.tag,
+        alias("#", $.operator_identifier),
+        $.outer_variable,
+        $.variable_ref,
+        alias($._reference_function_literal, $.function_literal),
+        $.paren_expr,
+        $.conditional,
+        $.conditional_dot,
+        $.conditional_chain,
+        $.lazy_bool_form,
+        $.w_loop,
+        $.n_loop,
+        alias($._keyword_block_form, $.block_form),
+        $.debug_form,
+        $.pause_form,
+        $.format_string,
+        $.symbolic_form,
+        $.import_form,
+      ),
+
+    _reference_function_literal: ($) =>
+      seq("'", "{", optional($.param_list), optional($.block), "}"),
+
+    _keyword_block_form: ($) => seq("B", $.block_arg_list),
 
     list_unpack_pattern: ($) =>
       prec.dynamic(
@@ -167,7 +326,7 @@ export default grammar({
         $.ellipsis,
         $.list_unpack_pattern,
         $.dict_unpack_pattern,
-        $.postfix_expr,
+        $._index_assignment_target,
       ),
 
     assignment_operator: (_) =>
@@ -212,12 +371,28 @@ export default grammar({
       ),
 
     pipe_checkpoint_assignment: ($) =>
-      prec.right(
-        PREC.ASSIGN,
-        seq(
-          field("left", $.pipe_postfix_expr),
-          field("operator", $.assignment_operator),
+      choice(
+        prec.right(
+          PREC.ASSIGN,
+          seq(
+            field("left", $._pipe_assignment_target),
+            field("operator", $.assignment_operator),
+          ),
         ),
+        prec.right(
+          PREC.ASSIGN,
+          seq(
+            field("left", $._mutating_assignment_target),
+            field("operator", alias(":", $.assignment_operator)),
+          ),
+        ),
+      ),
+
+    _pipe_assignment_target: ($) =>
+      choice(
+        $.variable_ref,
+        $.outer_variable,
+        $._index_assignment_target,
       ),
 
     pipe_debug_form: (_) => "@d",
@@ -225,6 +400,7 @@ export default grammar({
     pipe_postfix_expr: ($) =>
       choice(
         $.primary,
+        alias($._bare_mutating_index_expr, $.postfix_expr),
         prec.left(PREC.POSTFIX, seq($.pipe_postfix_expr, $.pipe_suffix)),
       ),
 
@@ -348,6 +524,7 @@ export default grammar({
     _non_terminator_postfix_expr: ($) =>
       choice(
         $._non_terminator_primary,
+        alias($._bare_mutating_index_expr, $.postfix_expr),
         prec.left(
           PREC.POSTFIX,
           seq($._non_terminator_postfix_expr, $.suffix),
@@ -478,6 +655,7 @@ export default grammar({
     postfix_expr: ($) =>
       choice(
         $.primary,
+        alias($._bare_mutating_index_expr, $.postfix_expr),
         prec.dynamic(
           2,
           prec.left(
@@ -501,7 +679,7 @@ export default grammar({
     mutating_index_suffix: ($) =>
       prec(
         PREC.POSTFIX,
-        choice(seq("[", "!", optional($.argument_items), "]"), "!"),
+        seq("[", "!", optional($.index_items), "]"),
       ),
 
     juxtaposition_suffix: ($) =>
@@ -560,6 +738,7 @@ export default grammar({
     _juxtaposition_postfix_expr: ($) =>
       choice(
         $._juxtaposition_primary,
+        alias($._bare_mutating_index_expr, $.postfix_expr),
         prec.left(
           PREC.POSTFIX,
           seq($._juxtaposition_postfix_expr, $.suffix),
@@ -580,7 +759,7 @@ export default grammar({
         $.lazy_bool_form,
         $.w_loop,
         $.n_loop,
-        $.block_form,
+        alias($._keyword_block_form, $.block_form),
         $.debug_form,
         $.pause_form,
         $.symbolic_form,
@@ -593,6 +772,32 @@ export default grammar({
     arg_list: ($) => prec(2, seq("[", optional($.argument_items), "]")),
 
     argument_items: ($) =>
+      prec(
+        2,
+        choice(
+          $._item_separator,
+          seq(
+            optional(repeat1($.newline)),
+            $._call_argument,
+            repeat(seq($._item_separator, $._call_argument)),
+            optional($._item_separator),
+          ),
+        ),
+      ),
+
+    _call_argument: ($) => choice($.named_argument, $.expression),
+
+    named_argument: ($) =>
+      prec.right(
+        PREC.ASSIGN,
+        seq(
+          field("name", $.tag),
+          ":",
+          field("value", $.assignment_expr),
+        ),
+      ),
+
+    index_items: ($) =>
       prec(
         2,
         choice(

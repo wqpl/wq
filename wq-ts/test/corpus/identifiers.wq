@@ -15,18 +15,8 @@ é:3
   (statement
     (expression
       (assignment_expr
-        (pipe_expr
-          (comma_expr
-            (comparison_expr
-              (additive_expr
-                (multiplicative_expr
-                  (range_expr
-                    (unary_expr
-                      (power_expr
-                        (postfix_expr
-                          (primary
-                            (variable_ref
-                              (identifier))))))))))))
+        (variable_ref
+          (identifier))
         (assignment_operator)
         (assignment_expr
           (pipe_expr
@@ -46,18 +36,8 @@ é:3
   (statement
     (expression
       (assignment_expr
-        (pipe_expr
-          (comma_expr
-            (comparison_expr
-              (additive_expr
-                (multiplicative_expr
-                  (range_expr
-                    (unary_expr
-                      (power_expr
-                        (postfix_expr
-                          (primary
-                            (variable_ref
-                              (identifier))))))))))))
+        (variable_ref
+          (identifier))
         (assignment_operator)
         (assignment_expr
           (pipe_expr
@@ -77,18 +57,8 @@ é:3
   (statement
     (expression
       (assignment_expr
-        (pipe_expr
-          (comma_expr
-            (comparison_expr
-              (additive_expr
-                (multiplicative_expr
-                  (range_expr
-                    (unary_expr
-                      (power_expr
-                        (postfix_expr
-                          (primary
-                            (variable_ref
-                              (identifier))))))))))))
+        (variable_ref
+          (identifier))
         (assignment_operator)
         (assignment_expr
           (pipe_expr
@@ -108,18 +78,8 @@ é:3
   (statement
     (expression
       (assignment_expr
-        (pipe_expr
-          (comma_expr
-            (comparison_expr
-              (additive_expr
-                (multiplicative_expr
-                  (range_expr
-                    (unary_expr
-                      (power_expr
-                        (postfix_expr
-                          (primary
-                            (variable_ref
-                              (identifier))))))))))))
+        (variable_ref
+          (identifier))
         (assignment_operator)
         (assignment_expr
           (pipe_expr

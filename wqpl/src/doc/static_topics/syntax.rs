@@ -424,6 +424,7 @@ A shorthand tag creates a same-named binding; use an explicit alias when that na
 List and dict unpacking evaluate the right side once and validate every requested path before writing any target.
 Extra dict keys are ignored.
 A missing list position or dict key raises an index error without partially updating the pattern targets.
+Index assignment paths must start from an identifier or outer binding reference; atoms, calls, and mutating-index results cannot be assignment roots.
 Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
     examples: ASSIGNMENT_EXAMPLES,
     related: &["identifier", "equality", "index-mutation", "pipes"],
@@ -522,7 +523,7 @@ pub(super) const INDEX_MUTATION: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["index assignment", "mutation", "mutating index", "[!]"],
     summary: "Mutate list or dict contents through index assignment and bang indexing.",
-    details: "`xs i:v` assigns through ordinary postfix indexing, and `xs i+:v` reads, updates, and writes the indexed element. Dict assignment accepts a tag key or an integer position; assigning a missing tag appends a new entry. Index chains assign through nested containers, so `xs[0][1]:v` and `xs[0] 1:v` descend into `xs[0]` and write index `1`; semicolons stay bulk assignment at that depth, so `xs[0;1]:v` still writes top-level positions while `xs[0][0;1]:v` writes multiple positions inside `xs[0]`. Bang indexing mutates container shape: `xs[!]` or `xs!` pops the last item, `xs[!i]` removes the item at `i`, `xs[!]:v` or `xs!:v` inserts between items, and `xs[!i]:v` inserts `v` at that position. Dict bang indexing also accepts tag keys where the operation supports a named entry.",
+    details: "`xs i:v` assigns through ordinary postfix indexing, and `xs i+:v` reads, updates, and writes the indexed element. Dict assignment accepts a tag key or an integer position; assigning a missing tag appends a new entry. Index chains assign through nested containers, so `xs[0][1]:v` and `xs[0] 1:v` descend into `xs[0]` and write index `1`; semicolons stay bulk assignment at that depth, so `xs[0;1]:v` still writes top-level positions while `xs[0][0;1]:v` writes multiple positions inside `xs[0]`. Bang indexing mutates container shape: `xs[!]` or `xs!` pops the last item, `xs[!i]` removes the item at `i`, `xs[!]:v` or `xs!:v` inserts between items, and `xs[!i]:v` inserts `v` at that position. A bang-index target must be a direct identifier or outer binding reference, and insertion uses plain `:` rather than an operator-colon form. Dict bang indexing also accepts tag keys where the operation supports a named entry.",
     examples: INDEX_MUTATION_EXAMPLES,
     related: &["assignment-forms", "calls", "lists", "ranges"],
 };
@@ -568,6 +569,7 @@ pub(super) const NAMED_ARGUMENTS: StaticDoc = StaticDoc {
     summary: "Use backtick tags for named call arguments and dict keys.",
     details: "A tag uses a backtick prefix and follows identifier spelling rules.
 In a call, a backtick-tagged `name:value` pair passes a named argument; in a function parameter list, a backtick-tagged `name:default` declares a named parameter with a default.
+A named call argument pair is valid only inside a bracketed call argument list.
 Named call arguments accept any order, and each callee decides which names it accepts.
 The same tag syntax also names dict keys, so `(`a:1)`a` reads the value stored under `a`.",
     examples: NAMED_ARGUMENT_EXAMPLES,

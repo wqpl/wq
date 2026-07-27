@@ -130,6 +130,839 @@ List unpack assignment targets
   (separator
     (newline)))
 
+===========================
+Invalid bare named argument
+===========================
+
+`a:1
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (tag))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (literal
+                                  (integer)))))))))))))))))
+  (separator
+    (newline)))
+
+=======================================
+Invalid explicit call assignment target
+=======================================
+
+f[]:1
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (postfix_expr
+                              (primary
+                                (variable_ref
+                                  (identifier))))
+                            (suffix
+                              (call_suffix
+                                (arg_list))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (literal
+                                  (integer)))))))))))))))))
+  (separator
+    (newline)))
+
+============================================
+Invalid bare mutating explicit call target
+============================================
+
+f[]!:1
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (postfix_expr
+                              (primary
+                                (variable_ref
+                                  (identifier))))
+                            (suffix
+                              (call_suffix
+                                (arg_list))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (literal
+                                  (integer)))))))))))))))))
+  (separator
+    (newline)))
+
+=====================================
+Invalid augmented mutating assignment
+=====================================
+
+x!+:1
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (variable_ref
+                              (identifier))
+                            (mutating_index_suffix)))))))
+                (ERROR)
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))))))))
+  (separator
+    (newline)))
+
+================================
+Invalid unpack assignment target
+================================
+
+(1;x):y
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (paren_expr
+                                (paren_list
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (literal
+                                                            (integer))))))))))))))
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (variable_ref
+                                                            (identifier))))))))))))))))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (variable_ref
+                                  (identifier)))))))))))))))))
+  (separator
+    (newline)))
+
+============================================
+Invalid direct mutating index unpack target
+============================================
+
+(x[!];y):z
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (paren_expr
+                                (paren_list
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (postfix_expr
+                                                          (primary
+                                                            (variable_ref
+                                                              (identifier))))
+                                                        (suffix
+                                                          (mutating_index_suffix)))))))))))))
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (variable_ref
+                                                            (identifier))))))))))))))))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (variable_ref
+                                  (identifier)))))))))))))))))
+  (separator
+    (newline)))
+
+================================
+Invalid atom assignment target
+================================
+
+1:1
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (literal
+                                  (integer)))))))))))))))))
+  (separator
+    (newline)))
+
+======================================
+Invalid unrooted index assignment lhs
+======================================
+
+1[0]:1
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (postfix_expr
+                              (primary
+                                (literal
+                                  (integer))))
+                            (suffix
+                              (call_suffix
+                                (arg_list
+                                  (argument_items
+                                    (expression
+                                      (assignment_expr
+                                        (pipe_expr
+                                          (comma_expr
+                                            (comparison_expr
+                                              (additive_expr
+                                                (multiplicative_expr
+                                                  (range_expr
+                                                    (unary_expr
+                                                      (power_expr
+                                                        (postfix_expr
+                                                          (primary
+                                                            (literal
+                                                              (integer)))))))))))))))))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (literal
+                                  (integer)))))))))))))))))
+  (separator
+    (newline)))
+
+=======================================
+Invalid named argument assignment index
+=======================================
+
+x[`a:1]:2
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (postfix_expr
+                              (primary
+                                (variable_ref
+                                  (identifier))))
+                            (suffix
+                              (call_suffix
+                                (arg_list
+                                  (argument_items
+                                    (named_argument
+                                      (tag)
+                                      (assignment_expr
+                                        (pipe_expr
+                                          (comma_expr
+                                            (comparison_expr
+                                              (additive_expr
+                                                (multiplicative_expr
+                                                  (range_expr
+                                                    (unary_expr
+                                                      (power_expr
+                                                        (postfix_expr
+                                                          (primary
+                                                            (literal
+                                                              (integer)))))))))))))))))))
+                          (ERROR)
+                          (suffix
+                            (juxtaposition_suffix
+                              (juxtaposition_arg
+                                (literal
+                                  (integer)))))))))))))))))
+  (separator
+    (newline)))
+
+===========================
+Invalid pipe checkpoint lhs
+===========================
+
+0|1 0:
+
+---
+
+(ERROR
+  (separator
+    (newline))
+  (comma_expr
+    (comparison_expr
+      (additive_expr
+        (multiplicative_expr
+          (range_expr
+            (unary_expr
+              (power_expr
+                (postfix_expr
+                  (primary
+                    (literal
+                      (integer)))))))))))
+  (pipe_operator)
+  (postfix_expr
+    (primary
+      (literal
+        (integer))))
+  (juxtaposition_arg
+    (literal
+      (integer)))
+  (newline))
+
+======================================
+Assignment and named argument contexts
+======================================
+
+a:1
+'a:2
+xs[0]:3
+xs 0:4
+xs[!0]:5
+xs[0][1]:6
+xs[0] 1:7
+f[`a:1]
+(`a:1)
+{[`a:1]a}
+
+---
+
+(source_file
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (variable_ref
+          (identifier))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (outer_variable
+          (identifier))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (variable_ref
+          (identifier))
+        (index_suffix
+          (expression
+            (assignment_expr
+              (pipe_expr
+                (comma_expr
+                  (comparison_expr
+                    (additive_expr
+                      (multiplicative_expr
+                        (range_expr
+                          (unary_expr
+                            (power_expr
+                              (postfix_expr
+                                (primary
+                                  (literal
+                                    (integer)))))))))))))))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (variable_ref
+          (identifier))
+        (index_juxtaposition_suffix
+          (integer))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (postfix_expr
+          (primary
+            (variable_ref
+              (identifier))))
+        (mutating_index_suffix
+          (index_items
+            (expression
+              (assignment_expr
+                (pipe_expr
+                  (comma_expr
+                    (comparison_expr
+                      (additive_expr
+                        (multiplicative_expr
+                          (range_expr
+                            (unary_expr
+                              (power_expr
+                                (postfix_expr
+                                  (primary
+                                    (literal
+                                      (integer))))))))))))))))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (variable_ref
+          (identifier))
+        (index_suffix
+          (expression
+            (assignment_expr
+              (pipe_expr
+                (comma_expr
+                  (comparison_expr
+                    (additive_expr
+                      (multiplicative_expr
+                        (range_expr
+                          (unary_expr
+                            (power_expr
+                              (postfix_expr
+                                (primary
+                                  (literal
+                                    (integer)))))))))))))))
+        (index_suffix
+          (expression
+            (assignment_expr
+              (pipe_expr
+                (comma_expr
+                  (comparison_expr
+                    (additive_expr
+                      (multiplicative_expr
+                        (range_expr
+                          (unary_expr
+                            (power_expr
+                              (postfix_expr
+                                (primary
+                                  (literal
+                                    (integer)))))))))))))))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (variable_ref
+          (identifier))
+        (index_suffix
+          (expression
+            (assignment_expr
+              (pipe_expr
+                (comma_expr
+                  (comparison_expr
+                    (additive_expr
+                      (multiplicative_expr
+                        (range_expr
+                          (unary_expr
+                            (power_expr
+                              (postfix_expr
+                                (primary
+                                  (literal
+                                    (integer)))))))))))))))
+        (index_juxtaposition_suffix
+          (integer))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (variable_ref
+                                (identifier))))
+                          (suffix
+                            (call_suffix
+                              (arg_list
+                                (argument_items
+                                  (named_argument
+                                    (tag)
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (literal
+                                                            (integer))))))))))))))))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (paren_expr
+                              (dict_literal
+                                (dict_items
+                                  (dict_pair
+                                    (tag)
+                                    (expression
+                                      (assignment_expr
+                                        (pipe_expr
+                                          (comma_expr
+                                            (comparison_expr
+                                              (additive_expr
+                                                (multiplicative_expr
+                                                  (range_expr
+                                                    (unary_expr
+                                                      (power_expr
+                                                        (postfix_expr
+                                                          (primary
+                                                            (literal
+                                                              (integer)))))))))))))))))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (function_literal
+                              (param_list
+                                (param
+                                  (tag)
+                                  (pipe_expr
+                                    (comma_expr
+                                      (comparison_expr
+                                        (additive_expr
+                                          (multiplicative_expr
+                                            (range_expr
+                                              (unary_expr
+                                                (power_expr
+                                                  (postfix_expr
+                                                    (primary
+                                                      (literal
+                                                        (integer))))))))))))))
+                              (block
+                                (statement
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (variable_ref
+                                                            (identifier))))))))))))))))))))))))))))))
+  (separator
+    (newline)))
+
 ==================
 Rejected unmatched format brace
 ==================
@@ -154,25 +987,26 @@ A[T]
 
 ---
 
-(ERROR
+(source_file
   (separator
     (newline))
-  (expression
-    (assignment_expr
-      (pipe_expr
-        (comma_expr
-          (comparison_expr
-            (additive_expr
-              (multiplicative_expr
-                (range_expr
-                  (unary_expr
-                    (power_expr
-                      (postfix_expr
-                        (primary
-                          (literal
-                            (true))))))))))))))
-  (ERROR)
-  (newline))
+  (ERROR
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (true))))))))))))))
+    (ERROR)
+    (newline)))
 
 ==================
 Script directives
@@ -199,11 +1033,9 @@ Script directives
                     (unary_expr
                       (power_expr
                         (postfix_expr
-                          (postfix_expr
-                            (primary
-                              (operator_identifier)))
-                          (suffix
-                            (mutating_index_suffix))))))
+                          (primary
+                            (operator_identifier))))))
+                  (ERROR)
                   (range_expr
                     (unary_expr
                       (power_expr

@@ -5007,7 +5007,7 @@ mod tests {
         let err = compile_source_err("f:{x:1;W[true;x:2]x*:2}");
         let display = err.to_string();
         assert!(err.span.is_some(), "expected span");
-        assert!(display.contains("at ?:1:8"), "display was: {display}");
+        assert!(display.contains("at ?:1:20"), "display was: {display}");
     }
 
     #[test]
