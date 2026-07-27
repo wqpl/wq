@@ -22,6 +22,11 @@ const ASSIGNMENT_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains("(1;4)"),
     },
     DocExample {
+        title: "Unpack selected dict keys",
+        code: "(`left;`right:r):(`right:2;`left:1);left+r",
+        expectation: ExampleExpectation::ResultContains("3"),
+    },
+    DocExample {
         title: "Checkpoint a pipe value",
         code: "10|x:;x",
         expectation: ExampleExpectation::ResultContains("10"),
@@ -380,7 +385,7 @@ pub(super) const ASSIGNMENT: StaticDoc = StaticDoc {
         "unpack",
     ],
     summary: "Bind, update, unpack, or checkpoint values with assignment forms.",
-    details: "`name:expr` binds a value. Operator-colon forms such as `x+:1` update from the old value, and `xs,:x` appends with comma assignment. If a right operand runs code that mutates a binding used on the left, binary expressions and operator-colon updates still use the left value from before that mutation. List-shaped left sides unpack values, so `(a;b):(1;2)` binds both names; patterns may nest, and `...` skips the middle. Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
+    details: "`name:expr` binds a value. Operator-colon forms such as `x+:1` update from the old value, and `xs,:x` appends with comma assignment. If a right operand runs code that mutates a binding used on the left, binary expressions and operator-colon updates still use the left value from before that mutation. List-shaped left sides unpack by position, so `(a;b):(1;2)` binds both names; patterns can nest, and `...` skips the middle. Tag-shaped left sides unpack dicts by key: ``(`a;`b:alias):dict`` binds key `a` to `a` and key `b` to `alias`, independent of dict order. Extra dict keys are ignored, while a missing requested key raises an index error before any target is written. Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
     examples: ASSIGNMENT_EXAMPLES,
     related: &["equality", "index-mutation", "pipes"],
 };

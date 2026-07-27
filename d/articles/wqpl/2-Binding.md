@@ -84,6 +84,37 @@ name|echo
 (head;tail)|echo
 ```
 
+## Unpack Dict Keys
+
+A tag-shaped pattern selects dict entries by key, independent of their order.
+A bare tag binds a same-named local:
+
+```wq
+(`x;`y):(`y:20;`x:10)
+x+y|echo
+```
+
+Use `` `key:target `` to choose a different binding name:
+
+```wq
+(`width:w;`height:h):(`height:720;`width:1280)
+(w;h)|echo
+```
+
+List and dict patterns can nest:
+
+```wq
+module:(`point:(10;20);`meta:(`version:1;`name:"plot"))
+(`meta:(`name;`version);`point:(x;y)):module
+(name;version;x;y)|echo
+```
+
+The right side runs once. wq reads every requested key before writing any
+target, so a missing key raises an index error without partially updating the
+pattern's bindings. Unmentioned dict keys are ignored. Duplicate requested
+keys are a syntax error. `...` belongs to positional list patterns and is not
+needed in a dict pattern.
+
 ## Pipe Checkpoints
 
 A pipe can bind the value moving through it.
@@ -99,5 +130,6 @@ This is useful when a pipeline has a nice middle result you want to name without
 
 - `name:value` binds.
 - `name+:value` and friends update.
-- `(a;b):value` unpacks.
+- `(a;b):value` unpacks a list by position.
+- ``(`a;`b:alias):value`` unpacks a dict by key.
 - `value|name:` names a value inside a pipeline.

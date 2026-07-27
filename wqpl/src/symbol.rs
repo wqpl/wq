@@ -603,6 +603,11 @@ impl SymbolAnalyzer {
                     self.analyze(v);
                 }
             }
+            AstNode::DictUnpackPattern(entries, _) => {
+                for entry in entries {
+                    self.analyze_unpack_target(&entry.target);
+                }
+            }
 
             AstNode::Postfix { object, items, .. } => {
                 self.analyze(object);
@@ -827,6 +832,11 @@ impl SymbolAnalyzer {
             AstNode::List(items, _) => {
                 for item in items {
                     self.analyze_unpack_target(item);
+                }
+            }
+            AstNode::DictUnpackPattern(entries, _) => {
+                for entry in entries {
+                    self.analyze_unpack_target(&entry.target);
                 }
             }
             AstNode::Ellipsis(_) => {}

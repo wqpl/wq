@@ -414,6 +414,17 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
         UnpackAssignment { .. } => {
             unreachable!("UnpackAssignment should have been resolved before fold")
         }
+        DictUnpackPattern(entries, span) => DictUnpackPattern(
+            entries
+                .into_iter()
+                .map(|entry| crate::ast::DictUnpackEntry {
+                    key: entry.key,
+                    key_span: entry.key_span,
+                    target: fold(entry.target),
+                })
+                .collect(),
+            span,
+        ),
         FString { .. } => {
             unreachable!("FString should have been resolved before fold")
         }

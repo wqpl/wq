@@ -133,8 +133,17 @@
                 "type": "FIELD",
                 "name": "left",
                 "content": {
-                  "type": "SYMBOL",
-                  "name": "pipe_expr"
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "dict_unpack_pattern"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "pipe_expr"
+                    }
+                  ]
                 }
               },
               {
@@ -2909,6 +2918,130 @@
         }
       ]
     },
+    "dict_unpack_pattern": {
+      "type": "PREC_DYNAMIC",
+      "value": 2,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "("
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "REPEAT1",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "newline"
+                }
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "SYMBOL",
+            "name": "dict_unpack_items"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_item_separator"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": ")"
+          }
+        ]
+      }
+    },
+    "dict_unpack_items": {
+      "type": "PREC_RIGHT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "dict_unpack_item"
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "_item_separator"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "dict_unpack_item"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "dict_unpack_item": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "key",
+          "content": {
+            "type": "SYMBOL",
+            "name": "tag"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": ":"
+                },
+                {
+                  "type": "FIELD",
+                  "name": "target",
+                  "content": {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "SYMBOL",
+                        "name": "dict_unpack_pattern"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "pipe_expr"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
     "conditional": {
       "type": "SEQ",
       "members": [
@@ -3726,6 +3859,19 @@
     [
       "literal",
       "dict_pair"
+    ],
+    [
+      "literal",
+      "dict_unpack_item"
+    ],
+    [
+      "literal",
+      "dict_pair",
+      "dict_unpack_item"
+    ],
+    [
+      "assignment_expr",
+      "dict_unpack_item"
     ],
     [
       "operator_identifier",

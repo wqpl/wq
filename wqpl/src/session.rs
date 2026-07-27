@@ -3506,6 +3506,61 @@ mod tests {
     }
 
     #[test]
+    fn dict_unpack_binds_keys_independent_of_dict_order() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("(`a;`b:renamed):(`b:2;`a:1);(a;renamed)")
+            .expect("dict unpack should bind requested keys");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![1, 2])));
+    }
+
+    #[test]
+    fn dict_unpack_supports_nested_dict_and_list_patterns() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string(
+                "(`api:(`start;`stop);`pair:(left;right);`version):\
+                 (`pair:(4;5);`version:3;`api:(`stop:2;`start:1));\
+                 (start;stop;left;right;version)",
+            )
+            .expect("nested dict unpack should bind every leaf");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![1, 2, 4, 5, 3])));
+    }
+
+    #[test]
+    fn dict_unpack_evaluates_rhs_once() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("n:0;f:'{[]n+:1;(`a:n;`b:n)};(`a;`b):f[];(n;a;b)")
+            .expect("dict unpack should evaluate its rhs once");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![1, 1, 1])));
+    }
+
+    #[test]
+    fn dict_unpack_preflights_keys_before_writing_bindings() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("a:10;b:20;result:@t ((`a;`missing):(`a:1));(a;b;result 0)")
+            .expect("try should catch the missing dict key");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::Int(10),
+                Value::Int(20),
+                Value::Tag(Arc::from("error")),
+            ]))
+        );
+    }
+
+    #[test]
     fn assert_failure_has_structured_truth_data() {
         let mut session = Session::new();
 

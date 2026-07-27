@@ -1,12 +1,12 @@
 pub(crate) mod fold;
 pub(crate) mod resolve;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ast::{
-    AstNode, AstSpan, BinaryOperator, BoolOperator, FStringPart, Parameter, UnaryOperator,
-    binary_op_display,
+    AstNode, AstSpan, BinaryOperator, BoolOperator, DictUnpackEntry, FStringPart, Parameter,
+    UnaryOperator, binary_op_display,
 };
 use crate::cas::{cas_binary_expr, cas_symbolic_call_expr, cas_unary_expr};
 use crate::cst::{
@@ -1242,15 +1242,173 @@ impl Parser {
                 AstNode::List(inner, _) => {
                     self.validate_unpack_targets(inner, colon_tok)?;
                 }
+                AstNode::DictUnpackPattern(entries, _) => {
+                    if entries.is_empty() {
+                        return Err(
+                            self.syntax_err(colon_tok, "dict unpack pattern cannot be empty")
+                        );
+                    }
+                    let mut keys = HashSet::new();
+                    for entry in entries {
+                        if !keys.insert(entry.key.as_str()) {
+                            return Err(self.syntax_err(
+                                colon_tok,
+                                format!(
+                                    "dict unpack pattern contains duplicate key '`{}'",
+                                    entry.key
+                                ),
+                            ));
+                        }
+                        self.validate_unpack_targets(
+                            std::slice::from_ref(&entry.target),
+                            colon_tok,
+                        )?;
+                    }
+                }
                 _ => {
                     return Err(self.syntax_err(
                         colon_tok,
-                        "unpack assignment target must be an identifier, index target, '_', '...', or a nested list",
+                        "unpack assignment target must be an identifier, index target, '_', '...', or a nested pattern",
                     ));
                 }
             }
         }
         Ok(())
+    }
+
+    fn normalize_unpack_target(&mut self, node: AstNode, colon_tok: &Token) -> WqResult<AstNode> {
+        match node {
+            AstNode::List(items, span) => {
+                if let Some(pattern) =
+                    self.dict_unpack_pattern_from_list(items.clone(), span, colon_tok)?
+                {
+                    Ok(pattern)
+                } else {
+                    let items = items
+                        .into_iter()
+                        .map(|item| self.normalize_unpack_target(item, colon_tok))
+                        .collect::<WqResult<Vec<_>>>()?;
+                    Ok(AstNode::List(items, span))
+                }
+            }
+            AstNode::Dict(pairs, span) => {
+                self.dict_unpack_pattern_from_pairs(pairs, span, colon_tok)
+            }
+            AstNode::DictUnpackPattern(entries, span) => {
+                let entries = entries
+                    .into_iter()
+                    .map(|entry| {
+                        Ok(DictUnpackEntry {
+                            key: entry.key,
+                            key_span: entry.key_span,
+                            target: self.normalize_unpack_target(entry.target, colon_tok)?,
+                        })
+                    })
+                    .collect::<WqResult<Vec<_>>>()?;
+                Ok(AstNode::DictUnpackPattern(entries, span))
+            }
+            AstNode::Group { expr, span } => match *expr {
+                AstNode::Literal(Value::Tag(key), key_span) => {
+                    let key = key.to_string();
+                    Ok(AstNode::DictUnpackPattern(
+                        vec![DictUnpackEntry {
+                            target: AstNode::Variable(key.clone(), key_span),
+                            key,
+                            key_span,
+                        }],
+                        span,
+                    ))
+                }
+                other => Ok(AstNode::Group {
+                    expr: Box::new(other),
+                    span,
+                }),
+            },
+            other => Ok(other),
+        }
+    }
+
+    fn dict_unpack_pattern_from_list(
+        &mut self,
+        items: Vec<AstNode>,
+        span: AstSpan,
+        colon_tok: &Token,
+    ) -> WqResult<Option<AstNode>> {
+        let keyed_count = items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item,
+                    AstNode::Literal(Value::Tag(_), _) | AstNode::NamedArg { .. }
+                )
+            })
+            .count();
+        if keyed_count == 0 {
+            return Ok(None);
+        }
+        if items
+            .iter()
+            .any(|item| matches!(item, AstNode::Ellipsis(_)))
+        {
+            return Err(self.syntax_err(
+                colon_tok,
+                "dict unpack pattern cannot contain '...'; unmentioned keys are already ignored",
+            ));
+        }
+        if keyed_count != items.len() {
+            return Err(self.syntax_err(
+                colon_tok,
+                "dict unpack pattern cannot mix keyed entries with positional targets",
+            ));
+        }
+
+        let entries = items
+            .into_iter()
+            .map(|item| match item {
+                AstNode::Literal(Value::Tag(key), key_span) => {
+                    let key = key.to_string();
+                    Ok(DictUnpackEntry {
+                        target: AstNode::Variable(key.clone(), key_span),
+                        key,
+                        key_span,
+                    })
+                }
+                AstNode::NamedArg {
+                    name,
+                    value,
+                    span: entry_span,
+                } => {
+                    let key_span =
+                        entry_span.map(|(start, end)| (start, (start + name.len() + 1).min(end)));
+                    Ok(DictUnpackEntry {
+                        key: name,
+                        key_span,
+                        target: self.normalize_unpack_target(*value, colon_tok)?,
+                    })
+                }
+                _ => unreachable!("keyed_count guarantees a keyed entry"),
+            })
+            .collect::<WqResult<Vec<_>>>()?;
+        Ok(Some(AstNode::DictUnpackPattern(entries, span)))
+    }
+
+    fn dict_unpack_pattern_from_pairs(
+        &mut self,
+        pairs: Vec<(String, AstNode)>,
+        span: AstSpan,
+        colon_tok: &Token,
+    ) -> WqResult<AstNode> {
+        let entries = pairs
+            .into_iter()
+            .map(|(key, target)| {
+                Ok(DictUnpackEntry {
+                    key,
+                    key_span: span,
+                    target: self.normalize_unpack_target(target, colon_tok)?,
+                })
+            })
+            .collect::<WqResult<Vec<_>>>()?;
+        Ok(AstNode::DictUnpackPattern(entries, span))
     }
 
     fn parse_assignment(&mut self) -> WqResult<AstNode> {
@@ -1266,13 +1424,82 @@ impl Parser {
 
             match expr {
                 // Unpack assignment: (x;y):rhs
-                AstNode::List(items, _) => {
+                AstNode::List(items, list_span) => {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
                     let value = self.parse_assignment()?;
                     let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
-                    expr = self.lower_unpack_assign(items, assign_op, value, &colon_tok, span)?;
+                    let lhs = match self.dict_unpack_pattern_from_list(
+                        items.clone(),
+                        list_span,
+                        &colon_tok,
+                    )? {
+                        Some(pattern) => vec![pattern],
+                        None => items
+                            .into_iter()
+                            .map(|item| self.normalize_unpack_target(item, &colon_tok))
+                            .collect::<WqResult<Vec<_>>>()?,
+                    };
+                    expr = self.lower_unpack_assign(lhs, assign_op, value, &colon_tok, span)?;
+                }
+                AstNode::Dict(pairs, dict_span) => {
+                    let colon_tok = token.clone();
+                    self.advance();
+                    self.ensure_rhs(&colon_tok, "assignment operator")?;
+                    let value = self.parse_assignment()?;
+                    let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
+                    let pattern =
+                        self.dict_unpack_pattern_from_pairs(pairs, dict_span, &colon_tok)?;
+                    expr = self.lower_unpack_assign(
+                        vec![pattern],
+                        assign_op,
+                        value,
+                        &colon_tok,
+                        span,
+                    )?;
+                }
+                AstNode::DictUnpackPattern(entries, pattern_span) => {
+                    let colon_tok = token.clone();
+                    self.advance();
+                    self.ensure_rhs(&colon_tok, "assignment operator")?;
+                    let value = self.parse_assignment()?;
+                    let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
+                    let pattern = self.normalize_unpack_target(
+                        AstNode::DictUnpackPattern(entries, pattern_span),
+                        &colon_tok,
+                    )?;
+                    expr = self.lower_unpack_assign(
+                        vec![pattern],
+                        assign_op,
+                        value,
+                        &colon_tok,
+                        span,
+                    )?;
+                }
+                AstNode::Group {
+                    expr: grouped,
+                    span: group_span,
+                } if matches!(&*grouped, AstNode::Literal(Value::Tag(_), _)) => {
+                    let colon_tok = token.clone();
+                    self.advance();
+                    self.ensure_rhs(&colon_tok, "assignment operator")?;
+                    let value = self.parse_assignment()?;
+                    let span = self.cst_close_with_span(pending, SyntaxKind::UnpackAssignExpr);
+                    let pattern = self.normalize_unpack_target(
+                        AstNode::Group {
+                            expr: grouped,
+                            span: group_span,
+                        },
+                        &colon_tok,
+                    )?;
+                    expr = self.lower_unpack_assign(
+                        vec![pattern],
+                        assign_op,
+                        value,
+                        &colon_tok,
+                        span,
+                    )?;
                 }
                 AstNode::Variable(name, var_span) => {
                     if self.builtins.has_function(&name) {
@@ -2215,6 +2442,8 @@ impl Parser {
         self.bracket_depth += 1;
         let result = {
             let mut pairs = Vec::new();
+            let mut pattern_entries = Vec::new();
+            let mut saw_shorthand = false;
             let res: WqResult<()> = loop {
                 self.eat_trivia(true, true);
                 if self.is_token(&TokenType::RightParen) {
@@ -2227,7 +2456,7 @@ impl Parser {
                 // Each pair gets its own DictPair wrap so the formatter can
                 // re-flow them independently of their siblings.
                 let cp_pair = self.cst_checkpoint();
-                let key_tok = match self.current_token() {
+                let key_tok = match self.current_token().cloned() {
                     Some(t) => t,
                     None => break Err(self.eof_error_here("unexpected end of input in dict")),
                 };
@@ -2242,22 +2471,35 @@ impl Parser {
                     }
                     _ => {
                         break Err(self.syntax_err(
-                            key_tok,
+                            &key_tok,
                             format!(
                                 "expected tag key in dict, found {}",
-                                self.diagnostic_token(key_tok)
+                                self.diagnostic_token(&key_tok)
                             ),
                         ));
                     }
                 };
-                if let Err(e) = self.consume(TokenType::Colon) {
-                    break Err(e);
+                let key_span = Some((key_tok.byte_start, key_tok.byte_end));
+                if self.is_token(&TokenType::Colon) {
+                    self.advance();
+                    let value = match self.parse_expression() {
+                        Ok(v) => v,
+                        Err(e) => break Err(e),
+                    };
+                    pairs.push((key.clone(), value.clone()));
+                    pattern_entries.push(DictUnpackEntry {
+                        key,
+                        key_span,
+                        target: value,
+                    });
+                } else {
+                    saw_shorthand = true;
+                    pattern_entries.push(DictUnpackEntry {
+                        target: AstNode::Variable(key.clone(), key_span),
+                        key,
+                        key_span,
+                    });
                 }
-                let value = match self.parse_expression() {
-                    Ok(v) => v,
-                    Err(e) => break Err(e),
-                };
-                pairs.push((key, value));
                 self.cst_start_node_at(cp_pair, SyntaxKind::DictPair);
                 self.cst_finish_node();
                 self.eat_trivia(false, true);
@@ -2279,7 +2521,11 @@ impl Parser {
             };
             res.map(|()| {
                 let span = Some((lparen_start, self.last_consumed_byte_end()));
-                AstNode::Dict(pairs, span)
+                if saw_shorthand {
+                    AstNode::DictUnpackPattern(pattern_entries, span)
+                } else {
+                    AstNode::Dict(pairs, span)
+                }
             })
         };
         self.bracket_depth -= 1;
@@ -2324,6 +2570,7 @@ impl Parser {
             AstNode::BlockExpr(..) => SyntaxKind::BlockExpr,
             AstNode::List(..) => SyntaxKind::ListExpr,
             AstNode::Dict(..) => SyntaxKind::DictExpr,
+            AstNode::DictUnpackPattern(..) => SyntaxKind::DictExpr,
             AstNode::Group { .. } => SyntaxKind::ParenExpr,
             AstNode::FString { .. } => SyntaxKind::FStringExpr,
             AstNode::Return(..) => SyntaxKind::ReturnExpr,
@@ -3147,6 +3394,19 @@ impl Parser {
                     Self::offset_spans(v, offset);
                 }
             }
+            AstNode::DictUnpackPattern(entries, span) => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+                for entry in entries {
+                    if let Some(key_span) = &mut entry.key_span {
+                        key_span.0 += offset;
+                        key_span.1 += offset;
+                    }
+                    Self::offset_spans(&mut entry.target, offset);
+                }
+            }
 
             AstNode::Index {
                 object,
@@ -3435,6 +3695,11 @@ impl Parser {
                     self.recontextualize_fstring_error_nodes(node);
                 }
                 self.recontextualize_fstring_error_nodes(rhs);
+            }
+            AstNode::DictUnpackPattern(entries, _) => {
+                for entry in entries {
+                    self.recontextualize_fstring_error_nodes(&mut entry.target);
+                }
             }
             AstNode::Postfix { object, items, .. } => {
                 self.recontextualize_fstring_error_nodes(object);
@@ -4614,8 +4879,48 @@ mod diagnostic_wording_tests {
         assert_eq!(
             err.msg.as_deref(),
             Some(
-                "unpack assignment target must be an identifier, index target, '_', '...', or a nested list"
+                "unpack assignment target must be an identifier, index target, '_', '...', or a nested pattern"
             )
+        );
+    }
+
+    #[test]
+    fn dict_unpack_pattern_rejects_duplicate_keys() {
+        let err = recovered_error("(`a;`a):(`a:1)");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("dict unpack pattern contains duplicate key '`a'")
+        );
+    }
+
+    #[test]
+    fn dict_unpack_pattern_rejects_positional_targets() {
+        let err = recovered_error("(`a;x):(`a:1)");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("dict unpack pattern cannot mix keyed entries with positional targets")
+        );
+    }
+
+    #[test]
+    fn dict_unpack_pattern_rejects_ellipsis() {
+        let err = recovered_error("(`a;...):(`a:1)");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("dict unpack pattern cannot contain '...'; unmentioned keys are already ignored")
+        );
+    }
+
+    #[test]
+    fn dict_unpack_pattern_rejects_empty_pattern() {
+        let err = recovered_error("(`):(`a:1)");
+
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("dict unpack pattern cannot be empty")
         );
     }
 
@@ -5840,6 +6145,7 @@ mod cst_integration_tests {
             | AstNode::NLoop { span, .. }
             | AstNode::NamedArg { span, .. }
             | AstNode::UnpackAssignment { span, .. }
+            | AstNode::DictUnpackPattern(_, span)
             | AstNode::Return(_, span)
             | AstNode::Try(_, span)
             | AstNode::Import { span, .. }
@@ -5944,6 +6250,7 @@ mod cst_integration_tests {
             AstNode::List(..) => "List",
             AstNode::Cat(..) => "Cat",
             AstNode::Dict(..) => "Dict",
+            AstNode::DictUnpackPattern(..) => "DictUnpackPattern",
 
             AstNode::Group { .. } => "Group",
             AstNode::FString { .. } => "FString",
@@ -5991,6 +6298,9 @@ mod cst_integration_tests {
             }
             AstNode::BlockExpr(items, _) => out.extend(items.iter()),
             AstNode::Dict(pairs, _) => out.extend(pairs.iter().map(|(_, v)| v)),
+            AstNode::DictUnpackPattern(entries, _) => {
+                out.extend(entries.iter().map(|entry| &entry.target))
+            }
             AstNode::Assignment { value, .. } | AstNode::OuterAssignment { value, .. } => {
                 out.push(value)
             }

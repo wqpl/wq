@@ -80,6 +80,10 @@
         "required": false,
         "types": [
           {
+            "type": "dict_unpack_pattern",
+            "named": true
+          },
+          {
             "type": "pipe_expr",
             "named": true
           }
@@ -569,6 +573,74 @@
         },
         {
           "type": "tag",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "dict_unpack_item",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "tag",
+            "named": true
+          }
+        ]
+      },
+      "target": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "dict_unpack_pattern",
+            "named": true
+          },
+          {
+            "type": "pipe_expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "dict_unpack_items",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "dict_unpack_item",
+          "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "dict_unpack_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "dict_unpack_items",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         }
       ]

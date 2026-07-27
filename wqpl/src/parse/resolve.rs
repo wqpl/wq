@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{AstNode, AstSpan, BinaryOperator, Parameter, PipeKind};
+use crate::ast::{AstNode, AstSpan, BinaryOperator, DictUnpackEntry, Parameter, PipeKind};
 use crate::builtins::Builtins;
 use crate::compile::function_ref_capture_names;
 use crate::symbol::{DefKind, SymbolIndex};
@@ -25,6 +25,12 @@ enum BindingId {
 struct ResolverSnapshot {
     scopes: Vec<HashMap<String, BindingId>>,
     binding_facts: HashMap<BindingId, BindingFact>,
+}
+
+#[derive(Default)]
+struct UnpackPlan {
+    extracts: Vec<AstNode>,
+    writes: Vec<AstNode>,
 }
 
 /// Expression resolver that lowers certain postfix patterns into explicit
@@ -90,7 +96,7 @@ impl Resolver {
             crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
                 .src("resolver")
                 .msg(
-                    "unpack assignment target must be an identifier, index target, '_', '...', or a nested list",
+                    "unpack assignment target must be an identifier, index target, '_', '...', or a nested pattern",
                 ),
             span,
         )
@@ -539,6 +545,17 @@ impl Resolver {
                 let lhs = lhs.into_iter().map(|n| self.resolve_node(n)).collect();
                 self.expand_unpack_assignment(lhs, op, *rhs, span)
             }
+            AstNode::DictUnpackPattern(entries, span) => AstNode::DictUnpackPattern(
+                entries
+                    .into_iter()
+                    .map(|entry| DictUnpackEntry {
+                        key: entry.key,
+                        key_span: entry.key_span,
+                        target: self.resolve_node(entry.target),
+                    })
+                    .collect(),
+                span,
+            ),
             AstNode::FString { parts, span } => {
                 let mut template = String::new();
                 let mut args: Vec<AstNode> = Vec::new();
@@ -631,6 +648,10 @@ impl Resolver {
         rhs: AstNode,
         span: AstSpan,
     ) -> AstNode {
+        if let [AstNode::DictUnpackPattern(entries, _)] = lhs.as_slice() {
+            return self.expand_dict_unpack_assignment(entries.clone(), op, rhs, span);
+        }
+
         // Optimization: if rhs is a literal list/dict and no augmented op,
         // expand directly without creating a temporary.
         if op.is_none() {
@@ -647,8 +668,7 @@ impl Resolver {
             }
         }
 
-        let tmp_name = format!("--resolver-unpack-{}", self.gensym);
-        self.gensym += 1;
+        let tmp_name = self.next_unpack_temp();
         let mut stmts = vec![AstNode::Assignment {
             name: tmp_name.clone(),
             op: None,
@@ -670,6 +690,186 @@ impl Resolver {
             }
         }
         AstNode::Block(stmts, span)
+    }
+
+    fn expand_dict_unpack_assignment(
+        &mut self,
+        entries: Vec<DictUnpackEntry>,
+        op: Option<BinaryOperator>,
+        rhs: AstNode,
+        span: AstSpan,
+    ) -> AstNode {
+        let source_name = self.next_unpack_temp();
+        let mut plan = UnpackPlan {
+            extracts: vec![AstNode::Assignment {
+                name: source_name.clone(),
+                op: None,
+                value: Box::new(rhs),
+                span,
+                name_span: span,
+            }],
+            writes: Vec::new(),
+        };
+        self.preflight_dict_pattern(&entries, &source_name, op, span, &mut plan);
+
+        if plan.writes.is_empty() {
+            plan.writes.push(AstNode::Variable(source_name, span));
+        }
+        plan.extracts.extend(plan.writes);
+        AstNode::Block(plan.extracts, span)
+    }
+
+    fn next_unpack_temp(&mut self) -> String {
+        let name = format!("--resolver-unpack-{}", self.gensym);
+        self.gensym += 1;
+        name
+    }
+
+    fn preflight_dict_pattern(
+        &mut self,
+        entries: &[DictUnpackEntry],
+        source_name: &str,
+        op: Option<BinaryOperator>,
+        span: AstSpan,
+        plan: &mut UnpackPlan,
+    ) {
+        for entry in entries {
+            let value_name = self.next_unpack_temp();
+            plan.extracts.push(AstNode::Assignment {
+                name: value_name.clone(),
+                op: None,
+                value: Box::new(AstNode::Index {
+                    object: Box::new(AstNode::Variable(source_name.into(), None)),
+                    index: Box::new(AstNode::Literal(
+                        Value::Tag(entry.key.clone().into()),
+                        entry.key_span,
+                    )),
+                    span: entry.key_span,
+                }),
+                span: entry.key_span.or(span),
+                name_span: None,
+            });
+            self.preflight_unpack_target(&entry.target, &value_name, op, span, plan);
+        }
+    }
+
+    fn preflight_unpack_target(
+        &mut self,
+        target: &AstNode,
+        source_name: &str,
+        op: Option<BinaryOperator>,
+        span: AstSpan,
+        plan: &mut UnpackPlan,
+    ) {
+        match target {
+            AstNode::DictUnpackPattern(entries, _) => {
+                self.preflight_dict_pattern(entries, source_name, op, span, plan);
+            }
+            AstNode::List(items, _) => {
+                let ellipsis_idx = items
+                    .iter()
+                    .position(|item| matches!(item, AstNode::Ellipsis(_)));
+                for (position, item) in items.iter().enumerate() {
+                    if matches!(item, AstNode::Ellipsis(_)) {
+                        break;
+                    }
+                    self.preflight_indexed_target(
+                        item,
+                        source_name,
+                        position as i64,
+                        op,
+                        span,
+                        plan,
+                    );
+                }
+                if let Some(ellipsis_idx) = ellipsis_idx {
+                    for (offset, item) in items.iter().skip(ellipsis_idx + 1).enumerate() {
+                        self.preflight_indexed_target(
+                            item,
+                            source_name,
+                            -1 - offset as i64,
+                            op,
+                            span,
+                            plan,
+                        );
+                    }
+                }
+            }
+            AstNode::Ellipsis(_) => {}
+            _ => plan
+                .writes
+                .extend(Self::make_unpack_write(target, source_name, op, span)),
+        }
+    }
+
+    fn preflight_indexed_target(
+        &mut self,
+        target: &AstNode,
+        source_name: &str,
+        position: i64,
+        op: Option<BinaryOperator>,
+        span: AstSpan,
+        plan: &mut UnpackPlan,
+    ) {
+        let value_name = self.next_unpack_temp();
+        plan.extracts.push(AstNode::Assignment {
+            name: value_name.clone(),
+            op: None,
+            value: Box::new(AstNode::Index {
+                object: Box::new(AstNode::Variable(source_name.into(), None)),
+                index: Box::new(AstNode::Literal(Value::Int(position), None)),
+                span,
+            }),
+            span,
+            name_span: None,
+        });
+        self.preflight_unpack_target(target, &value_name, op, span, plan);
+    }
+
+    fn make_unpack_write(
+        target: &AstNode,
+        source_name: &str,
+        op: Option<BinaryOperator>,
+        span: AstSpan,
+    ) -> Vec<AstNode> {
+        let value = Box::new(AstNode::Variable(source_name.into(), None));
+        match target {
+            AstNode::Variable(name, _) if name == "_" => Vec::new(),
+            AstNode::Variable(name, name_span) => vec![AstNode::Assignment {
+                name: name.clone(),
+                op,
+                value,
+                span: *name_span,
+                name_span: *name_span,
+            }],
+            AstNode::Index { object, index, .. } => vec![AstNode::IndexAssign {
+                object: object.clone(),
+                index: index.clone(),
+                op,
+                value,
+                span,
+            }],
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: false,
+                ..
+            } => {
+                let index = if items.len() == 1 {
+                    Box::new(items[0].clone())
+                } else {
+                    Box::new(AstNode::List(items.clone(), None))
+                };
+                vec![AstNode::IndexAssign {
+                    object: object.clone(),
+                    index,
+                    op,
+                    value,
+                    span,
+                }]
+            }
+            _ => vec![Self::invalid_unpack_target(span)],
+        }
     }
 
     /// Try to lower an unpack assignment when RHS is a literal list/dict.
@@ -827,8 +1027,7 @@ impl Resolver {
                 }
 
                 // Fallback: temp + index for this nested pattern
-                let sub_tmp = format!("--resolver-unpack-{}", self.gensym);
-                self.gensym += 1;
+                let sub_tmp = self.next_unpack_temp();
                 stmts.push(AstNode::Assignment {
                     name: sub_tmp.clone(),
                     op: None,
@@ -954,8 +1153,7 @@ impl Resolver {
             }
             AstNode::Ellipsis(_) => vec![],
             AstNode::List(inner_items, _) => {
-                let sub_tmp = format!("--resolver-unpack-{}", self.gensym);
-                self.gensym += 1;
+                let sub_tmp = self.next_unpack_temp();
                 let mut stmts = vec![AstNode::Assignment {
                     name: sub_tmp.clone(),
                     op: None,
@@ -1738,6 +1936,9 @@ mod tests {
             AstNode::Dict(pairs, _) => pairs
                 .iter()
                 .any(|(_, value)| contains_call_name(value, target)),
+            AstNode::DictUnpackPattern(entries, _) => entries
+                .iter()
+                .any(|entry| contains_call_name(&entry.target, target)),
             AstNode::Function { body, .. }
             | AstNode::WLoop { body, .. }
             | AstNode::NLoop { body, .. } => contains_call_name(body, target),

@@ -1,4 +1,4 @@
-fft2_module:@i"fft2.wq";fft2:fft2_module `fft2;ifft2:fft2_module `ifft2
+(`fft2;`ifft2):@i"fft2.wq"
 impulse:fft2 (0;0;1;0;0;0;0;0)
 assert_eq[
   impulse;

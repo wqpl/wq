@@ -1,9 +1,4 @@
-tt:@i"tt.wq";
-tokenize:tt `tokenize;
-parse:tt `parse;
-collect_vars:tt `collect_vars;
-print_table:tt `print_table;
-print_ast:tt `print_ast
+(`tokenize;`parse;`collect_vars;`print_table;`print_ast):@i"tt.wq"
 // inp:input"Input the Bool Expression: "
 inp:"A&B|C^B"
 toks:tokenize inp;expr:parse toks;vars:collect_vars[expr;()]

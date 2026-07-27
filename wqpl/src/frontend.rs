@@ -562,6 +562,11 @@ fn attach_full_source_context_to_ast_errors(node: &mut AstNode, input: &str) {
             }
             attach_full_source_context_to_ast_errors(rhs, input);
         }
+        AstNode::DictUnpackPattern(entries, _) => {
+            for entry in entries {
+                attach_full_source_context_to_ast_errors(&mut entry.target, input);
+            }
+        }
         AstNode::Postfix { object, items, .. } => {
             attach_full_source_context_to_ast_errors(object, input);
             for item in items {

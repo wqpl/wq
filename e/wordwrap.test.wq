@@ -1,2 +1,2 @@
-wordwrap_module:@i"wordwrap.wq";wordwrap:wordwrap_module`wordwrap
+(`wordwrap):@i"wordwrap.wq"
 "abcd efghi jklm"|repeat 100|wordwrap 10

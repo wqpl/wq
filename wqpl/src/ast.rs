@@ -38,6 +38,13 @@ impl Parameter {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DictUnpackEntry {
+    pub key: String,
+    pub key_span: AstSpan,
+    pub target: AstNode,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     Error(WqError, AstSpan),
     Literal(Value, AstSpan),
@@ -99,6 +106,8 @@ pub enum AstNode {
     },
     /// Ellipsis (for unpack patterns)
     Ellipsis(AstSpan),
+    /// Keyed dictionary unpack pattern like (`a;`b:alias)
+    DictUnpackPattern(Vec<DictUnpackEntry>, AstSpan),
     /// List construction
     List(Vec<AstNode>, AstSpan),
     /// N-ary concatenation (comma-separated items)
@@ -292,7 +301,11 @@ impl AstNode {
             | FString { span, .. }
             | UnaryOp { span, .. }
             | Group { span, .. } => *span,
-            Cat(_, span) | List(_, span) | Dict(_, span) | Block(_, span) => *span,
+            Cat(_, span)
+            | List(_, span)
+            | Dict(_, span)
+            | DictUnpackPattern(_, span)
+            | Block(_, span) => *span,
             BlockExpr(_, span) => *span,
             Return(_, span) | Try(_, span) | Ellipsis(span) | Break(span) | Continue(span) => *span,
             PipeInput => None,

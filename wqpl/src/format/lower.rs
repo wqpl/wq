@@ -1382,6 +1382,18 @@ mod tests {
     }
 
     #[test]
+    fn dict_unpack_patterns() {
+        assert_eq!(
+            fmt("(`a; `b:renamed): @i \"module.wq\"", 80),
+            "(`a;`b:renamed):@i\"module.wq\""
+        );
+        assert_eq!(
+            fmt("(`api: (`start; `stop); `pair: (x; y)): module", 80),
+            "(`api:(`start;`stop);`pair:(x;y)):module"
+        );
+    }
+
+    #[test]
     fn paren_preserved() {
         assert_eq!(fmt("(1+2)*3", 80), "(1+2)*3");
     }

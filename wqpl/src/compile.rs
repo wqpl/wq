@@ -1047,6 +1047,11 @@ impl Compiler {
                     "'...' placeholder is only valid in unpack assignment pattern",
                 ));
             }
+            AstNode::DictUnpackPattern(..) => {
+                return Err(self.syntax_err_here(
+                    "dict unpack pattern is only valid on the left side of an assignment",
+                ));
+            }
             AstNode::Assignment {
                 name,
                 op,
@@ -2769,6 +2774,7 @@ fn collect_ref_default_assignment_needs_inner(
         | AstNode::Variable(..)
         | AstNode::OuterVariable(..)
         | AstNode::Ellipsis(_)
+        | AstNode::DictUnpackPattern(..)
         | AstNode::PipeInput
         | AstNode::Break(_)
         | AstNode::Continue(_)
@@ -2974,6 +2980,9 @@ fn has_ctrl(node: &AstNode) -> bool {
             has_ctrl(object) || args.iter().any(has_ctrl)
         }
         AstNode::Dict(pairs, _) => pairs.iter().any(|(_, v)| has_ctrl(v)),
+        AstNode::DictUnpackPattern(entries, _) => {
+            entries.iter().any(|entry| has_ctrl(&entry.target))
+        }
         AstNode::ConditionalChain { .. } => {
             unreachable!("ConditionalChain should have been resolved before compilation")
         }
@@ -3341,6 +3350,17 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             expr: Box::new(replace_pipe_input(expr, temp_name)),
             span: *span,
         },
+        AstNode::DictUnpackPattern(entries, span) => AstNode::DictUnpackPattern(
+            entries
+                .iter()
+                .map(|entry| crate::ast::DictUnpackEntry {
+                    key: entry.key.clone(),
+                    key_span: entry.key_span,
+                    target: replace_pipe_input(&entry.target, temp_name),
+                })
+                .collect(),
+            *span,
+        ),
         AstNode::NamedArg { name, value, span } => AstNode::NamedArg {
             name: name.clone(),
             value: Box::new(replace_pipe_input(value, temp_name)),
@@ -3418,6 +3438,7 @@ fn collect_capture_needs(
         | AstNode::Literal(..)
         | AstNode::Import { .. }
         | AstNode::Ellipsis(_)
+        | AstNode::DictUnpackPattern(..)
         | AstNode::PipeInput
         | AstNode::Break(_)
         | AstNode::Continue(_) => {}

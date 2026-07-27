@@ -68,6 +68,9 @@ export default grammar({
 
   conflicts: ($) => [
     [$.literal, $.dict_pair],
+    [$.literal, $.dict_unpack_item],
+    [$.literal, $.dict_pair, $.dict_unpack_item],
+    [$.assignment_expr, $.dict_unpack_item],
     [$.operator_identifier, $.unary_expr],
     [$._non_comma_operator_identifier, $._non_terminator_unary_expr],
     [$._leading_comma_expr, $.operator_identifier],
@@ -102,7 +105,7 @@ export default grammar({
         prec.right(
           PREC.ASSIGN,
           seq(
-            field("left", $.pipe_expr),
+            field("left", choice($.dict_unpack_pattern, $.pipe_expr)),
             field("operator", $.assignment_operator),
             field("right", $.assignment_expr),
           ),
@@ -678,6 +681,37 @@ export default grammar({
       ),
 
     dict_pair: ($) => seq($.tag, ":", $.expression),
+
+    dict_unpack_pattern: ($) =>
+      prec.dynamic(
+        2,
+        seq(
+          "(",
+          optional(repeat1($.newline)),
+          $.dict_unpack_items,
+          optional($._item_separator),
+          ")",
+        ),
+      ),
+
+    dict_unpack_items: ($) =>
+      prec.right(
+        seq(
+          $.dict_unpack_item,
+          repeat(seq($._item_separator, $.dict_unpack_item)),
+        ),
+      ),
+
+    dict_unpack_item: ($) =>
+      seq(
+        field("key", $.tag),
+        optional(
+          seq(
+            ":",
+            field("target", choice($.dict_unpack_pattern, $.pipe_expr)),
+          ),
+        ),
+      ),
 
     conditional: ($) => seq("$", $.arg_list),
     conditional_dot: ($) => seq("$.", $.arg_list),

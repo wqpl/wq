@@ -116,7 +116,9 @@ fn node_color(node: &AstNode) -> AnsiColor {
         | Import { .. } => AnsiColor::Green,
         Cat(..) | List(..) | Dict(..) | Block(..) | BlockExpr(..) => AnsiColor::White,
         Index { .. } | MutatingIndex { .. } => AnsiColor::BrightBlue,
-        Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) => AnsiColor::BrightRed,
+        Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) | DictUnpackPattern(..) => {
+            AnsiColor::BrightRed
+        }
         UnpackAssignment { .. } => AnsiColor::Red,
         NamedArg { .. } => AnsiColor::BrightBlue,
         Error(..) => AnsiColor::BrightMagenta,
@@ -584,6 +586,21 @@ impl AstNode {
                     .collect();
                 children.push(rhs.pretty_with_depth(depth + 1, src));
                 pretty_group(depth, head, children, color)
+            }
+            DictUnpackPattern(entries, _) => {
+                let children = entries
+                    .iter()
+                    .map(|entry| {
+                        let target = entry.target.pretty_with_depth(depth + 2, src);
+                        pretty_group(
+                            depth + 1,
+                            format!("KEY(`{})", entry.key),
+                            vec![target],
+                            color,
+                        )
+                    })
+                    .collect();
+                pretty_container_group(depth, format!("DICT-PATTERN{note}"), children, color)
             }
             FString { parts, .. } => {
                 let head = format!("FSTRING{note}");

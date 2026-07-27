@@ -30,8 +30,8 @@ next:'{count+:1}
 The importing file receives only that dict:
 
 ```wq no-run
-counter:@i"counter.wq"
-counter `next
+(`next;`initial):@i"counter.wq"
+next[]
 ```
 
 Top-level assignments such as `count` stay private. Exported functions retain private bindings through normal closure capture. An empty or comment-only module exports `()`.

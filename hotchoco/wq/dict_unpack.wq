@@ -1,0 +1,20 @@
+(`left;`right:r):(`right:2;`extra:99;`left:1)
+echo (left;r)
+
+(`api:(`start;`stop);`pair:(x;y);`version):(
+  `version:3;
+  `pair:(4;5);
+  `api:(`stop:2;`start:1))
+echo (start;stop;x;y;version)
+
+n:0
+make:'{[]n+:1;(`a:n;`b:n)}
+(`a;`b):make[]
+echo (n;a;b)
+
+a:10;b:20
+missing:@t ((`a;`missing):(`a:1))
+echo (a;b;missing 0)
+
+(`a;`b)+:(`b:2;`a:1)
+echo (a;b)

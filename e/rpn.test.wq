@@ -1,4 +1,4 @@
-rpn_module:@i"rpn.wq";parse_rpn:rpn_module`parse_rpn;rpn:rpn_module`rpn
+(`parse_rpn;`rpn):@i"rpn.wq"
 assert_eq[
   parse_rpn "1 2 */";
   ((`noun;1);(`noun;2);(`adverb;@u"/";@u"*"));

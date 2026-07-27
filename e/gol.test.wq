@@ -1,4 +1,4 @@
-gol:@i"gol.wq";neighbors:gol`neighbors;after:gol`after;show_after:gol`show_after
+(`neighbors;`after;`show_after):@i"gol.wq"
 // Blinker, a period-2 oscillator.
 g:((0;0;0;0;0)
    (0;0;1;0;0)
