@@ -1,0 +1,39 @@
+synth:@i"tinysynth.wq"
+(`parse_score;`synthesize;`wav_bytes):synth
+
+events:parse_score "
+  // Parsing covers directives, rests, chords, accidentals, and dotted notes.
+  tempo=120 wave=triangle volume=0.5 attack=0.01 release=0.02
+  C4/4 R/8 C4+E4+G4/2. F#4/16 Bb3/16
+"
+
+assert_eq[#events;5;"parse all musical events"]
+assert_eq[events[0]`wave;"triangle";"attach current waveform to each event"]
+assert_eq[events[0]`volume;0.5;"attach current volume to each event"]
+assert_eq[events[0]`seconds;0.5;"quarter-note duration follows tempo"]
+assert_eq[events[1]`frequencies;();"rest has no frequencies"]
+assert_eq[events[1]`seconds;0.25;"eighth-rest duration follows tempo"]
+assert_eq[#events[2]`frequencies;3;"parse chord pitches"]
+assert_eq[events[2]`seconds;1.5;"dot extends a duration by one half"]
+assert_eq[round[events[3][`frequencies][0];3];369.994;"parse sharp pitches"]
+assert_eq[round[events[4][`frequencies][0];3];233.082;"parse flat pitches"]
+
+short_events:parse_score "tempo=240 attack=0 release=0 C4/4"
+samples:synthesize[short_events;8000]
+assert_eq[#samples;2000;"synthesis honors score duration and sample rate"]
+
+wav:wav_bytes[samples;8000;0.8]
+assert[bytes? wav;"WAV output is a byte buffer"]
+assert_eq[#wav;4044;"WAV contains a 44-byte header and 16-bit samples"]
+assert_eq[decode[wav 0..4;"utf-8"];"RIFF";"WAV starts with RIFF"]
+assert_eq[decode[wav 8..12;"utf-8"];"WAVE";"WAV identifies the WAVE format"]
+assert_eq[decode[wav 12..16;"utf-8"];"fmt ";"WAV contains a format chunk"]
+assert_eq[decode[wav 36..40;"utf-8"];"data";"WAV contains a data chunk"]
+assert_eq[wav 22;1;"WAV is mono"]
+assert_eq[wav 34;16;"WAV uses 16-bit PCM"]
+
+assert_eq[(@t parse_score "H4/4")0;`error;"reject invalid note names"]
+assert_eq[(@t parse_score "C4/3")0;`error;"reject unsupported durations"]
+assert_eq[(@t parse_score "wave=noise C4/4")0;`error;"reject unsupported waves"]
+
+()
