@@ -124,8 +124,13 @@ try {
 
 Source spans and cursor offsets use half-open UTF-8 byte offsets. Convert DOM,
 textarea, Monaco, or CodeMirror UTF-16 offsets before passing them to an API
-that accepts a cursor offset. `highlight_wq` returns escaped HTML for direct
-rendering. `highlight_spans` returns editor-neutral structured spans.
+that accepts a cursor offset. `highlight_spans` returns editor-neutral
+structured spans and is the preferred browser rendering interface.
+`highlight_wq` remains as a compatibility helper that returns escaped HTML.
+
+Evaluated values include a `presentation` with plain visible text, exact
+syntax highlight spans for source cells, and layout spans for axes, indices,
+and fences. The legacy `display` field retains ANSI output for compatibility.
 
 During `eval_wq_async`, the stdin callback can return a Promise. Evaluation
 suspends until the callback supplies a string or reports end-of-file with

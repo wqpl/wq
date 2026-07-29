@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   PLAYGROUND_EXAMPLE_DEFINITIONS,
+  createPlaygroundEvaluation,
   createPlaygroundExamples,
-  findPlaygroundExample,
-  inlineImportedExample,
+  findPlaygroundExample
 } from "./playground-examples-core.js";
 
 test("playground examples point at curated e scripts", () => {
@@ -19,39 +19,54 @@ test("playground examples point at curated e scripts", () => {
   );
   assert.equal(
     new Set(PLAYGROUND_EXAMPLE_DEFINITIONS.map((example) => example.id)).size,
-    PLAYGROUND_EXAMPLE_DEFINITIONS.length,
+    PLAYGROUND_EXAMPLE_DEFINITIONS.length
   );
 });
 
-test("playground examples are built from source registry entries", () => {
-  const examples = createPlaygroundExamples({
-    nq: "nq source",
-    primes: "primes source",
-    cowsay: "cowsay source",
-    gol: "gol source",
-  });
+function exampleSources() {
+  return new Map(
+    PLAYGROUND_EXAMPLE_DEFINITIONS.flatMap((definition) => [
+      [definition.initialPath, `${definition.id} implementation`],
+      [
+        definition.entryPath,
+        `${definition.id}:@i"${definition.initialPath}"\n${definition.id}[]`
+      ]
+    ])
+  );
+}
 
-  assert.equal(findPlaygroundExample(examples, "primes").code, "primes source");
-  assert.equal(findPlaygroundExample(examples, "nq").code, "nq source");
+test("playground examples retain their implementation and entry files", () => {
+  const examples = createPlaygroundExamples(exampleSources());
+  const primes = findPlaygroundExample(examples, "primes");
+
+  assert.equal(primes.files.get("primes.wq"), "primes implementation");
+  assert.equal(
+    primes.files.get("primes.test.wq"),
+    'primes:@i"primes.wq"\nprimes[]'
+  );
 });
 
 test("playground example registry rejects missing source entries", () => {
   assert.throws(
-    () => createPlaygroundExamples({}),
-    /Missing playground example source for @e\/nq\.test\.wq/,
+    () => createPlaygroundExamples(new Map()),
+    /Missing playground example source nq\.wq for N-Queens/
   );
 });
 
-test("imported example tests are inlined for the browser", () => {
+test("playground evaluation preserves the real entry source and modules", () => {
+  const sources = exampleSources();
+  const example = findPlaygroundExample(
+    createPlaygroundExamples(sources),
+    "gol"
+  );
+  example.files.set("gol.wq", "edited implementation");
+
+  const evaluation = createPlaygroundEvaluation(example, sources);
+
+  assert.equal(evaluation.sourcePath, "gol.test.wq");
   assert.equal(
-    inlineImportedExample(
-      "double:{2*x}\ndouble\n",
-      'double:@i"double.wq"\nassert_eq[double 2;4]',
-    ),
-    "double:{2*x}\ndouble\n\nassert_eq[double 2;4]",
+    evaluation.source,
+    'gol:@i"gol.wq"\ngol[]'
   );
-  assert.throws(
-    () => inlineImportedExample("double:{2*x}", "assert_eq[double 2;4]"),
-    /start with a wq import/,
-  );
+  assert.equal(evaluation.modules.get("gol.wq"), "edited implementation");
 });

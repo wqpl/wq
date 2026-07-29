@@ -50,29 +50,98 @@ test("playground output header is compact and its clear action is neutral", () =
   assert.match(clearRule, /background:\s*var\(--surface-bg\);/);
   assert.match(clearRule, /color:\s*var\(--surface-text-muted\);/);
   assert.match(clearRule, /padding:\s*4px 9px;/);
+  assert.match(clearRule, /border-radius:\s*var\(--radius-xs\);/);
 
   const disabledRule = styleRule(".run-output-clear:disabled");
   assert.match(disabledRule, /cursor:\s*default;/);
   assert.match(disabledRule, /opacity:\s*0\.55;/);
 });
 
-test("playground Examples heading stays above the scrolling cards", () => {
+test("playground Examples uses a fixed title row and a scrolling card list", () => {
   const sidebarRule = styleRules(".playground-sidebar").find((rule) =>
-    rule.includes("overflow-y: auto"),
+    rule.includes("overflow: hidden")
   );
   assert.ok(sidebarRule);
   assert.match(sidebarRule, /padding:\s*0;/);
-  assert.match(sidebarRule, /overflow-y:\s*auto;/);
-  assert.match(sidebarRule, /isolation:\s*isolate;/);
+  assert.match(sidebarRule, /overflow:\s*hidden;/);
 
   const headingRule = styleRule(".playground-sidebar h2");
-  assert.match(headingRule, /position:\s*sticky;/);
-  assert.match(headingRule, /top:\s*0;/);
-  assert.match(headingRule, /z-index:\s*3;/);
+  assert.match(headingRule, /flex:\s*0 0 auto;/);
+  assert.match(
+    headingRule,
+    /border-bottom:\s*1px solid var\(--surface-border-muted\);/
+  );
   assert.match(headingRule, /background:\s*var\(--surface-bg-soft\);/);
+  assert.doesNotMatch(headingRule, /position:\s*sticky;/);
 
   const listRule = styleRule(".playground-template-list");
-  assert.match(listRule, /padding:\s*0 var\(--space-8\) var\(--space-8\);/);
+  assert.match(listRule, /flex:\s*1 1 auto;/);
+  assert.match(listRule, /min-height:\s*0;/);
+  assert.match(listRule, /overflow-y:\s*auto;/);
+});
+
+test("playground editor and output share an accessible vertical split", () => {
+  assert.match(
+    appSource,
+    /class="playground-main"[\s\S]*class="editor"[\s\S]*class="playground-splitter"[\s\S]*role="separator"[\s\S]*aria-orientation="horizontal"[\s\S]*class="run-output-panel"/
+  );
+  assert.match(
+    styleRule(".playground-main"),
+    /grid-template-rows:[\s\S]*var\(--playground-splitter-size\)/
+  );
+  assert.match(
+    playgroundSource,
+    /splitter\.addEventListener\("pointerdown"[\s\S]*splitter\.addEventListener\("pointermove"[\s\S]*setPlaygroundEditorHeight/
+  );
+  assert.match(
+    playgroundSource,
+    /splitter\.addEventListener\("keydown"[\s\S]*ArrowUp[\s\S]*ArrowDown[\s\S]*Home[\s\S]*End/
+  );
+});
+
+test("playground inspector panels reuse the green REPL inspector treatment", () => {
+  const panelRule = styleRule(".symbol-panel,\n.structure-panel");
+  assert.match(panelRule, /background:\s*var\(--globals-panel-bg\);/);
+  assert.match(
+    panelRule,
+    /border:\s*1px solid var\(--globals-panel-border\);/
+  );
+
+  const headRule = styleRule(".symbol-panel-head,\n.structure-panel-head");
+  assert.match(
+    headRule,
+    /border-bottom:\s*1px solid var\(--globals-row-border\);/
+  );
+
+  const countRule = styleRule(".symbol-panel-count");
+  assert.match(countRule, /border:\s*0;/);
+  assert.match(countRule, /background:\s*transparent;/);
+  assert.doesNotMatch(countRule, /border-radius/);
+
+  const symbolEmptyRule = styleRule(
+    ".symbol-panel:has(.symbol-panel-list:empty) .symbol-panel-status"
+  );
+  assert.match(symbolEmptyRule, /place-items:\s*center;/);
+  assert.match(symbolEmptyRule, /text-align:\s*center;/);
+
+  const structureEmptyRule = styleRule(".structure-panel-body.empty");
+  assert.match(structureEmptyRule, /align-items:\s*center;/);
+  assert.match(structureEmptyRule, /justify-content:\s*center;/);
+
+  const structureTabRule = styleRule(".structure-tab");
+  assert.match(
+    structureTabRule,
+    /color:\s*var\(--inspector-control-text\);/
+  );
+  const activeStructureTabRule = styleRule(".structure-tab.active");
+  assert.match(
+    activeStructureTabRule,
+    /background:\s*var\(--inspector-control-active-bg\);/
+  );
+  assert.match(
+    activeStructureTabRule,
+    /color:\s*var\(--inspector-control-active-text\);/
+  );
 });
 
 test("playground output empty state is centered and subdued", () => {
@@ -113,4 +182,32 @@ test("playground clear action stays disabled while output is empty", () => {
     playgroundSource,
     /finally\s*\{\s*instance\.resetRequested = false;\s*syncClearOutputButton\(instance\);/,
   );
+});
+
+test("poster configuration and display use labelled native dialogs", () => {
+  assert.match(playgroundSource, /document\.createElement\("dialog"\)/);
+  assert.match(
+    playgroundSource,
+    /dialog\.setAttribute\("aria-labelledby", "posterConfigHeading"\)/
+  );
+  assert.match(
+    playgroundSource,
+    /dialog\.setAttribute\("aria-labelledby", "posterDisplayHeading"\)/
+  );
+  assert.match(playgroundSource, /dialog\.showModal\(\)/);
+  assert.match(
+    playgroundSource,
+    /if \(opener\?\.isConnected\) opener\.focus\(\)/
+  );
+  assert.doesNotMatch(playgroundSource, /poster-modal-overlay|poster-show-overlay/);
+  assert.match(styles, /\.poster-dialog::backdrop\s*\{/);
+});
+
+test("Playground editor focus stays quiet while REPL focus stays visible", () => {
+  assert.match(
+    styles,
+    /\.editor \.wq-editor\.editor-text:focus\s*\{[^}]*outline:\s*none/s
+  );
+  assert.doesNotMatch(styles, /\.editor:focus-within\s*\{/);
+  assert.match(styles, /\.repl-live-input-row:focus-within\s*\{/);
 });

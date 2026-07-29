@@ -1,15 +1,16 @@
 import { WasmWqSession } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
 import { createWqEditor } from "./editor.js";
+import { renderHighlightedSource } from "./syntax-highlight.js";
 import { named, plotSeriesArg, wqString } from "./viz-codegen.js";
 import { DEFAULT_STATE, PRESETS } from "./viz-presets.js";
 import {
   alignTurnBody,
   ensureWasm,
   getWqFrontend,
-  escapeHtml,
   formatWqError,
   queueEval,
+  wirePopupSelection
 } from "./wq-shared.js";
 import {
   createEvaluationController,
@@ -273,9 +274,6 @@ function closeAllSelects(root, except) {
 }
 
 function closePresetMenu(instance) {
-  if (instance.presetMenuPanel?.contains(document.activeElement)) {
-    instance.presetMenuButton?.focus();
-  }
   instance.presetMenuButton?.setAttribute("aria-expanded", "false");
   instance.presetMenuPanel?.classList.remove("open");
 }
@@ -286,14 +284,6 @@ function openPresetMenu(instance) {
   instance.presetMenuPanel?.classList.add("open");
   if (instance.presetMenuPanel) {
     instance.presetMenuPanel.scrollTop = 0;
-  }
-}
-
-function togglePresetMenu(instance) {
-  if (instance.presetMenuPanel?.classList.contains("open")) {
-    closePresetMenu(instance);
-  } else {
-    openPresetMenu(instance);
   }
 }
 
@@ -685,11 +675,7 @@ function applyPreset(instance, key, options = {}) {
 function renderCode(instance) {
   instance.code = buildCode(instance.state);
   if (!instance.codeEl) return;
-  try {
-    instance.codeEl.innerHTML = instance.frontend.highlight_wq(instance.code);
-  } catch (_err) {
-    instance.codeEl.innerHTML = escapeHtml(instance.code);
-  }
+  renderHighlightedSource(instance.codeEl, instance.frontend, instance.code);
 }
 
 function setCopyCodeState(instance, text, tone = "") {
@@ -841,26 +827,38 @@ function wireSelect(instance, field) {
   const key = field.dataset.vizSelect;
   const button = field.querySelector(".viz-select-button");
   const menu = field.querySelector(".viz-select-menu");
+  const label = field.querySelector("label");
+  const value = field.querySelector("[data-viz-select-value]");
+  const labelId = `viz-${key}-label`;
+  const valueId = `viz-${key}-value`;
+  const menuId = `viz-${key}-options`;
+  label.id = labelId;
+  value.id = valueId;
+  menu.id = menuId;
+  button.setAttribute("aria-labelledby", `${labelId} ${valueId}`);
+  button.setAttribute("aria-controls", menuId);
+  menu.setAttribute("aria-labelledby", labelId);
   instance.selects[key] = field;
-  button?.addEventListener("click", () => {
-    const isOpen = menu?.classList.contains("open");
-    closeAllSelects(instance.root, isOpen ? null : field);
-    if (isOpen) {
-      closeSelect(field);
-    } else {
+  instance.selectPopups[key] = wirePopupSelection({
+    trigger: button,
+    popup: menu,
+    optionSelector: "[data-viz-option]",
+    onOpen() {
+      closeAllSelects(instance.root, field);
+      closePresetMenu(instance);
       openSelect(field);
+    },
+    onClose() {
+      closeSelect(field);
+    },
+    onSelect(option) {
+      const nextValue = option.dataset.vizOption;
+      setSelectValue(instance, key, nextValue);
+      if (key === "theme") {
+        applyThemePresetToControls(instance, nextValue);
+      }
+      updateView(instance);
     }
-  });
-  menu?.addEventListener("click", (event) => {
-    const option = event.target.closest("[data-viz-option]");
-    if (!option) return;
-    const nextValue = option.dataset.vizOption;
-    setSelectValue(instance, key, nextValue);
-    if (key === "theme") {
-      applyThemePresetToControls(instance, nextValue);
-    }
-    closeSelect(field);
-    updateView(instance);
   });
 }
 
@@ -888,11 +886,13 @@ export async function mountViz(root) {
     presetMenuButton: root.querySelector("[data-viz-preset-toggle]"),
     presetMenuPanel: root.querySelector("[data-viz-preset-panel]"),
     presetButtons: Array.from(root.querySelectorAll("[data-viz-preset]")),
+    presetPopup: null,
     layoutButtons: Array.from(
       root.querySelectorAll("[data-viz-layout-option]"),
     ),
     stepButtons: Array.from(root.querySelectorAll("[data-viz-step]")),
     selects: {},
+    selectPopups: {},
     ranges: Object.fromEntries(
       Array.from(root.querySelectorAll("[data-viz-range]")).map((input) => [
         input.dataset.vizRange,
@@ -927,6 +927,20 @@ export async function mountViz(root) {
 
   root.querySelectorAll("[data-viz-select]").forEach((field) => {
     wireSelect(instance, field);
+  });
+  instance.presetPopup = wirePopupSelection({
+    trigger: instance.presetMenuButton,
+    popup: instance.presetMenuPanel,
+    optionSelector: "[data-viz-preset]",
+    onOpen() {
+      openPresetMenu(instance);
+    },
+    onClose() {
+      closePresetMenu(instance);
+    },
+    onSelect(button) {
+      applyPreset(instance, button.dataset.vizPreset || "trig");
+    }
   });
   Object.entries(instance.ranges).forEach(([key, input]) => {
     input.addEventListener("input", () => {
@@ -983,14 +997,6 @@ export async function mountViz(root) {
     renderSeriesEditor(instance);
     updateView(instance);
   });
-  instance.presetMenuButton?.addEventListener("click", () => {
-    togglePresetMenu(instance);
-  });
-  instance.presetButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      applyPreset(instance, button.dataset.vizPreset || "trig");
-    });
-  });
   instance.runBtn?.addEventListener("click", async () => {
     if (instance.evaluationController.active) {
       instance.pendingRun = false;
@@ -1005,20 +1011,20 @@ export async function mountViz(root) {
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) {
       closeAllSelects(root);
-      closePresetMenu(instance);
+      instance.presetPopup?.close();
       return;
     }
     if (!event.target.closest("[data-viz-select]")) {
       closeAllSelects(root);
     }
     if (!event.target.closest("[data-viz-preset-menu]")) {
-      closePresetMenu(instance);
+      instance.presetPopup?.close();
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || event.defaultPrevented) return;
     closeAllSelects(root);
-    closePresetMenu(instance);
+    instance.presetPopup?.close({ restoreFocus: true });
   });
 
   root.addEventListener("wqide:deactivate", () => {

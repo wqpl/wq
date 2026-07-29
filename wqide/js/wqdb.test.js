@@ -249,12 +249,16 @@ test("wqdb centers its ready placeholder", async () => {
   );
 });
 
-test("wqdb source uses highlighting with a background-only current line", async () => {
+test("wqdb source uses structured highlighting with a background-only current line", async () => {
   const [source, styles] = await Promise.all([
     readFile(new URL("./wqdb.js", import.meta.url), "utf8"),
     readFile(new URL("../styles.css", import.meta.url), "utf8"),
   ]);
-  assert.match(source, /highlightWq\(source\)/);
+  assert.match(
+    source,
+    /highlightedSourceLineFragments\(document, frontend, state\.source\)/,
+  );
+  assert.doesNotMatch(source, /\.innerHTML\s*=/);
   assert.match(source, /highlightedLines/);
   assert.match(
     styles,

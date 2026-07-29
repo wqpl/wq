@@ -7,6 +7,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use crate::ast::{binary_op_display, unary_op_display};
+use crate::display::{ResultRegionKind, StructuredPrintResult};
 use crate::value::Value;
 use crate::value::func::CallableExpr;
 use crate::value::seq::{ExactIntSeq, ValueSeq};
@@ -332,6 +333,19 @@ pub(crate) fn format_table_value_for_display(
         .flatten()
 }
 
+pub(crate) fn format_table_value_structured_for_display(
+    val: &Value,
+) -> Option<StructuredPrintResult> {
+    if val.is_atom() || val.is_empty() || matches!(val, Value::Complex(_) | Value::Cas(_)) {
+        return None;
+    }
+    let table = parse_list_of_dicts(val)
+        .or_else(|| parse_dict_of_dicts(val))
+        .or_else(|| parse_dict_table(val))?;
+    let prepared = prepare_table(&table, &TableFormatOptions::default()).ok()?;
+    Some(format_plain_table_structured(&prepared))
+}
+
 pub fn format_table_value_with_options(
     val: &Value,
     opts: &TableFormatOptions,
@@ -599,6 +613,15 @@ fn format_plain_table(
     prepared: &PreparedTable,
     source_styler: Option<&dyn Fn(&str) -> String>,
 ) -> String {
+    format_plain_table_structured(prepared).render_with(|kind, text| match kind {
+        ResultRegionKind::Source => {
+            source_styler.map_or_else(|| text.to_string(), |styler| styler(text))
+        }
+        _ => text.to_string(),
+    })
+}
+
+fn format_plain_table_structured(prepared: &PreparedTable) -> StructuredPrintResult {
     let mut render_rows = Vec::new();
     if !prepared.headers.is_empty() {
         render_rows.push(prepared.headers.clone());
@@ -615,7 +638,7 @@ fn format_plain_table(
             }
         }
     }
-    let mut lines = Vec::with_capacity(render_rows.len());
+    let mut lines = Vec::with_capacity(render_rows.len() + usize::from(prepared.omitted_rows > 0));
     for (row_idx, row) in render_rows.into_iter().enumerate() {
         let render_len = row
             .iter()
@@ -635,18 +658,22 @@ fn format_plain_table(
             } else {
                 format!("{}{}", cell, " ".repeat(padding))
             };
-            let rendered = match (row_idx >= first_source_row, source_styler) {
-                (true, Some(styler)) => styler(&padded),
-                _ => padded,
+            let rendered = if row_idx >= first_source_row {
+                StructuredPrintResult::region(padded, ResultRegionKind::Source)
+            } else {
+                StructuredPrintResult::plain(padded)
             };
             parts.push(rendered);
         }
-        lines.push(parts.join(" "));
+        lines.push(StructuredPrintResult::joined(parts, " "));
     }
     if prepared.omitted_rows > 0 {
-        lines.push(format!("... {} more rows", prepared.omitted_rows));
+        lines.push(StructuredPrintResult::plain(format!(
+            "... {} more rows",
+            prepared.omitted_rows
+        )));
     }
-    lines.join("\n")
+    StructuredPrintResult::joined(lines, "\n")
 }
 
 fn format_markdown_table(table: &PreparedTable) -> String {

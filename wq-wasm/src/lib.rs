@@ -10,7 +10,8 @@ use wasm_bindgen::prelude::*;
 use web_sys::console;
 use wqpl::builtins::BuiltinPreset;
 use wqpl::display::{
-    BoxPrintConfig, ResultFormatOptions, apply_box_spec, format_print_result_with, format_xray_info,
+    BoxPrintConfig, ResultFormatOptions, ResultRegionKind, apply_box_spec,
+    format_print_result_structured, format_print_result_with, format_xray_info,
 };
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::format::{FormatConfig, Formatter};
@@ -77,6 +78,19 @@ export interface RenderedValue {
     display: string;
     category: string;
     xray: string;
+    presentation: RenderedValuePresentation;
+}
+
+export interface RenderedValuePresentation {
+    text: string;
+    highlights: HighlightSpan[];
+    layout: ResultLayoutSpan[];
+}
+
+export interface ResultLayoutSpan {
+    span: WqByteSpan;
+    kind: "axis" | "index" | "fence";
+    axis: number | null;
 }
 
 export type EvaluationSlice =
@@ -370,7 +384,7 @@ impl WasmFrontend {
             )
         })?;
         self.frontend
-            .format_syntax_display(src, kind, ColorMode::Always)
+            .format_syntax_display_semantic_ansi(src, kind, ColorMode::Always)
             .map_err(|err| wq_error_js(&err, ColorMode::Always))
     }
 
@@ -397,6 +411,21 @@ struct RenderedValueData {
     display: String,
     category: String,
     xray: String,
+    presentation: RenderedValuePresentationData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RenderedValuePresentationData {
+    text: String,
+    highlights: Vec<HighlightSpanData>,
+    layout: Vec<ResultLayoutSpanData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResultLayoutSpanData {
+    span: (usize, usize),
+    kind: &'static str,
+    axis: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -603,9 +632,8 @@ impl WasmWqSession {
             let mut session = self.try_session_mut()?;
             let color_mode = session.stderr_color_mode();
             let result = session.eval_script(SourceUnit::named("<wasm>", src));
-            let highlighter = Highlighter::with_builtins(session.builtins().clone());
-            let result =
-                result.map(|value| render_value(&value, self.box_config.get(), &highlighter));
+            let frontend = Frontend::new(session.builtins().clone());
+            let result = result.map(|value| render_value(&value, self.box_config.get(), &frontend));
             (result, color_mode)
         };
         match result {
@@ -691,11 +719,11 @@ impl WasmWqSession {
             }
             Ok(SessionEvaluationPoll::Ready(value)) => {
                 evaluation.take();
-                let highlighter = {
+                let frontend = {
                     let session = self.try_session()?;
-                    Highlighter::with_builtins(session.builtins().clone())
+                    Frontend::new(session.builtins().clone())
                 };
-                let rendered = render_value(&value, self.box_config.get(), &highlighter);
+                let rendered = render_value(&value, self.box_config.get(), &frontend);
                 Ok(evaluation_ready_to_js(&rendered).into())
             }
             Err(failure) => {
@@ -1162,12 +1190,42 @@ fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> TestEvaluationRes
         .map_err(Box::new)
 }
 
-fn render_value(
-    value: &Value,
-    config: BoxPrintConfig,
-    highlighter: &Highlighter,
-) -> RenderedValueData {
-    let style_source = |source: &str| highlighter.highlight_ansi(source);
+fn render_value(value: &Value, config: BoxPrintConfig, frontend: &Frontend) -> RenderedValueData {
+    let highlighter = Highlighter::with_builtins(frontend.builtins().clone());
+    let style_source = |source: &str| highlighter.highlight_ansi_semantic(source);
+    let structured = format_print_result_structured(value, &config, None);
+    let mut highlights = Vec::new();
+    let mut layout = Vec::new();
+    if config.color {
+        for region in &structured.regions {
+            match region.kind {
+                ResultRegionKind::Source => {
+                    let source = &structured.text[region.span.0..region.span.1];
+                    highlights.extend(highlight_span_data(frontend, source).into_iter().map(
+                        |span| HighlightSpanData {
+                            span: (span.span.0 + region.span.0, span.span.1 + region.span.0),
+                            kind: span.kind,
+                        },
+                    ));
+                }
+                ResultRegionKind::Axis(axis) => layout.push(ResultLayoutSpanData {
+                    span: region.span,
+                    kind: "axis",
+                    axis: Some(axis),
+                }),
+                ResultRegionKind::Index(axis) => layout.push(ResultLayoutSpanData {
+                    span: region.span,
+                    kind: "index",
+                    axis: Some(axis),
+                }),
+                ResultRegionKind::Fence => layout.push(ResultLayoutSpanData {
+                    span: region.span,
+                    kind: "fence",
+                    axis: None,
+                }),
+            }
+        }
+    }
     RenderedValueData {
         display: format_print_result_with(
             value,
@@ -1180,6 +1238,11 @@ fn render_value(
         ),
         category: value.category().to_string(),
         xray: format_xray_info(value, config.color),
+        presentation: RenderedValuePresentationData {
+            text: structured.text,
+            highlights,
+            layout,
+        },
     }
 }
 
@@ -1189,11 +1252,11 @@ fn eval_rendered_value(
     src: &str,
 ) -> TestEvaluationResult<RenderedValueData> {
     let value = eval_wq_script_value(session, src)?;
-    let highlighter = {
+    let frontend = {
         let session = session.session.borrow();
-        Highlighter::with_builtins(session.builtins().clone())
+        Frontend::new(session.builtins().clone())
     };
-    Ok(render_value(&value, session.box_config.get(), &highlighter))
+    Ok(render_value(&value, session.box_config.get(), &frontend))
 }
 
 fn format_wasm_error(err: &WqError, color_mode: ColorMode) -> String {
@@ -1414,7 +1477,40 @@ fn rendered_value_to_js(value: &RenderedValueData) -> Object {
     set_js_property(&object, "display", &JsValue::from_str(&value.display));
     set_js_property(&object, "category", &JsValue::from_str(&value.category));
     set_js_property(&object, "xray", &JsValue::from_str(&value.xray));
+    set_js_property(
+        &object,
+        "presentation",
+        &rendered_value_presentation_to_js(&value.presentation).into(),
+    );
     object
+}
+
+fn rendered_value_presentation_to_js(value: &RenderedValuePresentationData) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "text", &JsValue::from_str(&value.text));
+    set_js_property(
+        &object,
+        "highlights",
+        &highlight_spans_to_js(&value.highlights).into(),
+    );
+    set_js_property(
+        &object,
+        "layout",
+        &result_layout_spans_to_js(&value.layout).into(),
+    );
+    object
+}
+
+fn result_layout_spans_to_js(spans: &[ResultLayoutSpanData]) -> Array {
+    let result = Array::new();
+    for span in spans {
+        let item = Object::new();
+        set_js_property(&item, "span", &span_js(span.span));
+        set_js_property(&item, "kind", &JsValue::from_str(span.kind));
+        set_js_property(&item, "axis", &span.axis.map_or(JsValue::NULL, usize_js));
+        result.push(&item);
+    }
+    result
 }
 
 fn evaluation_yielded_to_js(work_units: usize) -> Object {
@@ -2575,6 +2671,8 @@ mod tests {
         assert!(ast.contains("AST @ fold - final"));
         assert!(ast.contains("LIT[Int(3)]"));
         assert!(ast.contains("\x1b["));
+        assert!(ast.contains("\x1b[33m1"));
+        assert!(!ast.contains("\x1b[38;5;"));
         assert!(!ast.contains("dry: skipped execution"));
 
         let cst = frontend
@@ -2941,6 +3039,8 @@ mod tests {
             eval_rendered_value(&session, "(1;2.1)").expect("session eval should render a list");
 
         assert!(result.display.contains("\x1b["));
+        assert!(result.display.contains("\x1b[33m1"));
+        assert!(!result.display.contains("\x1b[38;5;"));
         assert!(result.display.contains("x0"));
         let value_line = result
             .display
@@ -2948,6 +3048,38 @@ mod tests {
             .last()
             .expect("rank-one display should have a value line");
         assert_eq!(value_line.matches("\x1b[0m").count(), 2);
+        assert!(!result.presentation.text.contains("\x1b["));
+        let highlighted_numbers = result
+            .presentation
+            .highlights
+            .iter()
+            .filter(|span| span.kind == "number")
+            .map(|span| &result.presentation.text[span.span.0..span.span.1])
+            .collect::<Vec<_>>();
+        assert_eq!(highlighted_numbers, ["1", "2.1"]);
+        assert!(result.presentation.layout.iter().any(|span| {
+            span.kind == "axis"
+                && span.axis == Some(0)
+                && &result.presentation.text[span.span.0..span.span.1] == "x0"
+        }));
+        assert!(result.presentation.layout.iter().any(|span| {
+            span.kind == "index" && &result.presentation.text[span.span.0..span.span.1] == "0"
+        }));
+    }
+
+    #[test]
+    fn disabled_result_color_keeps_structured_text_plain() {
+        let session = WasmWqSession::new();
+        session
+            .set_box_flags("box,axis")
+            .expect("box settings should be accepted");
+        let result =
+            eval_rendered_value(&session, "(1;2)").expect("session eval should render a list");
+
+        assert!(!result.display.contains("\x1b["));
+        assert_eq!(result.presentation.text, result.display);
+        assert!(result.presentation.highlights.is_empty());
+        assert!(result.presentation.layout.is_empty());
     }
 
     #[test]

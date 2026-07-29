@@ -66,6 +66,13 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     const result = session.eval_wq("echo 1");
     assert.match(result.display, /\x1b\[/);
     assert.equal(result.display.replace(/\x1b\[[0-9;]*m/g, ""), "()");
+    assert.equal(result.presentation.text, "()");
+    assert.ok(
+      result.presentation.highlights.every((span) =>
+        span.kind.startsWith("punctuation-bracket"),
+      ),
+    );
+    assert.deepEqual(result.presentation.layout, []);
     assert.equal(Object.hasOwn(result, "is_cas"), false);
     assert.deepEqual(callbackError, {
       version: 2,

@@ -1,3 +1,5 @@
+import { highlightedSourceLineFragments } from "./syntax-highlight.js";
+
 const RESUME_ACTIONS = new Set([
   "continue",
   "step_in",
@@ -240,57 +242,6 @@ function readFoldState(body) {
   return foldState;
 }
 
-function highlightedSourceLines(source, highlightWq) {
-  if (!highlightWq) return null;
-  let highlighted;
-  try {
-    highlighted = highlightWq(source);
-  } catch {
-    return null;
-  }
-  if (typeof highlighted !== "string") return null;
-
-  const wrapper = element("div");
-  wrapper.innerHTML = highlighted;
-  if (wrapper.textContent !== source) return null;
-
-  const fragments = source
-    .split("\n")
-    .map(() => document.createDocumentFragment());
-  let lineIndex = 0;
-
-  function appendText(text, ancestors) {
-    const segments = text.split("\n");
-    segments.forEach((segment, index) => {
-      if (segment && lineIndex < fragments.length) {
-        let target = fragments[lineIndex];
-        for (const ancestor of ancestors) {
-          const clone = ancestor.cloneNode(false);
-          target.append(clone);
-          target = clone;
-        }
-        target.append(document.createTextNode(segment));
-      }
-      if (index < segments.length - 1) lineIndex += 1;
-    });
-  }
-
-  function visit(node, ancestors) {
-    if (node.nodeType === 3) {
-      appendText(node.nodeValue ?? "", ancestors);
-      return;
-    }
-    const nextAncestors =
-      node === wrapper ? ancestors : [...ancestors, node];
-    for (const child of node.childNodes) {
-      visit(child, nextAncestors);
-    }
-  }
-
-  visit(wrapper, []);
-  return lineIndex === fragments.length - 1 ? fragments : null;
-}
-
 function renderValues(title, values, open) {
   const node = section(title, { foldable: true, open });
   if (!values.length) {
@@ -316,7 +267,7 @@ function renderValues(title, values, open) {
   return node;
 }
 
-function renderSource(state, actions, highlightWq, open) {
+function renderSource(state, actions, frontend, open) {
   const node = section("Source", { foldable: true, open });
   if (!state.source) {
     node.append(element("p", "wqdb-empty", "Source unavailable"));
@@ -325,7 +276,9 @@ function renderSource(state, actions, highlightWq, open) {
   const lines = element("div", "wqdb-source");
   const activeLine = state.pause?.location?.line;
   const breakpointLines = new Set(state.breakpointLines);
-  const highlightedLines = highlightedSourceLines(state.source, highlightWq);
+  const highlightedLines = frontend
+    ? highlightedSourceLineFragments(document, frontend, state.source)
+    : null;
   state.source.split("\n").forEach((text, index) => {
     const lineNumber = index + 1;
     const row = element(
@@ -497,7 +450,7 @@ export function renderWqdbPanel(
   body,
   state,
   actions,
-  { highlightWq = null } = {},
+  { frontend = null } = {},
 ) {
   if (!body) return;
   body.classList.toggle("is-empty", !state.pause);
@@ -583,7 +536,7 @@ export function renderWqdbPanel(
     renderSource(
       state,
       actions,
-      highlightWq,
+      frontend,
       sectionOpen(foldState, "Source"),
     ),
   );

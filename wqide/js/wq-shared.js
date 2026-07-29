@@ -4,7 +4,9 @@ import init, {
   get_wq_ver,
   WasmFrontend,
 } from "wq-wasm";
+import { nextPopupIndex, nextTabIndex } from "./ui-navigation.js";
 export { queueEval } from "./eval-lifecycle.js";
+export { nextPopupIndex, nextTabIndex } from "./ui-navigation.js";
 
 // ========== WASM Initialization ==========
 
@@ -128,6 +130,165 @@ export function setActive(el, on) {
   if (!el) return;
   el.classList.toggle("active", !!on);
   el.classList.toggle("inactive", !on);
+}
+
+export function wireTabList(tablist, { onSelect } = {}) {
+  if (!tablist) return null;
+
+  function tabs() {
+    return Array.from(tablist.querySelectorAll('[role="tab"]'));
+  }
+
+  function sync(selectedTab) {
+    const items = tabs();
+    const selected =
+      selectedTab ||
+      items.find((tab) => tab.getAttribute("aria-selected") === "true") ||
+      items[0];
+    for (const tab of items) {
+      tab.tabIndex = tab === selected ? 0 : -1;
+    }
+  }
+
+  function activate(tab, focus = false) {
+    if (!tab) return;
+    onSelect?.(tab);
+    sync(tab);
+    if (focus) tab.focus();
+  }
+
+  tablist.addEventListener("click", (event) => {
+    const tab = event.target.closest('[role="tab"]');
+    if (!tab || !tablist.contains(tab)) return;
+    activate(tab);
+  });
+
+  tablist.addEventListener("keydown", (event) => {
+    const tab = event.target.closest('[role="tab"]');
+    if (!tab || !tablist.contains(tab)) return;
+    const items = tabs();
+    const nextIndex = nextTabIndex(event.key, items.indexOf(tab), items.length);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    activate(items[nextIndex], true);
+  });
+
+  sync();
+  return { sync };
+}
+
+export function wirePopupSelection({
+  trigger,
+  popup,
+  optionSelector,
+  onOpen,
+  onClose,
+  onSelect
+}) {
+  if (!trigger || !popup) return null;
+
+  function options() {
+    return Array.from(popup.querySelectorAll(optionSelector));
+  }
+
+  function selectedOption() {
+    const items = options();
+    return (
+      items.find(
+        (option) =>
+          option.getAttribute("aria-selected") === "true" ||
+          option.getAttribute("aria-checked") === "true" ||
+          option.classList.contains("active")
+      ) || items[0]
+    );
+  }
+
+  function syncOptions() {
+    for (const option of options()) {
+      option.tabIndex = -1;
+    }
+  }
+
+  function open(focus = "selected") {
+    onOpen?.();
+    syncOptions();
+    const items = options();
+    const target =
+      focus === "first"
+        ? items[0]
+        : focus === "last"
+          ? items[items.length - 1]
+          : selectedOption();
+    target?.focus();
+  }
+
+  function close({ restoreFocus = false } = {}) {
+    onClose?.();
+    if (restoreFocus) trigger.focus();
+  }
+
+  trigger.addEventListener("click", () => {
+    if (popup.classList.contains("open")) {
+      close();
+    } else {
+      open();
+    }
+  });
+
+  trigger.addEventListener("keydown", (event) => {
+    const openKey =
+      event.key === "Enter" ||
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp";
+    if (!openKey) return;
+    event.preventDefault();
+    open(event.key === "ArrowUp" ? "last" : "selected");
+  });
+
+  popup.addEventListener("click", (event) => {
+    const option = event.target.closest(optionSelector);
+    if (!option || !popup.contains(option)) return;
+    onSelect?.(option);
+    close({ restoreFocus: true });
+  });
+
+  popup.addEventListener("keydown", (event) => {
+    const option = event.target.closest(optionSelector);
+    if (!option || !popup.contains(option)) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close({ restoreFocus: true });
+      return;
+    }
+    if (event.key === "Tab") {
+      close();
+      return;
+    }
+    if (
+      event.key === "Enter" ||
+      event.key === " " ||
+      event.key === "Spacebar"
+    ) {
+      event.preventDefault();
+      onSelect?.(option);
+      close({ restoreFocus: true });
+      return;
+    }
+    const items = options();
+    const nextIndex = nextPopupIndex(
+      event.key,
+      items.indexOf(option),
+      items.length
+    );
+    if (nextIndex === null) return;
+    event.preventDefault();
+    items[nextIndex].focus();
+  });
+
+  syncOptions();
+  return { close, open };
 }
 
 export function syncDebugButtons(buttonsMap, activeFlags) {

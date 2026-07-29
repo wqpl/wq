@@ -5,14 +5,19 @@ import test from "node:test";
 const appSource = await readFile(new URL("./app.js", import.meta.url), "utf8");
 const styles = await readFile(
   new URL("../styles.css", import.meta.url),
-  "utf8",
+  "utf8"
 );
 
-function styleRule(selector) {
+function styleRules(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = styles.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
-  assert.ok(match, `missing style rule for ${selector}`);
-  return match[1];
+  const pattern = new RegExp(`^${escaped}\\s*\\{([^}]*)\\}`, "gm");
+  return [...styles.matchAll(pattern)].map((match) => match[1]);
+}
+
+function styleRule(selector) {
+  const [rule] = styleRules(selector);
+  assert.ok(rule, `missing style rule for ${selector}`);
+  return rule;
 }
 
 test("viz is measurable before its first auto-width render", () => {
@@ -49,4 +54,70 @@ test("palette options show four trailing color dots", () => {
   const dotRule = styleRule(".viz-palette-preview i");
   assert.match(dotRule, /border-radius:\s*50%;/);
   assert.match(dotRule, /background:\s*var\(--viz-palette-color\);/);
+});
+
+test("viz separates its title from the control toolbar", () => {
+  assert.match(
+    appSource,
+    /class="viz-topbar"[\s\S]*class="viz-stage-title"[\s\S]*data-viz-title[\s\S]*data-viz-status>Ready<\/span>[\s\S]*class="viz-stage-actions"[\s\S]*data-viz-preset-menu/
+  );
+
+  const topbarRule = styleRule(".viz-topbar");
+  assert.match(topbarRule, /flex-direction:\s*column;/);
+  assert.match(topbarRule, /gap:\s*0;/);
+
+  const titleRule = styleRule(".viz-stage-title");
+  assert.match(
+    titleRule,
+    /border-bottom:\s*1px solid var\(--surface-border-muted\);/
+  );
+});
+
+test("viz code disclosure uses a quiet conventional affordance", () => {
+  assert.match(
+    appSource,
+    /<summary>[\s\S]*class="viz-code-chevron"[\s\S]*<span>Code<\/span>\s*<\/summary>/
+  );
+  assert.match(
+    styles,
+    /\.viz-code-chevron\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;[^}]*transform-origin:\s*50% 50%;/
+  );
+  assert.match(
+    styleRule(".viz-code-panel summary"),
+    /background:\s*var\(--surface-bg-soft\);/
+  );
+  assert.doesNotMatch(styles, /viz-code-summary-hint|Generated code|Collapse/);
+});
+
+test("viz controls use the shared blue and green control palette", () => {
+  assert.match(
+    styleRule(".viz-code-copy"),
+    /border:\s*1px solid var\(--btn-border\);[\s\S]*background:\s*var\(--btn-bg\);[\s\S]*color:\s*var\(--btn-text\);/
+  );
+  assert.match(
+    styleRule('.viz-preset-trigger[aria-expanded="true"]'),
+    /background:\s*var\(--pill-active-bg\);[\s\S]*color:\s*var\(--pill-active-text\);/
+  );
+  assert.match(
+    styleRule(".viz-live-switch input"),
+    /accent-color:\s*var\(--terminal-success\);/
+  );
+  assert.match(
+    styleRule(".viz-code-copy"),
+    /border-radius:\s*var\(--radius-xs\);/
+  );
+});
+
+test("viz output follows the active surface theme", () => {
+  assert.match(
+    styleRule(".viz-output"),
+    /background:\s*var\(--surface-bg-output\);[\s\S]*color:\s*var\(--surface-text\);/
+  );
+  const midnightOutputRule = styleRules(
+    ':root[data-theme="midnight"] .viz-output'
+  ).find((rule) => rule.includes("background: #060b16"));
+  assert.match(
+    midnightOutputRule,
+    /background:\s*#060b16;[\s\S]*color:\s*#f1f1f3;/
+  );
 });

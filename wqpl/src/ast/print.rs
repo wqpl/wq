@@ -68,6 +68,7 @@ fn extract_snippet(src: &str, start: usize, end: usize, max_len: usize) -> Strin
 struct PrettySource<'a> {
     text: &'a str,
     highlighter: SyntaxHighlighter,
+    semantic_ansi: bool,
 }
 
 fn fmt_span_note(src: &PrettySource<'_>, span: Option<(usize, usize)>) -> String {
@@ -78,7 +79,11 @@ fn fmt_span_note(src: &PrettySource<'_>, span: Option<(usize, usize)>) -> String
     let (sl, sc) = offset_to_line_col(src.text, start);
     let (el, ec) = offset_to_line_col(src.text, end);
     let snippet = extract_snippet(src.text, start, end, 20);
-    let snippet = src.highlighter.highlight_ansi(&snippet);
+    let snippet = if src.semantic_ansi {
+        src.highlighter.highlight_ansi_semantic(&snippet)
+    } else {
+        src.highlighter.highlight_ansi(&snippet)
+    };
     format!(" [{sl}:{sc}-{el}:{ec}] {snippet}")
 }
 
@@ -159,6 +164,16 @@ impl AstNode {
         let src = PrettySource {
             text: src,
             highlighter: SyntaxHighlighter::new(),
+            semantic_ansi: false,
+        };
+        self.pretty_with_depth(0, Some(&src)).multi
+    }
+
+    pub(crate) fn sexpr_pretty_with_source_semantic_ansi(&self, src: &str) -> String {
+        let src = PrettySource {
+            text: src,
+            highlighter: SyntaxHighlighter::new(),
+            semantic_ansi: true,
         };
         self.pretty_with_depth(0, Some(&src)).multi
     }
@@ -691,5 +706,18 @@ mod tests {
 
         assert_eq!(pretty, "\x1b[1;36mLIT[Int(1)]\x1b[0m");
         assert_eq!(strip_ansi(&pretty), "LIT[Int(1)]");
+    }
+
+    #[test]
+    fn semantic_ansi_ast_uses_named_terminal_colors() {
+        let ast = AstNode::Literal(Value::Int(1), Some((0, 1)));
+
+        let pretty = ast.sexpr_pretty_with_source_semantic_ansi("1");
+
+        assert_eq!(
+            pretty,
+            "\x1b[1;36mLIT[Int(1)]\x1b[0m [1:1-1:2] \x1b[33m1\x1b[0m"
+        );
+        assert!(!pretty.contains("\x1b[38;5;"));
     }
 }

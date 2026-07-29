@@ -1,23 +1,12 @@
-const ANSI_BASE_COLORS = [
-  "#2a2a2a",
-  "#b03030",
-  "#308030",
-  "#a08000",
-  "#304880",
-  "#803080",
-  "#208080",
-  "#c0c0c0",
-];
-
-const ANSI_BRIGHT_COLORS = [
-  "#808080",
-  "#e06060",
-  "#60c060",
-  "#d4a017",
-  "#6090e0",
-  "#c060c0",
-  "#60c0c0",
-  "#ffffff",
+const ANSI_COLOR_NAMES = [
+  "black",
+  "red",
+  "green",
+  "yellow",
+  "blue",
+  "magenta",
+  "cyan",
+  "white",
 ];
 
 function createState() {
@@ -45,19 +34,26 @@ function cubeLevel(index) {
   return index === 0 ? 0 : 55 + index * 40;
 }
 
+function namedAnsiColor(index, bright = false) {
+  const name = ANSI_COLOR_NAMES[index];
+  return { name: bright ? `bright-${name}` : name };
+}
+
 function ansi256Color(index) {
   const clamped = clamp(index, 0, 255);
-  if (clamped < 8) return ANSI_BASE_COLORS[clamped];
-  if (clamped < 16) return ANSI_BRIGHT_COLORS[clamped - 8];
+  if (clamped < 8) return namedAnsiColor(clamped);
+  if (clamped < 16) return namedAnsiColor(clamped - 8, true);
   if (clamped < 232) {
     const value = clamped - 16;
     const r = Math.floor(value / 36);
     const g = Math.floor((value % 36) / 6);
     const b = value % 6;
-    return `rgb(${cubeLevel(r)}, ${cubeLevel(g)}, ${cubeLevel(b)})`;
+    return {
+      value: `rgb(${cubeLevel(r)}, ${cubeLevel(g)}, ${cubeLevel(b)})`,
+    };
   }
   const level = 8 + (clamped - 232) * 10;
-  return `rgb(${level}, ${level}, ${level})`;
+  return { value: `rgb(${level}, ${level}, ${level})` };
 }
 
 function parseExtendedColor(codes, index) {
@@ -78,7 +74,7 @@ function parseExtendedColor(codes, index) {
     const g = clamp(codes[index + 3], 0, 255);
     const b = clamp(codes[index + 4], 0, 255);
     return {
-      color: `rgb(${r}, ${g}, ${b})`,
+      color: { value: `rgb(${r}, ${g}, ${b})` },
       nextIndex: index + 4,
     };
   }
@@ -154,19 +150,19 @@ function applySgrCodes(state, params) {
       continue;
     }
     if (code >= 30 && code <= 37) {
-      state.fg = ANSI_BASE_COLORS[code - 30];
+      state.fg = namedAnsiColor(code - 30);
       continue;
     }
     if (code >= 40 && code <= 47) {
-      state.bg = ANSI_BASE_COLORS[code - 40];
+      state.bg = namedAnsiColor(code - 40);
       continue;
     }
     if (code >= 90 && code <= 97) {
-      state.fg = ANSI_BRIGHT_COLORS[code - 90];
+      state.fg = namedAnsiColor(code - 90, true);
       continue;
     }
     if (code >= 100 && code <= 107) {
-      state.bg = ANSI_BRIGHT_COLORS[code - 100];
+      state.bg = namedAnsiColor(code - 100, true);
       continue;
     }
     if (code === 38 || code === 48) {
@@ -196,6 +192,22 @@ function hasTextStyle(state) {
   );
 }
 
+function appendClass(element, className) {
+  element.className = element.className
+    ? `${element.className} ${className}`
+    : className;
+}
+
+function applyAnsiColor(element, role, color) {
+  if (!color) return;
+  if (color.name) {
+    appendClass(element, `ansi-${role}-${color.name}`);
+    return;
+  }
+  const property = role === "fg" ? "color" : "backgroundColor";
+  element.style[property] = color.value;
+}
+
 function appendParsedText(fragment, documentRef, state, text) {
   if (!text) return;
   if (!hasTextStyle(state)) {
@@ -204,15 +216,14 @@ function appendParsedText(fragment, documentRef, state, text) {
   }
 
   const span = documentRef.createElement("span");
-  const fg = state.fg ?? "var(--ansi-fg-default, currentColor)";
-  const bg = state.bg ?? "var(--ansi-bg-default, transparent)";
 
   if (state.inverse) {
-    span.style.color = bg;
-    span.style.backgroundColor = fg;
+    appendClass(span, "ansi-inverse");
+    applyAnsiColor(span, "bg", state.fg);
+    applyAnsiColor(span, "fg", state.bg);
   } else {
-    if (state.fg) span.style.color = state.fg;
-    if (state.bg) span.style.backgroundColor = state.bg;
+    applyAnsiColor(span, "fg", state.fg);
+    applyAnsiColor(span, "bg", state.bg);
   }
   if (state.bold) span.style.fontWeight = "700";
   if (state.dim) span.style.opacity = "0.68";

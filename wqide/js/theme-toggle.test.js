@@ -10,53 +10,104 @@ function cssRule(selector) {
   return styles.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
 
-test("theme artwork is clipped inside the pill border", () => {
+test("theme control exposes two plain segmented choices", () => {
   assert.match(
     appSource,
-    /class="theme-toggle-scene"[\s\S]*class="theme-cloud theme-cloud-front"[\s\S]*class="theme-toggle-icon theme-toggle-midnight"[\s\S]*<span class="theme-toggle-label">/,
+    /class="theme-toggle"[\s\S]*role="radiogroup"[\s\S]*class="theme-toggle-thumb"/,
   );
-
-  const scene = cssRule(".theme-toggle-scene");
-  assert.match(scene, /inset:\s*1px;/);
-  assert.match(scene, /overflow:\s*hidden;/);
-  assert.match(scene, /border-radius:\s*inherit;/);
+  assert.match(
+    appSource,
+    /data-theme-option="light"[\s\S]*>\s*Light\s*<\/button>/,
+  );
+  assert.match(
+    appSource,
+    /data-theme-option="midnight"[\s\S]*>\s*Midnight\s*<\/button>/,
+  );
 });
 
-test("theme change crossfades scenes", () => {
-  assert.match(cssRule(".theme-night-sky"), /opacity\s+\d+ms/);
+test("theme thumb follows a continuous drag position before settling", () => {
+  assert.match(
+    cssRule(".theme-toggle-thumb"),
+    /translateX\(calc\(var\(--theme-position\) \* 100%\)\)/,
+  );
+  assert.match(
+    appSource,
+    /const previewPointerTheme[\s\S]*setThemeTogglePosition\(control, position\)[\s\S]*control\.addEventListener\("pointermove",[\s\S]*previewPointerTheme\(event\)/,
+  );
+  assert.match(
+    appSource,
+    /function themeForTogglePosition\(position\)[\s\S]*position >= 0\.5/,
+  );
+  assert.match(
+    appSource,
+    /control\.addEventListener\("pointerup",[\s\S]*applyTheme\(themeForTogglePosition\(position\)\)/,
+  );
 });
 
 test("pointer theme changes preserve an active code editor caret", () => {
   assert.match(
     appSource,
-    /button\.addEventListener\("pointerdown",[\s\S]*document\.activeElement[\s\S]*matches\("\.wq-editor"\)[\s\S]*event\.preventDefault\(\);/,
+    /control\.addEventListener\("pointerdown",[\s\S]*document\.activeElement[\s\S]*matches\("\.wq-editor"\)[\s\S]*event\.preventDefault\(\);/,
   );
 });
 
-test("midnight stars use quiet layers without flashing sparkles", () => {
-  assert.match(appSource, /theme-stars-far/);
-  assert.match(appSource, /theme-stars-mid/);
-  assert.match(appSource, /theme-stars-near/);
-  assert.doesNotMatch(appSource, /theme-star-sparkles/);
-  assert.doesNotMatch(styles, /steps\(/);
+test("theme choices support radio keyboard navigation", () => {
+  assert.match(
+    appSource,
+    /control\.addEventListener\("keydown",[\s\S]*ArrowLeft[\s\S]*ArrowRight[\s\S]*Home[\s\S]*End/,
+  );
+  assert.match(
+    appSource,
+    /option\.setAttribute\("aria-checked", String\(selected\)\)/,
+  );
 });
 
-test("welcome links use a quiet theme-aware hover border", () => {
+test("theme hover feedback stays on the hovered choice", () => {
+  assert.equal(cssRule(".theme-toggle:hover"), "");
   assert.equal(
-    styles.match(/--welcome-link-border-hover:/g)?.length,
-    2,
+    cssRule(':root[data-theme="midnight"] .theme-toggle:hover'),
+    ""
   );
-  assert.equal(styles.match(/--welcome-link-bg-hover:/g)?.length, 2);
+  assert.match(cssRule(".theme-toggle-option:hover"), /color:/);
+});
+
+test("shared controls avoid purple fills on blue surfaces", () => {
+  assert.match(styles, /--btn-bg:\s*#f7fcff;/);
+  assert.match(styles, /--btn-primary-bg:\s*#216b55;/);
+  assert.match(styles, /--btn-bg:\s*#14203a;/);
+  assert.match(styles, /--btn-primary-bg:\s*#8ed0b8;/);
+  assert.doesNotMatch(
+    cssRule(':root[data-theme="midnight"] .theme-toggle-thumb'),
+    /#c2b8e0/
+  );
+});
+
+test("Home shows its root path before search and contains no welcome remnants", () => {
+  const featuredStart = appSource.indexOf("const FEATURED_HTML");
+  const featuredEnd = appSource.indexOf("const PLAYGROUND_HTML");
+  const featuredSource = appSource.slice(featuredStart, featuredEnd);
+  const pathIndex = featuredSource.indexOf(
+    'class="breadcrumbs featured-breadcrumbs"'
+  );
+  const searchIndex = featuredSource.indexOf(
+    '<section class="featured-search"'
+  );
+
+  assert.ok(pathIndex >= 0);
+  assert.ok(pathIndex < searchIndex);
+  assert.doesNotMatch(featuredSource, /class="divider"/);
   assert.match(
-    cssRule(".article-link:hover"),
-    /border-color:\s*var\(--welcome-link-border-hover\);/,
+    featuredSource,
+    /class="crumb-current" aria-current="page">~<\/span>/
   );
   assert.match(
-    cssRule(".article-link:hover"),
-    /background:\s*var\(--welcome-link-bg-hover\);/,
+    featuredSource,
+    /<section class="featured-search"[\s\S]*<h2 id="featuredSearchHeading">Search<\/h2>/
   );
-  assert.match(
-    cssRule(':root[data-theme="midnight"]'),
-    /--welcome-link-bg:\s*rgba\(7, 9, 17, 0\.76\);/,
-  );
+  for (const source of [appSource, styles]) {
+    assert.doesNotMatch(
+      source,
+      /route-heading|welcome-card|welcome-copy|welcome-links|welcome-constellation|wq-cat-constellation|ambient-star|constellation-shooting-star/,
+    );
+  }
 });

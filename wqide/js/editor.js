@@ -2,23 +2,7 @@ import {
   activeBindingHighlights,
   createSourceMapper,
 } from "./symbol-highlights.js";
-
-function escapeEditorText(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function renderHighlightedText(frontend, text) {
-  if (!frontend) return escapeEditorText(text);
-  try {
-    return frontend.highlight_wq(text);
-  } catch (err) {
-    console.warn("[wqide] highlight failed; falling back to plain text", err);
-    return escapeEditorText(text);
-  }
-}
+import { renderHighlightedSource } from "./syntax-highlight.js";
 
 function clampToLength(length, offset) {
   return Math.max(0, Math.min(length, Number(offset) || 0));
@@ -261,7 +245,7 @@ export function createWqEditor(textarea, options = {}) {
         ? selectionOffsets(el, value) || selection
         : selection;
 
-    el.innerHTML = value ? renderHighlightedText(frontend, value) : "";
+    renderHighlightedSource(el, frontend, value);
     if (value.endsWith("\n")) {
       el.appendChild(document.createElement("br"));
     }

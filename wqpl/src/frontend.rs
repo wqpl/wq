@@ -183,12 +183,38 @@ impl Frontend {
         kind: SyntaxDisplayKind,
         color_mode: ColorMode,
     ) -> WqResult<String> {
+        self.format_syntax_display_with_palette(input, kind, color_mode, false)
+    }
+
+    /// Render the folded AST or CST with semantic ANSI colors for CSS
+    /// consumers.
+    pub fn format_syntax_display_semantic_ansi(
+        &self,
+        input: &str,
+        kind: SyntaxDisplayKind,
+        color_mode: ColorMode,
+    ) -> WqResult<String> {
+        self.format_syntax_display_with_palette(input, kind, color_mode, true)
+    }
+
+    fn format_syntax_display_with_palette(
+        &self,
+        input: &str,
+        kind: SyntaxDisplayKind,
+        color_mode: ColorMode,
+        semantic_ansi: bool,
+    ) -> WqResult<String> {
         let (ast, cst) = self.parse_with_cst(input)?;
         let (header, body) = match kind {
             SyntaxDisplayKind::Ast => {
                 let ast = Resolver::with_builtins(self.builtins_cloned()).resolve(ast);
                 let ast = fold::fold(ast);
-                ("AST @ fold - final", ast.sexpr_pretty_with_source(input))
+                let body = if semantic_ansi {
+                    ast.sexpr_pretty_with_source_semantic_ansi(input)
+                } else {
+                    ast.sexpr_pretty_with_source(input)
+                };
+                ("AST @ fold - final", body)
             }
             SyntaxDisplayKind::Cst => ("CST", SyntaxNode::new_root(cst).pretty_print()),
         };

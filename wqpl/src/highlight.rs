@@ -206,10 +206,55 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
     }
 }
 
-pub fn render_ansi(
+fn semantic_ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) {
+    match name {
+        HighlightName::Comment => ("\x1b[3;90m", ANSI_RESET),
+        HighlightName::ConstantBuiltin => ("\x1b[1;33m", ANSI_RESET),
+        HighlightName::FunctionBuiltin => ("\x1b[4;34m", ANSI_RESET),
+        HighlightName::CasSpecial => ("\x1b[1;35m", ANSI_RESET),
+        HighlightName::CasConstant => ("\x1b[1;33m", ANSI_RESET),
+        HighlightName::CasFunction => ("\x1b[34m", ANSI_RESET),
+        HighlightName::CasVariable => ("\x1b[96m", ANSI_RESET),
+        HighlightName::Keyword => ("\x1b[35m", ANSI_RESET),
+        HighlightName::KeywordReturn => ("\x1b[33m", ANSI_RESET),
+        HighlightName::KeywordDebug => ("\x1b[91m", ANSI_RESET),
+        HighlightName::Number => ("\x1b[33m", ANSI_RESET),
+        HighlightName::Bool => ("\x1b[33m", ANSI_RESET),
+        HighlightName::Operator => ("\x1b[93m", ANSI_RESET),
+        HighlightName::OperatorPipe => ("\x1b[35m", ANSI_RESET),
+        HighlightName::PunctuationBracket => ("\x1b[37m", ANSI_RESET),
+        HighlightName::PunctuationBracket1 => ("\x1b[31m", ANSI_RESET),
+        HighlightName::PunctuationBracket2 => ("\x1b[93m", ANSI_RESET),
+        HighlightName::PunctuationBracket3 => ("\x1b[97m", ANSI_RESET),
+        HighlightName::PunctuationBracket4 => ("\x1b[32m", ANSI_RESET),
+        HighlightName::PunctuationBracket5 => ("\x1b[94m", ANSI_RESET),
+        HighlightName::PunctuationBracket6 => ("\x1b[95m", ANSI_RESET),
+        HighlightName::PunctuationDelimiter => ("\x1b[37m", ANSI_RESET),
+        HighlightName::PunctuationSpecial => ("\x1b[35m", ANSI_RESET),
+        HighlightName::String => ("\x1b[32m", ANSI_RESET),
+        HighlightName::StringEscape => ("\x1b[1;36m", ANSI_RESET),
+        HighlightName::InvalidString => ("\x1b[4;31m", ANSI_RESET),
+        HighlightName::Character => ("\x1b[36m", ANSI_RESET),
+        HighlightName::InvalidCharacter => ("\x1b[4;31m", ANSI_RESET),
+        HighlightName::Tag => ("\x1b[32m", ANSI_RESET),
+        HighlightName::Variable => ("\x1b[96m", ANSI_RESET),
+        HighlightName::VariableRefCapture => ("\x1b[1;96m", ANSI_RESET),
+        HighlightName::VariableParameter => ("\x1b[1;93m", ANSI_RESET),
+        HighlightName::Meta => ("\x1b[93m", ANSI_RESET),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AnsiHighlightPalette {
+    Extended,
+    Semantic,
+}
+
+fn render_ansi_with_palette(
     src: &str,
     events: impl IntoIterator<Item = HighlightEvent>,
     reset: &str,
+    palette: AnsiHighlightPalette,
 ) -> String {
     let bytes = src.as_bytes();
     let mut out = String::with_capacity(src.len() + 16);
@@ -224,7 +269,10 @@ pub fn render_ansi(
             HighlightEvent::Source { start, end } => {
                 let s = std::str::from_utf8(&bytes[start..end]).unwrap_or("");
                 if let Some(&name) = stack.last() {
-                    let (on, off) = ansi_style_for_name(name);
+                    let (on, off) = match palette {
+                        AnsiHighlightPalette::Extended => ansi_style_for_name(name),
+                        AnsiHighlightPalette::Semantic => semantic_ansi_style_for_name(name),
+                    };
                     out.push_str(on);
                     out.push_str(s);
                     if reset.is_empty() {
@@ -240,6 +288,14 @@ pub fn render_ansi(
     }
 
     out
+}
+
+pub fn render_ansi(
+    src: &str,
+    events: impl IntoIterator<Item = HighlightEvent>,
+    reset: &str,
+) -> String {
+    render_ansi_with_palette(src, events, reset, AnsiHighlightPalette::Extended)
 }
 
 /// A lightweight syntax highlighter that works directly on the wq lexer.
@@ -302,6 +358,12 @@ impl Highlighter {
 
     pub fn highlight_ansi(&self, src: &str) -> String {
         self.highlight_ansi_with_reset(src, "")
+    }
+
+    /// Highlight source with named ANSI colors that a semantic CSS palette can
+    /// resolve for its current theme.
+    pub fn highlight_ansi_semantic(&self, src: &str) -> String {
+        render_ansi_with_palette(src, self.highlight(src), "", AnsiHighlightPalette::Semantic)
     }
 
     pub fn highlight_ansi_with_reset(&self, src: &str, reset: &str) -> String {
@@ -1509,6 +1571,17 @@ mod tests {
         let out = h.highlight_ansi(src);
 
         assert!(out.contains("\x1b[38;5;220m1"));
+        assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn semantic_ansi_uses_named_terminal_colors() {
+        let src = "echo @f\"hello {x + 1}\"";
+        let h = Highlighter::new();
+        let out = h.highlight_ansi_semantic(src);
+
+        assert!(out.contains("\x1b[33m1"));
+        assert!(!out.contains("\x1b[38;5;"));
         assert_eq!(strip_ansi(&out), src);
     }
 

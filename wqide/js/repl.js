@@ -25,8 +25,11 @@ import {
   fallbackCopyText,
   queueEval,
   formatWqError,
+  wireTabList
 } from "./wq-shared.js";
 import { createWqEditor, isImeCompositionKey } from "./editor.js";
+import { renderHighlightedSource } from "./syntax-highlight.js";
+import { appendResultPresentation } from "./result-presentation.js";
 import {
   createEvaluationController,
   isAbortError,
@@ -61,6 +64,7 @@ let stdinRequester = null;
 let resetRequested = false;
 let inspectorTab = "globals";
 let inspectorOpen = false;
+let inspectorTabsController = null;
 let latestOutputRevealTimer = null;
 
 const HISTORY_KEY = "wqide:repl:history";
@@ -254,7 +258,7 @@ function createTurn(kind, label, body, msgType = null) {
     content.appendChild(prompt);
     const codeSpan = document.createElement("span");
     codeSpan.className = "repl-input-code";
-    codeSpan.innerHTML = frontend.highlight_wq(body || "");
+    renderHighlightedSource(codeSpan, frontend, body || "");
     content.appendChild(codeSpan);
   } else {
     const bar = document.createElement("span");
@@ -568,6 +572,9 @@ function setInspectorTab(tab) {
   ui.debuggerBody.hidden = showGlobals;
   ui.globalsPanelActions.hidden = !showGlobals;
   ui.debuggerPanelStatus.hidden = showGlobals;
+  inspectorTabsController?.sync(
+    showGlobals ? ui.globalsTab : ui.debuggerTab
+  );
 }
 
 function syncWqdbPanel(state = wqdbController?.state) {
@@ -580,9 +587,7 @@ function syncWqdbPanel(state = wqdbController?.state) {
         : "Idle";
   ui.globalsPanel.dataset.debuggerState = state.status;
   renderWqdbPanel(ui.debuggerBody, state, wqdbController, {
-    highlightWq: frontend
-      ? (source) => frontend.highlight_wq(source)
-      : null,
+    frontend,
   });
   if (state.status === "paused") {
     setInspectorTab("debugger");
@@ -1138,16 +1143,23 @@ async function doEval({ recordHistory = true } = {}) {
       result.display !== null &&
       String(result.display).length
     ) {
-      const valueText =
-        alignTurnBody(String(result.display)) +
-        (showCategory && result.category ? `\n${result.category}` : "") +
-        "\n";
-      createTurn(
-        "output",
-        "",
-        valueText,
-        "success",
-      );
+      const content = createTurn("output", "", "", "success");
+      if (
+        appendResultPresentation(content, result.presentation, {
+          indent: "  ",
+        })
+      ) {
+        content.__outputRenderer.appendText(
+          (showCategory && result.category ? `\n${result.category}` : "") +
+            "\n",
+        );
+      } else {
+        const valueText =
+          alignTurnBody(String(result.display)) +
+          (showCategory && result.category ? `\n${result.category}` : "") +
+          "\n";
+        content.__outputRenderer.appendOutput(valueText);
+      }
       if (getBoxFlags().includes("xray") && result.xray) {
         createTurn(
           "system",
@@ -1356,6 +1368,7 @@ export async function mountRepl(root) {
     clearHistoryBtn: root.querySelector("#clearHistoryBtn"),
     globalsPanel: root.querySelector(".globals-panel"),
     inspectorToggleBtn: root.querySelector("#inspectorToggleBtn"),
+    inspectorTabs: root.querySelector(".inspector-tabs"),
     globalsTab: root.querySelector("#globalsTab"),
     debuggerTab: root.querySelector("#debuggerTab"),
     globalsBody: root.querySelector("#globalsBody"),
@@ -1365,6 +1378,11 @@ export async function mountRepl(root) {
     debuggerBody: root.querySelector("#debuggerBody"),
     debuggerPanelStatus: root.querySelector("#debuggerPanelStatus"),
   };
+  inspectorTabsController = wireTabList(ui.inspectorTabs, {
+    onSelect(button) {
+      setInspectorTab(button === ui.debuggerTab ? "debugger" : "globals");
+    }
+  });
 
   evaluationController = createEvaluationController((state) => {
     const active = state !== "idle";
@@ -1375,14 +1393,14 @@ export async function mountRepl(root) {
     ui.replFlow.dataset.evaluationState = state;
     ui.terminalStatus.textContent =
       state === "idle"
-        ? "ready"
+        ? "Ready"
         : state === "awaiting-input"
-          ? "stdin"
+          ? "Waiting for input"
           : state === "paused"
-            ? "paused"
+            ? "Paused"
             : state === "stopping"
-              ? "stopping"
-              : "running";
+              ? "Stopping"
+              : "Running";
     syncInputPresentation();
   });
   wqdbController = createWqdbController((state) => {
@@ -1432,12 +1450,6 @@ export async function mountRepl(root) {
   });
   ui.refreshGlobalsBtn?.addEventListener("click", () => {
     syncGlobalsPanel();
-  });
-  ui.globalsTab?.addEventListener("click", () => {
-    setInspectorTab("globals");
-  });
-  ui.debuggerTab?.addEventListener("click", () => {
-    setInspectorTab("debugger");
   });
   ui.pillBox?.addEventListener("click", () => {
     toggleRuntimePanel(ui.pillBox, ui.boxPanel);

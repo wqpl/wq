@@ -1,9 +1,16 @@
 use std::fmt::Write as _;
 
-use crate::boxmode::{BoxFormatOptions, format_boxed_for_display};
+use crate::boxmode::{
+    BoxFormatOptions, format_boxed_for_display, format_boxed_structured_for_display,
+};
 use crate::style::{ColorMode, TextStyle, paint};
 use crate::value::Value;
-use crate::value::display::format_table_value_for_display;
+use crate::value::display::{
+    format_table_value_for_display, format_table_value_structured_for_display,
+};
+
+mod structured;
+pub use structured::{ResultRegion, ResultRegionKind, StructuredPrintResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoxPrintConfig {
@@ -167,6 +174,27 @@ pub fn format_print_result_with(
             Some(styler) => styler(&source),
             None => source,
         }
+    }
+}
+
+pub fn format_print_result_structured(
+    result: &Value,
+    config: &BoxPrintConfig,
+    max_width: Option<usize>,
+) -> StructuredPrintResult {
+    if config.boxed {
+        format_table_value_structured_for_display(result).unwrap_or_else(|| {
+            format_boxed_structured_for_display(
+                result,
+                BoxFormatOptions {
+                    axes: config.axis,
+                    color: false,
+                },
+                max_width,
+            )
+        })
+    } else {
+        StructuredPrintResult::region(result.to_string(), ResultRegionKind::Source)
     }
 }
 
@@ -341,6 +369,55 @@ mod tests {
                 }
             ),
             "a  b\n< 1> <3>\n<22> <4>"
+        );
+    }
+
+    #[test]
+    fn structured_rank_one_result_distinguishes_source_from_layout() {
+        let value = Value::IntList(Arc::new(vec![1, 22]));
+        let result = format_print_result_structured(&value, &BoxPrintConfig::default(), None);
+
+        assert_eq!(result.text, "x0 0 1\n   - -\n   1 22");
+        let source = result
+            .regions
+            .iter()
+            .filter(|region| region.kind == ResultRegionKind::Source)
+            .map(|region| result.text[region.span.0..region.span.1].trim())
+            .collect::<Vec<_>>();
+        assert_eq!(source, ["1", "22"]);
+        assert!(result.regions.iter().any(|region| {
+            region.kind == ResultRegionKind::Axis(0)
+                && &result.text[region.span.0..region.span.1] == "x0"
+        }));
+        assert!(result.regions.iter().any(|region| {
+            region.kind == ResultRegionKind::Index(0)
+                && &result.text[region.span.0..region.span.1] == "0"
+        }));
+        assert!(
+            result
+                .regions
+                .iter()
+                .any(|region| region.kind == ResultRegionKind::Fence)
+        );
+    }
+
+    #[test]
+    fn structured_table_headers_are_not_source_regions() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("a".into(), Value::IntList(Arc::new(vec![1, 22]))),
+            ("b".into(), Value::IntList(Arc::new(vec![3, 4]))),
+        ])));
+        let result = format_print_result_structured(&value, &BoxPrintConfig::default(), None);
+
+        assert_eq!(result.text, "a  b\n 1 3\n22 4");
+        assert!(result.regions.iter().all(|region| region.span.0 >= 5));
+        assert_eq!(
+            result
+                .regions
+                .iter()
+                .map(|region| &result.text[region.span.0..region.span.1])
+                .collect::<Vec<_>>(),
+            [" 1", "3", "22", "4"]
         );
     }
 }

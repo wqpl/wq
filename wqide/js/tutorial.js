@@ -2,6 +2,8 @@
 
 import { WasmWqSession } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
+import { renderHighlightedSource } from "./syntax-highlight.js";
+import { appendResultPresentation } from "./result-presentation.js";
 import {
   ensureWasm,
   getWqFrontend,
@@ -160,7 +162,7 @@ window.initTutorialUI = function initTutorialUI() {
     const frontend = getWqFrontend();
     article.querySelectorAll("pre code.language-wq").forEach((codeEl) => {
       const raw = codeEl.textContent;
-      codeEl.innerHTML = frontend.highlight_wq(raw);
+      renderHighlightedSource(codeEl, frontend, raw);
     });
   })();
 
@@ -321,9 +323,10 @@ window.initTutorialUI = function initTutorialUI() {
           ) {
             const needsNL =
               codeOut.textContent && !codeOut.textContent.endsWith("\n");
-            outputRenderer.appendText(
-              (needsNL ? "\n" : "") + "\u{258D} " + String(result.display),
-            );
+            outputRenderer.appendText((needsNL ? "\n" : "") + "\u{258D} ");
+            if (!appendResultPresentation(codeOut, result.presentation)) {
+              outputRenderer.appendOutput(String(result.display));
+            }
           }
         } catch (err) {
           outputRenderer.clear();

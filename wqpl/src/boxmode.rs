@@ -1,5 +1,6 @@
 use unicode_width::UnicodeWidthStr as _;
 
+use crate::display::{ResultRegionKind, StructuredPrintResult};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
 use crate::value::meta::ShapeMeta;
@@ -20,13 +21,7 @@ impl Default for BoxFormatOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CellRole {
-    Source,
-    Axis(usize),
-    Index(usize),
-    Fence,
-}
+type CellRole = ResultRegionKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Cell {
@@ -48,18 +43,16 @@ impl Cell {
 }
 
 #[derive(Clone, Copy)]
-struct RenderContext<'a> {
+struct RenderContext {
     options: BoxFormatOptions,
     max_width: Option<usize>,
-    source_styler: Option<&'a dyn Fn(&str) -> String>,
 }
 
-impl RenderContext<'_> {
+impl RenderContext {
     fn plain(options: BoxFormatOptions) -> Self {
         Self {
             options,
             max_width: None,
-            source_styler: None,
         }
     }
 }
@@ -99,7 +92,7 @@ fn expand_simple_1d(v: &Value) -> Option<Vec<String>> {
     Some(items.values().map(|value| value.to_string()).collect())
 }
 
-fn render_table(table: &[Vec<String>], context: RenderContext<'_>) -> String {
+fn render_table(table: &[Vec<String>], context: RenderContext) -> StructuredPrintResult {
     let cells: Vec<Vec<Cell>> = table
         .iter()
         .map(|row| row.iter().map(Cell::source).collect())
@@ -107,10 +100,10 @@ fn render_table(table: &[Vec<String>], context: RenderContext<'_>) -> String {
     render_cells(&cells, context)
 }
 
-fn render_cells(table: &[Vec<Cell>], context: RenderContext<'_>) -> String {
+fn render_cells(table: &[Vec<Cell>], _context: RenderContext) -> StructuredPrintResult {
     let ncols = table.iter().map(|r| r.len()).max().unwrap_or(0);
     if ncols == 0 {
-        return String::new();
+        return StructuredPrintResult::default();
     }
     let mut widths = vec![0usize; ncols];
     for row in table {
@@ -128,11 +121,11 @@ fn render_cells(table: &[Vec<Cell>], context: RenderContext<'_>) -> String {
                 widths[j]
             };
             let text = pad_plain(&cell.text, width, false);
-            parts.push(style_cell(&text, cell.role, context));
+            parts.push(render_cell(&text, cell.role));
         }
-        lines.push(parts.join(" "));
+        lines.push(StructuredPrintResult::joined(parts, " "));
     }
-    lines.join("\n")
+    StructuredPrintResult::joined(lines, "\n")
 }
 
 fn display_width(text: &str) -> usize {
@@ -148,16 +141,8 @@ fn pad_plain(text: &str, width: usize, right: bool) -> String {
     }
 }
 
-fn style_cell(text: &str, role: CellRole, context: RenderContext<'_>) -> String {
-    if text.is_empty() {
-        return String::new();
-    }
-    match role {
-        CellRole::Source => context
-            .source_styler
-            .map_or_else(|| text.to_string(), |styler| styler(text)),
-        _ => style_text(text, role, context.options.color),
-    }
+fn render_cell(text: &str, role: CellRole) -> StructuredPrintResult {
+    StructuredPrintResult::region(text, role)
 }
 
 fn style_text(text: &str, role: CellRole, color: bool) -> String {
@@ -190,21 +175,21 @@ fn axis_color(axis: usize) -> AnsiColor {
     }
 }
 
-fn pad_cell(text: &str, width: usize, role: CellRole, context: RenderContext<'_>) -> String {
-    style_cell(&pad_plain(text, width, false), role, context)
+fn pad_cell(text: &str, width: usize, role: CellRole) -> StructuredPrintResult {
+    render_cell(&pad_plain(text, width, false), role)
 }
 
-fn pad_cell_right(text: &str, width: usize, role: CellRole, context: RenderContext<'_>) -> String {
-    style_cell(&pad_plain(text, width, true), role, context)
+fn pad_cell_right(text: &str, width: usize, role: CellRole) -> StructuredPrintResult {
+    render_cell(&pad_plain(text, width, true), role)
 }
 
 fn join_padded_cells<'a>(
     cells: impl Iterator<Item = (&'a str, usize, CellRole)>,
-    context: RenderContext<'_>,
-) -> String {
+    _context: RenderContext,
+) -> StructuredPrintResult {
     let cells = cells.collect::<Vec<_>>();
     let last = cells.len().saturating_sub(1);
-    cells
+    let rendered_cells = cells
         .into_iter()
         .enumerate()
         .map(|(index, (text, width, role))| {
@@ -213,10 +198,10 @@ fn join_padded_cells<'a>(
             } else {
                 width
             };
-            pad_cell(text, width, role, context)
+            pad_cell(text, width, role)
         })
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect::<Vec<_>>();
+    StructuredPrintResult::joined(rendered_cells, " ")
 }
 
 fn axis_index_role(axis: usize) -> CellRole {
@@ -227,8 +212,8 @@ fn format_matrix(
     v: &Value,
     row_axis: usize,
     dims: &[usize],
-    context: RenderContext<'_>,
-) -> Option<String> {
+    context: RenderContext,
+) -> Option<StructuredPrintResult> {
     let col_axis = row_axis + 1;
     let rows_len = dims[row_axis];
     let cols_len = dims[col_axis];
@@ -279,7 +264,9 @@ fn format_matrix(
         ),
         context,
     );
-    lines.push(format!("{}{}", " ".repeat(row_label_width), col_header));
+    let mut col_line = StructuredPrintResult::plain(" ".repeat(row_label_width));
+    col_line.append(col_header);
+    lines.push(col_line);
 
     let fence = join_padded_cells(
         col_widths
@@ -287,25 +274,15 @@ fn format_matrix(
             .map(|&width| ("-", width, CellRole::Fence)),
         context,
     );
-    lines.push(format!(
-        "{}   {}",
-        pad_cell(
-            &row_axis_label,
-            row_label_width,
-            CellRole::Axis(row_axis),
-            context
-        ),
-        fence
-    ));
+    let mut fence_line = pad_cell(&row_axis_label, row_label_width, CellRole::Axis(row_axis));
+    fence_line.push_plain("   ");
+    fence_line.append(fence);
+    lines.push(fence_line);
 
     for (row, cells) in row_cells.iter().enumerate() {
-        let row_label = pad_cell_right(
-            &row.to_string(),
-            row_label_width,
-            axis_index_role(row_axis),
-            context,
-        );
-        let pipe = style_cell("|", CellRole::Fence, context);
+        let row_label =
+            pad_cell_right(&row.to_string(), row_label_width, axis_index_role(row_axis));
+        let pipe = render_cell("|", CellRole::Fence);
         let rendered_cells = join_padded_cells(
             cells
                 .iter()
@@ -313,24 +290,22 @@ fn format_matrix(
                 .map(|(col, text)| (text.as_str(), col_widths[col], CellRole::Source)),
             context,
         );
-        lines.push(format!("{row_label} {pipe} {rendered_cells}"));
+        lines.push(StructuredPrintResult::joined(
+            [row_label, pipe, rendered_cells],
+            " ",
+        ));
     }
 
-    Some(lines.join("\n"))
+    Some(StructuredPrintResult::joined(lines, "\n"))
 }
 
-fn slice_title(prefix: &[(usize, usize)], context: RenderContext<'_>) -> String {
-    prefix
-        .iter()
-        .map(|(axis, index)| {
-            style_cell(
-                &format!("x{axis} = {index}"),
-                CellRole::Axis(*axis),
-                context,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+fn slice_title(prefix: &[(usize, usize)], _context: RenderContext) -> StructuredPrintResult {
+    StructuredPrintResult::joined(
+        prefix
+            .iter()
+            .map(|(axis, index)| render_cell(&format!("x{axis} = {index}"), CellRole::Axis(*axis))),
+        ", ",
+    )
 }
 
 fn collect_slices(
@@ -338,16 +313,19 @@ fn collect_slices(
     dims: &[usize],
     axis: usize,
     prefix: &mut Vec<(usize, usize)>,
-    sections: &mut Vec<String>,
-    context: RenderContext<'_>,
+    sections: &mut Vec<StructuredPrintResult>,
+    context: RenderContext,
 ) -> Option<()> {
     if axis + 2 == dims.len() {
         let matrix = format_matrix(v, axis, dims, context)?;
         let title = slice_title(prefix, context);
-        if title.is_empty() {
+        if title.text.is_empty() {
             sections.push(matrix);
         } else {
-            sections.push(format!("{title}\n{matrix}"));
+            let mut section = title;
+            section.push_plain("\n");
+            section.append(matrix);
+            sections.push(section);
         }
         return Some(());
     }
@@ -366,16 +344,24 @@ fn collect_slices(
     Some(())
 }
 
-fn format_uniform_axes(v: &Value, dims: &[usize], context: RenderContext<'_>) -> Option<String> {
+fn format_uniform_axes(
+    v: &Value,
+    dims: &[usize],
+    context: RenderContext,
+) -> Option<StructuredPrintResult> {
     if dims.len() < 2 || v.is_string() {
         return None;
     }
     let mut sections = Vec::new();
     collect_slices(v, dims, 0, &mut Vec::new(), &mut sections, context)?;
-    Some(sections.join("\n\n"))
+    Some(StructuredPrintResult::joined(sections, "\n\n"))
 }
 
-fn format_rank_one(v: &Value, dims: &[usize], context: RenderContext<'_>) -> Option<String> {
+fn format_rank_one(
+    v: &Value,
+    dims: &[usize],
+    context: RenderContext,
+) -> Option<StructuredPrintResult> {
     if dims.len() != 1 || dims[0] == 0 || v.is_string() {
         return None;
     }
@@ -437,13 +423,20 @@ fn format_rank_one(v: &Value, dims: &[usize], context: RenderContext<'_>) -> Opt
                 .map(|(offset, cell)| (cell.as_str(), widths[start + offset], CellRole::Source)),
             context,
         );
-        sections.push(format!("{header}\n{prefix}{fence}\n{prefix}{values}"));
+        let mut section = header;
+        section.push_plain("\n");
+        section.push_plain(&prefix);
+        section.append(fence);
+        section.push_plain("\n");
+        section.push_plain(&prefix);
+        section.append(values);
+        sections.push(section);
         start = end;
     }
-    Some(sections.join("\n"))
+    Some(StructuredPrintResult::joined(sections, "\n"))
 }
 
-fn format_ragged_rows(v: &Value, context: RenderContext<'_>) -> Option<String> {
+fn format_ragged_rows(v: &Value, _context: RenderContext) -> Option<StructuredPrintResult> {
     let Value::List(rows) = v else {
         return None;
     };
@@ -457,24 +450,19 @@ fn format_ragged_rows(v: &Value, context: RenderContext<'_>) -> Option<String> {
     let axis_label = "x0";
     let index_width = display_width(axis_label).max(rows.len().saturating_sub(1).to_string().len());
     let mut lines = Vec::with_capacity(rows.len() + 1);
-    lines.push(pad_cell(
-        axis_label,
-        index_width,
-        CellRole::Axis(0),
-        context,
-    ));
+    lines.push(pad_cell(axis_label, index_width, CellRole::Axis(0)));
     for (i, row) in rows.iter().enumerate() {
-        let index = pad_cell_right(&i.to_string(), index_width, axis_index_role(0), context);
-        let pipe = style_cell("|", CellRole::Fence, context);
-        let source = style_cell(&row.to_string(), CellRole::Source, context);
-        lines.push(format!("{index} {pipe} {source}"));
+        let index = pad_cell_right(&i.to_string(), index_width, axis_index_role(0));
+        let pipe = render_cell("|", CellRole::Fence);
+        let source = render_cell(&row.to_string(), CellRole::Source);
+        lines.push(StructuredPrintResult::joined([index, pipe, source], " "));
     }
-    Some(lines.join("\n"))
+    Some(StructuredPrintResult::joined(lines, "\n"))
 }
 
-fn format_compact_with(v: &Value, context: RenderContext<'_>) -> String {
+fn format_compact_with(v: &Value, context: RenderContext) -> StructuredPrintResult {
     if v.len() < 2 || v.is_string() {
-        return style_cell(&v.to_string(), CellRole::Source, context);
+        return render_cell(&v.to_string(), CellRole::Source);
     }
     if let Some(cells) = expand_simple_1d(v) {
         return render_table(&[cells], context);
@@ -500,15 +488,15 @@ fn format_compact_with(v: &Value, context: RenderContext<'_>) -> String {
                 .collect();
             render_table(&table, context)
         }
-        _ => style_cell(&v.to_string(), CellRole::Source, context),
+        _ => render_cell(&v.to_string(), CellRole::Source),
     }
 }
 
 pub fn format_compact(v: &Value) -> String {
-    format_compact_with(v, RenderContext::plain(BoxFormatOptions::default()))
+    format_compact_with(v, RenderContext::plain(BoxFormatOptions::default())).text
 }
 
-fn format_boxed_in_context(v: &Value, context: RenderContext<'_>) -> String {
+fn format_boxed_in_context(v: &Value, context: RenderContext) -> StructuredPrintResult {
     if !context.options.axes {
         return format_compact_with(v, context);
     }
@@ -536,8 +524,20 @@ fn format_boxed_in_context(v: &Value, context: RenderContext<'_>) -> String {
     format_compact_with(v, context)
 }
 
+fn render_structured_result(
+    result: &StructuredPrintResult,
+    color: bool,
+    source_styler: Option<&dyn Fn(&str) -> String>,
+) -> String {
+    result.render_with(|role, text| match role {
+        CellRole::Source => source_styler.map_or_else(|| text.to_string(), |styler| styler(text)),
+        _ => style_text(text, role, color),
+    })
+}
+
 pub fn format_boxed_with(v: &Value, options: BoxFormatOptions) -> String {
-    format_boxed_in_context(v, RenderContext::plain(options))
+    let result = format_boxed_in_context(v, RenderContext::plain(options));
+    render_structured_result(&result, options.color, None)
 }
 
 pub(crate) fn format_boxed_for_display(
@@ -546,14 +546,16 @@ pub(crate) fn format_boxed_for_display(
     max_width: Option<usize>,
     source_styler: Option<&dyn Fn(&str) -> String>,
 ) -> String {
-    format_boxed_in_context(
-        v,
-        RenderContext {
-            options,
-            max_width,
-            source_styler,
-        },
-    )
+    let result = format_boxed_in_context(v, RenderContext { options, max_width });
+    render_structured_result(&result, options.color, source_styler)
+}
+
+pub(crate) fn format_boxed_structured_for_display(
+    v: &Value,
+    options: BoxFormatOptions,
+    max_width: Option<usize>,
+) -> StructuredPrintResult {
+    format_boxed_in_context(v, RenderContext { options, max_width })
 }
 
 pub fn format_boxed(v: &Value) -> String {

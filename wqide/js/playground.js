@@ -1,6 +1,12 @@
 import { WasmWqSession } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
-import { getPlaygroundExample } from "./playground-examples.js";
+import { highlightedSourceHtml } from "./syntax-highlight.js";
+import { appendResultPresentation } from "./result-presentation.js";
+import { loadPlaygroundExamples } from "./playground-examples.js";
+import {
+  createPlaygroundEvaluation,
+  findPlaygroundExample
+} from "./playground-examples-core.js";
 import {
   ensureWasm,
   getWqFrontend,
@@ -22,6 +28,7 @@ import {
   formatWqError,
   queueEval,
   handleTabKey,
+  wireTabList
 } from "./wq-shared.js";
 import { createWqEditor } from "./editor.js";
 import {
@@ -90,6 +97,127 @@ function syncBoxControls(instance) {
 
 const instances = new WeakMap();
 
+function saveActiveExampleFile(instance) {
+  if (!instance.activeExample || !instance.activeExamplePath) return;
+  instance.activeExample.files.set(instance.activeExamplePath, instance.ta.value);
+}
+
+function renderExampleFiles(instance) {
+  const host = instance.exampleFiles;
+  if (!host) return;
+  host.innerHTML = "";
+  const example = instance.activeExample;
+  if (!example) {
+    host.hidden = true;
+    return;
+  }
+
+  for (const path of example.files.keys()) {
+    const button = document.createElement("button");
+    const active = path === instance.activeExamplePath;
+    button.className = "playground-file";
+    button.type = "button";
+    button.dataset.exampleFile = path;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.textContent = path;
+    if (path === example.entryPath) {
+      const entry = document.createElement("span");
+      entry.className = "playground-file-entry";
+      entry.textContent = "entry";
+      button.appendChild(entry);
+    }
+    host.appendChild(button);
+  }
+  host.hidden = false;
+}
+
+function setEditorSource(instance, source, focus = true) {
+  instance.ta.value = source;
+  instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
+  refreshLines(instance);
+  scheduleStructureRefresh(instance);
+  requestPanelHeightSync(instance);
+  if (focus) {
+    instance.ta.focus();
+    instance.ta.setSelectionRange(0, 0);
+  }
+}
+
+function selectExampleFile(instance, path, focus = true) {
+  if (!instance.activeExample?.files.has(path)) return;
+  saveActiveExampleFile(instance);
+  instance.activeExamplePath = path;
+  renderExampleFiles(instance);
+  setEditorSource(instance, instance.activeExample.files.get(path), focus);
+}
+
+function selectPlaygroundExample(instance, example) {
+  saveActiveExampleFile(instance);
+  instance.activeExample = example;
+  instance.activeExamplePath = example.initialPath;
+  for (const button of instance.templateButtons) {
+    const active = button.dataset.template === example.id;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+  renderExampleFiles(instance);
+  setEditorSource(instance, example.files.get(example.initialPath));
+}
+
+function leaveExampleProject(instance) {
+  saveActiveExampleFile(instance);
+  instance.activeExample = null;
+  instance.activeExamplePath = null;
+  for (const button of instance.templateButtons) {
+    button.setAttribute("aria-pressed", "false");
+  }
+  renderExampleFiles(instance);
+}
+
+function initializePlaygroundExamples(instance) {
+  try {
+    const loaded = loadPlaygroundExamples();
+    instance.examples = loaded.examples;
+    instance.exampleSources = loaded.sources;
+    for (const button of instance.templateButtons) {
+      button.disabled = false;
+    }
+    instance.exampleStatus.hidden = true;
+  } catch (error) {
+    console.error("[playground] examples could not be loaded", error);
+    instance.examples = [];
+    instance.exampleSources = new Map();
+    for (const button of instance.templateButtons) {
+      button.disabled = true;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    instance.exampleMessage.textContent =
+      `Examples could not be loaded: ${reason}. Reload examples or use the empty editor.`;
+    instance.exampleStatus.hidden = false;
+  }
+}
+
+function playgroundEvaluation(instance) {
+  saveActiveExampleFile(instance);
+  if (!instance.activeExample) {
+    return {
+      modules: null,
+      source: instance.ta.value,
+      sourcePath: "<playground>"
+    };
+  }
+  return createPlaygroundEvaluation(
+    instance.activeExample,
+    instance.exampleSources
+  );
+}
+
+function registerEvaluationModules(session, evaluation) {
+  if (!evaluation.modules) return;
+  for (const [specifier, source] of evaluation.modules) {
+    session.register_module(specifier, source);
+  }
+}
+
 function syncClearOutputButton(instance, active = false) {
   if (!instance.clearOutBtn || !instance.output) return;
   const hasOutput = Boolean(instance.output.textContent.trim());
@@ -117,13 +245,119 @@ function syncGutterScroll(instance) {
   instance.gutter.scrollTop = instance.ta.element.scrollTop;
 }
 
+const PLAYGROUND_EDITOR_MIN_HEIGHT = 240;
+const PLAYGROUND_OUTPUT_MIN_HEIGHT = 160;
+const PLAYGROUND_SPLIT_KEY_STEP = 24;
+
+function playgroundSplitBounds(instance) {
+  const splitterHeight = instance.splitter?.getBoundingClientRect().height || 0;
+  const available = Math.max(
+    0,
+    (instance.playgroundMain?.clientHeight || 0) - splitterHeight
+  );
+  const min = Math.min(PLAYGROUND_EDITOR_MIN_HEIGHT, available);
+  const max = Math.max(min, available - PLAYGROUND_OUTPUT_MIN_HEIGHT);
+  return { available, min, max };
+}
+
+function setPlaygroundEditorHeight(instance, requestedHeight) {
+  if (!instance.playgroundMain || !instance.splitter) return;
+  if (getComputedStyle(instance.splitter).display === "none") return;
+
+  const { available, min, max } = playgroundSplitBounds(instance);
+  if (!available) return;
+  const height = Math.max(min, Math.min(max, requestedHeight));
+  const percent = Math.round((height / available) * 100);
+  const minPercent = Math.round((min / available) * 100);
+  const maxPercent = Math.round((max / available) * 100);
+
+  instance.playgroundMain.style.setProperty(
+    "--playground-editor-height",
+    `${Math.round(height)}px`
+  );
+  instance.splitter.setAttribute("aria-valuemin", String(minPercent));
+  instance.splitter.setAttribute("aria-valuemax", String(maxPercent));
+  instance.splitter.setAttribute("aria-valuenow", String(percent));
+  instance.splitter.setAttribute(
+    "aria-valuetext",
+    `Editor ${percent}%, output ${100 - percent}%`
+  );
+}
+
+function syncPlaygroundSplitter(instance) {
+  if (!instance.splitter || !instance.editor) return;
+  if (getComputedStyle(instance.splitter).display === "none") return;
+  setPlaygroundEditorHeight(
+    instance,
+    instance.editor.getBoundingClientRect().height
+  );
+}
+
+function wirePlaygroundSplitter(instance) {
+  const splitter = instance.splitter;
+  if (!splitter || !instance.playgroundMain) return;
+
+  let pointerId = null;
+  let startY = 0;
+  let startHeight = 0;
+
+  const finishPointerResize = (event) => {
+    if (event.pointerId !== pointerId) return;
+    if (splitter.hasPointerCapture(pointerId)) {
+      splitter.releasePointerCapture(pointerId);
+    }
+    pointerId = null;
+    instance.playgroundMain.classList.remove("is-resizing");
+  };
+
+  splitter.addEventListener("pointerdown", (event) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    pointerId = event.pointerId;
+    startY = event.clientY;
+    startHeight = instance.editor.getBoundingClientRect().height;
+    splitter.setPointerCapture(pointerId);
+    instance.playgroundMain.classList.add("is-resizing");
+    event.preventDefault();
+  });
+
+  splitter.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId) return;
+    setPlaygroundEditorHeight(
+      instance,
+      startHeight + event.clientY - startY
+    );
+  });
+
+  splitter.addEventListener("pointerup", finishPointerResize);
+  splitter.addEventListener("pointercancel", finishPointerResize);
+  splitter.addEventListener("keydown", (event) => {
+    const currentHeight = instance.editor.getBoundingClientRect().height;
+    const { min, max } = playgroundSplitBounds(instance);
+    let nextHeight = null;
+
+    if (event.key === "ArrowUp") {
+      nextHeight = currentHeight - PLAYGROUND_SPLIT_KEY_STEP;
+    } else if (event.key === "ArrowDown") {
+      nextHeight = currentHeight + PLAYGROUND_SPLIT_KEY_STEP;
+    } else if (event.key === "Home") {
+      nextHeight = min;
+    } else if (event.key === "End") {
+      nextHeight = max;
+    }
+
+    if (nextHeight === null) return;
+    event.preventDefault();
+    setPlaygroundEditorHeight(instance, nextHeight);
+  });
+}
+
 function syncPanelHeights(instance) {
-  if (!instance.root || !instance.editor) return;
-  const height = instance.editor.getBoundingClientRect().height;
+  if (!instance.root || !instance.playgroundMain) return;
+  const height = instance.playgroundMain.getBoundingClientRect().height;
   if (height > 0) {
     instance.root.style.setProperty(
       "--playground-panel-height",
-      `${Math.round(height)}px`,
+      `${Math.round(height)}px`
     );
   }
 }
@@ -379,11 +613,14 @@ function setStructureMode(instance, mode) {
   if (!Object.hasOwn(STRUCTURE_MODE_LABELS, mode)) return;
   if (instance.structureMode === mode) return;
   instance.structureMode = mode;
+  let selectedButton = null;
   for (const button of instance.structureButtons || []) {
     const active = button.dataset.structureMode === mode;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
+    if (active) selectedButton = button;
   }
+  instance.structureTabs?.sync(selectedButton);
   scheduleStructureRefresh(instance, 0);
 }
 
@@ -409,7 +646,7 @@ async function doEval(instance) {
   const streamRenderer = createOutputRenderer(instance.output);
 
   try {
-    const code = instance.ta.value;
+    const evaluation = playgroundEvaluation(instance);
     await ensureWasm();
     const flags = instance.debugFlagsInput?.value || "0";
     const start = performance.now();
@@ -442,7 +679,11 @@ async function doEval(instance) {
               if (flags) {
                 session.set_debug_flags(flags);
               }
-              return await session.eval_wq_async(code, { signal });
+              registerEvaluationModules(session, evaluation);
+              return await session.eval_wq_async(evaluation.source, {
+                signal,
+                sourcePath: evaluation.sourcePath
+              });
             } finally {
               session.free();
             }
@@ -465,9 +706,16 @@ async function doEval(instance) {
       bar.textContent = "\u258d ";
       instance.output.appendChild(bar);
       const resultRenderer = createOutputRenderer(instance.output, bar);
-      resultRenderer.appendOutput(
-        alignTurnBody(String(result.display)) + "\n",
-      );
+      if (
+        !appendResultPresentation(instance.output, result.presentation, {
+          indent: "  ",
+          trailingNewline: true,
+        })
+      ) {
+        resultRenderer.appendOutput(
+          alignTurnBody(String(result.display)) + "\n",
+        );
+      }
       if (readBoxFlags(instance).includes("xray") && result.xray) {
         const xrayBar = document.createElement("span");
         xrayBar.className = "repl-bar repl-bar-info";
@@ -522,7 +770,7 @@ async function runForPoster(instance) {
   const errorDiv = document.createElement("div");
 
   try {
-    const code = instance.ta.value;
+    const evaluation = playgroundEvaluation(instance);
     instance.inputHost.innerHTML = "";
     await ensureWasm();
     const flags = instance.debugFlagsInput?.value || "0";
@@ -551,7 +799,11 @@ async function runForPoster(instance) {
               });
               applyBoxMode(session, instance);
               if (flags) session.set_debug_flags(flags);
-              return await session.eval_wq_async(code, { signal });
+              registerEvaluationModules(session, evaluation);
+              return await session.eval_wq_async(evaluation.source, {
+                signal,
+                sourcePath: evaluation.sourcePath
+              });
             } finally {
               session.free();
             }
@@ -569,9 +821,16 @@ async function runForPoster(instance) {
       bar.textContent = "\u258d ";
       resultDiv.appendChild(bar);
       const resultRenderer = createOutputRenderer(resultDiv, bar);
-      resultRenderer.appendOutput(
-        alignTurnBody(String(result.display)) + "\n",
-      );
+      if (
+        !appendResultPresentation(resultDiv, result.presentation, {
+          indent: "  ",
+          trailingNewline: true,
+        })
+      ) {
+        resultRenderer.appendOutput(
+          alignTurnBody(String(result.display)) + "\n",
+        );
+      }
       if (readBoxFlags(instance).includes("xray") && result.xray) {
         const bar = document.createElement("span");
         bar.className = "repl-bar repl-bar-info";
@@ -609,11 +868,13 @@ async function runForPoster(instance) {
 
 function createPosterConfigModal() {
   return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "poster-modal-overlay";
-    overlay.innerHTML = `
+    const opener = document.activeElement;
+    const dialog = document.createElement("dialog");
+    dialog.className = "poster-dialog poster-config-dialog";
+    dialog.setAttribute("aria-labelledby", "posterConfigHeading");
+    dialog.innerHTML = `
       <div class="poster-config-modal">
-        <h3>Make Poster</h3>
+        <h2 id="posterConfigHeading">Make Poster</h2>
         <div class="poster-field">
           <label for="posterTitle">Title</label>
           <input type="text" id="posterTitle" placeholder="Untitled" />
@@ -633,79 +894,87 @@ function createPosterConfigModal() {
       </div>
     `;
 
-    const titleInput = overlay.querySelector("#posterTitle");
-    const descInput = overlay.querySelector("#posterDesc");
-    const runCheck = overlay.querySelector("#posterRunCode");
-    const cancelBtn = overlay.querySelector("#posterCancel");
-    const confirmBtn = overlay.querySelector("#posterConfirm");
-
-    function close() {
-      overlay.remove();
-    }
+    const titleInput = dialog.querySelector("#posterTitle");
+    const descInput = dialog.querySelector("#posterDesc");
+    const runCheck = dialog.querySelector("#posterRunCode");
+    const cancelBtn = dialog.querySelector("#posterCancel");
+    const confirmBtn = dialog.querySelector("#posterConfirm");
+    let result = null;
 
     cancelBtn.addEventListener("click", () => {
-      close();
-      resolve(null);
+      dialog.close("cancel");
     });
 
     confirmBtn.addEventListener("click", () => {
-      const data = {
+      result = {
         title: titleInput.value.trim() || "Untitled",
         description: descInput.value.trim(),
-        runCode: runCheck.checked,
+        runCode: runCheck.checked
       };
-      close();
-      resolve(data);
+      dialog.close("confirm");
     });
 
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) {
-        close();
-        resolve(null);
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      dialog.close("cancel");
+    });
+
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (opener?.isConnected) opener.focus();
+      resolve(dialog.returnValue === "confirm" ? result : null);
+    });
+
+    titleInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        confirmBtn.click();
       }
     });
 
-    titleInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") confirmBtn.click();
-    });
-
-    document.body.appendChild(overlay);
+    document.body.appendChild(dialog);
+    dialog.showModal();
     titleInput.focus();
   });
 }
 
 function showPosterModal(posterHTML, title = "poster") {
-  const overlay = document.createElement("div");
-  overlay.className = "poster-modal-overlay poster-show-overlay";
-  overlay.innerHTML = `
+  const opener = document.activeElement;
+  const dialog = document.createElement("dialog");
+  dialog.className = "poster-dialog poster-show-dialog";
+  dialog.setAttribute("aria-labelledby", "posterDisplayHeading");
+  dialog.innerHTML = `
     <div class="poster-show-modal">
+      <h2 class="visually-hidden" id="posterDisplayHeading">
+        Generated poster: ${escapeHtml(title)}
+      </h2>
       <div class="poster-card">
         ${posterHTML}
       </div>
-      <div class="poster-modal-actions" style="justify-content:center;margin-top:0;">
+      <div class="poster-modal-actions poster-show-actions">
         <button class="btn primary" type="button" id="posterClose">Close</button>
       </div>
     </div>
   `;
 
-  const card = overlay.querySelector(".poster-card");
-
-  function close() {
-    overlay.remove();
-  }
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
+  dialog.addEventListener("close", () => {
+    dialog.remove();
+    if (opener?.isConnected) opener.focus();
   });
-  document.addEventListener("keydown", function onKey(e) {
-    if (e.key === "Escape") {
-      close();
-      document.removeEventListener("keydown", onKey);
-    }
+  const closeButton = dialog.querySelector("#posterClose");
+  closeButton.addEventListener("click", () => {
+    dialog.close();
+  });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    dialog.close();
   });
 
-  overlay.querySelector("#posterClose")?.addEventListener("click", close);
-
-  document.body.appendChild(overlay);
+  document.body.appendChild(dialog);
+  dialog.showModal();
+  closeButton.focus();
 }
 
 async function makePoster(instance) {
@@ -720,7 +989,11 @@ async function makePoster(instance) {
   }
 
   const code = instance.ta.value;
-  const highlightedCode = instance.frontend.highlight_wq(code);
+  const highlightedCode = highlightedSourceHtml(
+    document,
+    instance.frontend,
+    code,
+  );
 
   let runSection = "";
   if (config.runCode && runOutput) {
@@ -782,6 +1055,8 @@ export async function mountPlayground(root) {
   const runBtn = root.querySelector("#runBtn");
   const editor = root.querySelector(".editor");
   const editorArea = root.querySelector(".editor-area");
+  const playgroundMain = root.querySelector(".playground-main");
+  const splitter = root.querySelector(".playground-splitter");
   const debugFlagsInput = root.querySelector("#playgroundDebugFlags");
   const boxBtn = root.querySelector("#playgroundBoxBtn");
   const boxPanel = root.querySelector("#playgroundBoxPanel");
@@ -789,6 +1064,10 @@ export async function mountPlayground(root) {
   const debugToggle = root.querySelector("#playgroundDebugToggle");
   const debugPanel = root.querySelector("#playgroundDebugPanel");
   const templateButtons = Array.from(root.querySelectorAll("[data-template]"));
+  const exampleFiles = root.querySelector("[data-example-files]");
+  const exampleStatus = root.querySelector("[data-example-status]");
+  const exampleMessage = root.querySelector("[data-example-message]");
+  const exampleRetry = root.querySelector("[data-example-retry]");
   const resetBtn = root.querySelector("#resetBtn");
   const symbolList = root.querySelector("[data-symbol-list]");
   const symbolCount = root.querySelector("[data-symbol-count]");
@@ -798,6 +1077,7 @@ export async function mountPlayground(root) {
   const structureButtons = Array.from(
     root.querySelectorAll("[data-structure-mode]"),
   );
+  const structureTabsEl = root.querySelector(".structure-tabs");
   const instance = {
     root,
     frontend,
@@ -810,6 +1090,8 @@ export async function mountPlayground(root) {
     runBtn,
     editor,
     editorArea,
+    playgroundMain,
+    splitter,
     debugFlagsInput,
     boxBtn,
     boxPanel,
@@ -818,6 +1100,14 @@ export async function mountPlayground(root) {
     debugPanel,
     timeMode: false,
     stateSavingSession: null,
+    examples: [],
+    exampleSources: new Map(),
+    activeExample: null,
+    activeExamplePath: null,
+    exampleFiles,
+    exampleStatus,
+    exampleMessage,
+    exampleRetry,
     boxButtons: Object.fromEntries(
       BOX_FLAGS.map((flag) => [
         flag,
@@ -840,6 +1130,7 @@ export async function mountPlayground(root) {
     structureOutput,
     structureStatus,
     structureButtons,
+    structureTabs: null,
     structureMode: "ast",
     structureRefreshSeq: 0,
     structureRefreshTimer: null,
@@ -861,9 +1152,16 @@ export async function mountPlayground(root) {
   instance.stdinRequester = createStdinRequester({
     render: createDomStdinRenderer(inputHost),
   });
+  wirePlaygroundSplitter(instance);
   instances.set(root, instance);
+  instance.structureTabs = wireTabList(structureTabsEl, {
+    onSelect(button) {
+      setStructureMode(instance, button.dataset.structureMode);
+    }
+  });
 
   ta.addEventListener("input", () => {
+    saveActiveExampleFile(instance);
     refreshLines(instance);
     if (!ta.value.trim()) {
       instance.symbolMapper = null;
@@ -916,11 +1214,6 @@ export async function mountPlayground(root) {
       Number(button.dataset.symbolEnd),
     ]);
   });
-  for (const button of structureButtons) {
-    button.addEventListener("click", () => {
-      setStructureMode(instance, button.dataset.structureMode);
-    });
-  }
   boxBtn?.addEventListener("click", async () => {
     await ensureWasm();
     toggleRuntimePanel(boxBtn, boxPanel);
@@ -967,30 +1260,39 @@ export async function mountPlayground(root) {
   window.addEventListener("resize", () => {
     positionRuntimePanel(boxBtn, boxPanel);
     positionRuntimePanel(debugToggle, debugPanel);
+    syncPlaygroundSplitter(instance);
     requestPanelHeightSync(instance);
   });
-  if (window.ResizeObserver && editor) {
+  if (window.ResizeObserver && playgroundMain) {
     instance.panelResizeObserver = new ResizeObserver(() => {
+      syncPlaygroundSplitter(instance);
       requestPanelHeightSync(instance);
     });
-    instance.panelResizeObserver.observe(editor);
+    instance.panelResizeObserver.observe(playgroundMain);
   }
   templateButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const example = getPlaygroundExample(button.dataset.template);
+      const example = findPlaygroundExample(
+        instance.examples,
+        button.dataset.template
+      );
       if (!example) return;
-      ta.value = example.code;
-      refreshLines(instance);
-      scheduleStructureRefresh(instance);
-      requestPanelHeightSync(instance);
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
+      selectPlaygroundExample(instance, example);
     });
+  });
+  exampleFiles?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-example-file]");
+    if (!button) return;
+    selectExampleFile(instance, button.dataset.exampleFile);
+  });
+  exampleRetry?.addEventListener("click", () => {
+    initializePlaygroundExamples(instance);
   });
   resetBtn?.addEventListener("click", () => {
     instance.resetRequested = instance.evaluationController.stop(
       "playground reset",
     );
+    leaveExampleProject(instance);
     ta.value = "";
     instance.output.innerHTML = "";
     instance.inputHost.innerHTML = "";
@@ -1009,12 +1311,14 @@ export async function mountPlayground(root) {
   root.addEventListener("wqide:deactivate", () => {
     instance.evaluationController.stop("view closed");
   });
+  initializePlaygroundExamples(instance);
   refreshLines(instance);
   await ensureWasm();
   syncBoxControls(instance);
   setActive(timeBtn, instance.timeMode);
   writeDebugFlags(instance, []);
   await refreshStructure(instance);
+  syncPlaygroundSplitter(instance);
   requestPanelHeightSync(instance);
 }
 
@@ -1034,6 +1338,7 @@ export function applyPlaygroundRoute(root, params) {
   const code = params.get("code");
 
   if (code) {
+    leaveExampleProject(instance);
     instance.ta.value = code;
     instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
     refreshLines(instance);

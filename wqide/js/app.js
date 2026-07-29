@@ -14,8 +14,8 @@ import {
   referenceSubfolderTitle,
   referenceTopicCards,
 } from "./reference-cards.js";
-import { PLAYGROUND_EXAMPLES } from "./playground-examples.js";
-import { renderWqCatConstellation } from "./startup-constellation.js";
+import { PLAYGROUND_EXAMPLE_DEFINITIONS } from "./playground-examples-core.js";
+import { resolveRoute } from "./route.js";
 
 console.debug("[wqide] app shell loaded");
 
@@ -23,9 +23,8 @@ function html(strings, ...values) {
   return strings.reduce((acc, str, i) => acc + str + (values[i] || ""), "");
 }
 
-function featuredDefaultCardHtml(item, index) {
+function featuredDefaultCardHtml(item) {
   return html`
-    ${index ? '<div class="divider"></div>' : ""}
     <section class="card" data-featured-default-card>
       <h2>${item.title}</h2>
       <p>${item.description}</p>
@@ -43,6 +42,7 @@ function playgroundExampleCardHtml(example, index) {
     <button
       class="playground-template-card playground-template-card-${accent}"
       type="button"
+      aria-pressed="false"
       data-template="${escapeHtml(example.id)}">
       <strong>${escapeHtml(example.title)}</strong>
       <span class="playground-template-desc"
@@ -126,202 +126,54 @@ const THEME_LIGHT = "light";
 const SHELL_HTML = html`
   <header class="topbar">
     <div class="topbar-row">
-      <div class="brand">wqide</div>
-      <div class="pillbar" aria-label="Quick toggles">
-        <div class="pills" role="list">
-          <button
-            class="pill inactive theme-toggle"
+      <a class="brand" href="index.html" aria-label="wqide Home">wqide</a>
+      <div class="pillbar" role="group" aria-label="Quick toggles">
+        <div class="pills">
+          <div
+            class="theme-toggle"
             data-theme-toggle
-            type="button"
-            aria-label="Toggle midnight mode"
-            aria-pressed="false">
-            <span class="theme-toggle-scene" aria-hidden="true">
-              <span class="theme-night-sky"></span>
-              <span class="theme-sky-haze"></span>
-              <span class="theme-cloud theme-cloud-back"></span>
-              <span class="theme-cloud theme-cloud-front"></span>
-            <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
-              <svg viewBox="0 0 84 36" preserveAspectRatio="none">
-                <defs>
-                  <radialGradient id="themeSunGlow" cx="50%" cy="50%" r="50%">
-                    <stop offset="0" stop-color="#ffd84d" stop-opacity="0.34" />
-                    <stop
-                      offset="0.62"
-                      stop-color="#ffd84d"
-                      stop-opacity="0.14" />
-                    <stop offset="1" stop-color="#ffd84d" stop-opacity="0" />
-                  </radialGradient>
-
-                  <radialGradient id="themeSunSphere" cx="64%" cy="28%" r="78%">
-                    <stop offset="0" stop-color="#fffde0" />
-                    <stop offset="0.28" stop-color="#fff18a" />
-                    <stop offset="0.68" stop-color="#ffd044" />
-                    <stop offset="1" stop-color="#e9aa00" />
-                  </radialGradient>
-
-                  <linearGradient
-                    id="themeSunHighlight"
-                    x1="0"
-                    y1="0"
-                    x2="1"
-                    y2="1">
-                    <stop offset="0" stop-color="#ffffff" stop-opacity="0.58" />
-                    <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
-                  </linearGradient>
-                </defs>
-
-                <g class="theme-sun-orbit">
-                  <circle
-                    class="theme-sun-glow"
-                    cx="-1"
-                    cy="18"
-                    r="27"
-                    fill="url(#themeSunGlow)" />
-
-                  <circle
-                    class="theme-sun-disc"
-                    cx="-1"
-                    cy="18"
-                    r="18"
-                    fill="url(#themeSunSphere)" />
-
-                  <circle
-                    cx="-1"
-                    cy="18"
-                    r="17.4"
-                    fill="none"
-                    stroke="#fff7b2"
-                    stroke-opacity="0.42"
-                    stroke-width="0.8" />
-
-                  <ellipse
-                    cx="4"
-                    cy="11.5"
-                    rx="7.5"
-                    ry="4.5"
-                    fill="url(#themeSunHighlight)"
-                    transform="rotate(-18 4 11.5)" />
-                </g>
-              </svg>
-            </span>
-            <span
-              class="theme-toggle-icon theme-toggle-midnight"
-              aria-hidden="true">
-              <svg viewBox="0 0 84 36" preserveAspectRatio="none">
-                <defs>
-                  <radialGradient
-                    id="themeMoonSphere"
-                    cx="68%"
-                    cy="32%"
-                    r="72%">
-                    <stop offset="0" stop-color="#ffffff"></stop>
-                    <stop offset="0.6" stop-color="#edf3ff"></stop>
-                    <stop offset="1" stop-color="#c9d4ea"></stop>
-                  </radialGradient>
-                </defs>
-                <g class="theme-moon-orbit">
-                  <circle class="theme-moon-glow" cx="-1" cy="18" r="23"></circle>
-                  <circle class="theme-moon" cx="-1" cy="18" r="18"></circle>
-                  <circle class="theme-moon-crater" cx="5" cy="11" r="3.2"></circle>
-                  <circle class="theme-moon-crater theme-moon-crater-small" cx="9" cy="23" r="1.8"></circle>
-                </g>
-                <g class="theme-stars theme-stars-far">
-                  <circle cx="30" cy="7" r="0.3"></circle>
-                  <circle cx="40" cy="27" r="0.28"></circle>
-                  <circle cx="52" cy="13" r="0.34"></circle>
-                  <circle cx="65" cy="29" r="0.3"></circle>
-                  <circle cx="78" cy="8" r="0.26"></circle>
-                </g>
-                <g class="theme-stars theme-stars-mid">
-                  <circle cx="35" cy="18" r="0.52"></circle>
-                  <circle cx="48" cy="7" r="0.62"></circle>
-                  <circle cx="59" cy="23" r="0.48"></circle>
-                  <circle cx="73" cy="16" r="0.56"></circle>
-                </g>
-                <g class="theme-stars theme-stars-near">
-                  <circle cx="55" cy="30" r="0.74"></circle>
-                  <circle cx="69" cy="8" r="0.7"></circle>
-                </g>
-              </svg>
-            </span>
-            </span>
-            <span class="theme-toggle-label">light</span>
-          </button>
+            role="radiogroup"
+            aria-label="Color theme">
+            <span class="theme-toggle-thumb" aria-hidden="true"></span>
+            <button
+              class="theme-toggle-option"
+              data-theme-option="light"
+              type="button"
+              role="radio"
+              aria-checked="true">
+              Light
+            </button>
+            <button
+              class="theme-toggle-option"
+              data-theme-option="midnight"
+              type="button"
+              role="radio"
+              aria-checked="false"
+              tabindex="-1">
+              Midnight
+            </button>
+          </div>
         </div>
       </div>
     </div>
-    <nav class="tabs" role="tablist" aria-label="Sections">
-      <a href="index.html" data-nav="featured">Featured</a>
+    <nav class="tabs" aria-label="Primary">
+      <a href="index.html" data-nav="featured">Home</a>
       <a href="playground.html" data-nav="playground">Playground</a>
       <a href="viz.html" data-nav="viz">Viz</a>
       <a href="repl.html" data-nav="repl">REPL</a>
       <a href="more.html" data-nav="more">More</a>
     </nav>
   </header>
-  <main class="wrap" id="appMain"></main>
+  <main id="appMain"></main>
 `;
 
 const FEATURED_HTML = html`
-  <main class="wrap featured-wrap">
-    <section class="welcome-card">
-      <div class="welcome-copy">
-        <h2>Start here with wqide</h2>
-        <p>wq is a programming language by tttiw.</p>
-        <p>
-          wqide is a space for learning wq and trying random ideas in your
-          browser.
-        </p>
+  <div class="wrap featured-wrap">
+    <nav class="breadcrumbs featured-breadcrumbs" aria-label="Breadcrumb">
+      <div class="crumb-path">
+        <span class="crumb-current" aria-current="page">~</span>
       </div>
-      <div
-        class="welcome-constellation"
-        role="img"
-        aria-label="A colorful animated ASCII constellation shaped like the wq cat">
-        <div class="constellation-sky" aria-hidden="true">
-          <span
-            class="ambient-star"
-            style="--star-x: 8%; --star-y: 21%; --star-delay: -1.1s"
-            >·</span
-          >
-          <span
-            class="ambient-star"
-            style="--star-x: 18%; --star-y: 72%; --star-delay: -2.4s"
-            >+</span
-          >
-          <span
-            class="ambient-star"
-            style="--star-x: 34%; --star-y: 13%; --star-delay: -0.3s"
-            >*</span
-          >
-          <span
-            class="ambient-star"
-            style="--star-x: 70%; --star-y: 15%; --star-delay: -1.8s"
-            >·</span
-          >
-          <span
-            class="ambient-star"
-            style="--star-x: 87%; --star-y: 31%; --star-delay: -0.7s"
-            >*</span
-          >
-          <span
-            class="ambient-star"
-            style="--star-x: 81%; --star-y: 78%; --star-delay: -2.8s"
-            >+</span
-          >
-          <span class="constellation-shooting-star"></span>
-          <pre class="wq-cat-constellation">${renderWqCatConstellation()}</pre>
-        </div>
-      </div>
-      <div class="welcome-links" aria-label="Useful articles">
-        <a class="article-link" href="article.html?slug=installation">
-          <strong>Installation</strong>
-          <span>Get a copy of wq.</span>
-        </a>
-        <a class="article-link" href="article.html?slug=arithmetic">
-          <strong>Arithmetic</strong>
-          <span>Start the wq book with numbers and list math.</span>
-        </a>
-      </div>
-    </section>
+    </nav>
 
     <section class="featured-search" aria-labelledby="featuredSearchHeading">
       <div class="featured-search-head">
@@ -338,6 +190,7 @@ const FEATURED_HTML = html`
           type="search"
           autocomplete="off"
           spellcheck="false"
+          aria-labelledby="featuredSearchHeading"
           placeholder="Search docs, tutorials, builtins, syntax" />
         <button
           class="featured-search-clear"
@@ -357,21 +210,18 @@ const FEATURED_HTML = html`
     <div class="featured-default" data-featured-default>
       ${FEATURED_SECTION_CARDS.map(featuredDefaultCardHtml).join("")}
     </div>
-  </main>
+  </div>
 `;
 
 const PLAYGROUND_HTML = html`
-  <main class="wrap">
+  <div class="wrap playground-wrap">
     <div class="playground-shell">
-      <aside class="playground-sidebar" aria-labelledby="templateHeading">
-        <h2 id="templateHeading">Examples</h2>
-        <div class="playground-template-list" role="list">
-          ${PLAYGROUND_EXAMPLES.map(playgroundExampleCardHtml).join("")}
-        </div>
-      </aside>
-
       <div class="playground-main">
-        <div class="editor" role="region" aria-label="Playground code editor">
+        <div
+          id="playgroundEditorPanel"
+          class="editor"
+          role="region"
+          aria-label="Playground code editor">
           <div class="toolbar">
             <div class="toolbar-main">
               <div class="toolbar-left">
@@ -383,7 +233,7 @@ const PLAYGROUND_HTML = html`
               <div class="toolbar-center">
                 <div
                   class="pills"
-                  role="list"
+                  role="group"
                   aria-label="Playground runtime controls">
                   <div class="runtime-control" data-runtime-menu>
                     <button
@@ -398,7 +248,7 @@ const PLAYGROUND_HTML = html`
                       <div class="runtime-panel-head">
                         <span class="mini">box</span>
                       </div>
-                      <div class="pills" role="list">
+                      <div class="pills">
                         <button
                           class="pill inactive"
                           type="button"
@@ -447,7 +297,7 @@ const PLAYGROUND_HTML = html`
                       <div class="runtime-panel-head">
                         <span class="mini">debug</span>
                       </div>
-                      <div class="pills" role="list">
+                      <div class="pills">
                         <button
                           class="pill inactive"
                           type="button"
@@ -528,6 +378,12 @@ const PLAYGROUND_HTML = html`
               </div>
             </div>
           </div>
+          <div
+            class="playground-filebar"
+            data-example-files
+            role="group"
+            aria-label="Example files"
+            hidden></div>
           <div class="editor-area">
             <div class="gutter" aria-hidden="true"></div>
             <div class="codepane">
@@ -538,7 +394,55 @@ const PLAYGROUND_HTML = html`
             </div>
           </div>
         </div>
+
+        <div
+          class="playground-splitter"
+          role="separator"
+          tabindex="0"
+          aria-label="Resize editor and output"
+          aria-orientation="horizontal"
+          aria-controls="playgroundEditorPanel playgroundOutputPanel"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="60"></div>
+
+        <div
+          id="playgroundOutputPanel"
+          class="run-output-panel"
+          role="region"
+          aria-labelledby="runOutputHeading"
+          aria-live="polite">
+          <div class="run-output-header">
+            <span id="runOutputHeading" class="run-output-title">Output</span>
+            <button
+              id="clearOutBtn"
+              class="run-output-clear"
+              type="button"
+              disabled>
+              Clear
+            </button>
+          </div>
+          <pre class="run-output-body"></pre>
+          <div class="stdin-request-host" data-stdin-host></div>
+        </div>
       </div>
+
+      <aside class="playground-sidebar" aria-labelledby="templateHeading">
+        <h2 id="templateHeading">Examples</h2>
+        <div class="playground-template-list">
+          ${PLAYGROUND_EXAMPLE_DEFINITIONS.map(playgroundExampleCardHtml).join("")}
+        </div>
+        <div
+          class="playground-example-status"
+          data-example-status
+          role="status"
+          hidden>
+          <p data-example-message></p>
+          <button class="btn" data-example-retry type="button">
+            Reload examples
+          </button>
+        </div>
+      </aside>
 
       <aside class="playground-inspector" aria-label="Playground inspector">
         <section class="symbol-panel" aria-labelledby="symbolPanelHeading">
@@ -595,127 +499,110 @@ No code yet.</pre>
         </section>
       </aside>
 
-      <div
-        class="run-output-panel"
-        role="region"
-        aria-labelledby="runOutputHeading"
-        aria-live="polite">
-        <div class="run-output-header">
-          <span id="runOutputHeading" class="run-output-title">Output</span>
-          <button
-            id="clearOutBtn"
-            class="run-output-clear"
-            type="button"
-            disabled>
-            Clear
-          </button>
-        </div>
-        <pre class="run-output-body"></pre>
-        <div class="stdin-request-host" data-stdin-host></div>
-      </div>
     </div>
-  </main>
+  </div>
 `;
 
 const VIZ_HTML = html`
-  <main class="wrap viz-wrap">
+  <div class="wrap viz-wrap">
     <div class="viz-shell">
       <section class="viz-topbar" aria-label="Viz summary">
         <div class="viz-stage-title">
           <div class="viz-stage-title-row">
-            <h1 data-viz-title>Callable curves</h1>
-            <div class="viz-preset-menu" data-viz-preset-menu>
-              <button
-                class="viz-preset-trigger"
-                type="button"
-                data-viz-preset-toggle
-                aria-haspopup="menu"
-                aria-expanded="false"
-                aria-controls="vizPresetMenu">
-                <span>Presets</span>
-              </button>
-              <div
-                class="viz-preset-popover"
-                id="vizPresetMenu"
-                data-viz-preset-panel
-                role="menu"
-                aria-label="Viz presets">
-                <section
-                  class="viz-preset-group"
-                  role="group"
-                  aria-labelledby="vizPresetAsciiplot">
-                  <h2 id="vizPresetAsciiplot">asciiplot</h2>
-                  <div class="viz-preset-list">
-                    <button
-                      class="viz-preset active"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="true"
-                      data-viz-preset="trig">
-                      <span class="viz-preset-title">Callable curves</span>
-                      <span class="viz-preset-meta">functions · line</span>
-                    </button>
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="data">
-                      <span class="viz-preset-title">Sampled area</span>
-                      <span class="viz-preset-meta">raw list · area</span>
-                    </button>
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="tablePlot">
-                      <span class="viz-preset-title">Column data</span>
-                      <span class="viz-preset-meta">dict columns · x/y</span>
-                    </button>
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="cas">
-                      <span class="viz-preset-title">Symbolic curves</span>
-                      <span class="viz-preset-meta">CAS expressions</span>
-                    </button>
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="modes">
-                      <span class="viz-preset-title">Mixed modes</span>
-                      <span class="viz-preset-meta">line · step · scatter</span>
-                    </button>
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="bars">
-                      <span class="viz-preset-title">Category bars</span>
-                      <span class="viz-preset-meta">raw list · bar</span>
-                    </button>
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="complex">
-                      <span class="viz-preset-title">Complex plane</span>
-                      <span class="viz-preset-meta">sqrt · plane</span>
-                    </button>
-                  </div>
-                </section>
-              </div>
-            </div>
+            <h2 data-viz-title>Callable curves</h2>
+            <span class="viz-status" data-viz-status>Ready</span>
           </div>
         </div>
         <div class="viz-stage-actions">
+          <div class="viz-preset-menu" data-viz-preset-menu>
+            <button
+              class="viz-preset-trigger"
+              type="button"
+              data-viz-preset-toggle
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="vizPresetMenu">
+              <span>Presets</span>
+            </button>
+            <div
+              class="viz-preset-popover"
+              id="vizPresetMenu"
+              data-viz-preset-panel
+              role="menu"
+              aria-label="Viz presets">
+              <section
+                class="viz-preset-group"
+                role="group"
+                aria-labelledby="vizPresetAsciiplot">
+                <h2 id="vizPresetAsciiplot">asciiplot</h2>
+                <div class="viz-preset-list">
+                  <button
+                    class="viz-preset active"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked="true"
+                    data-viz-preset="trig">
+                    <span class="viz-preset-title">Callable curves</span>
+                    <span class="viz-preset-meta">functions · line</span>
+                  </button>
+                  <button
+                    class="viz-preset"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked="false"
+                    data-viz-preset="data">
+                    <span class="viz-preset-title">Sampled area</span>
+                    <span class="viz-preset-meta">raw list · area</span>
+                  </button>
+                  <button
+                    class="viz-preset"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked="false"
+                    data-viz-preset="tablePlot">
+                    <span class="viz-preset-title">Column data</span>
+                    <span class="viz-preset-meta">dict columns · x/y</span>
+                  </button>
+                  <button
+                    class="viz-preset"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked="false"
+                    data-viz-preset="cas">
+                    <span class="viz-preset-title">Symbolic curves</span>
+                    <span class="viz-preset-meta">CAS expressions</span>
+                  </button>
+                  <button
+                    class="viz-preset"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked="false"
+                    data-viz-preset="modes">
+                    <span class="viz-preset-title">Mixed modes</span>
+                    <span class="viz-preset-meta">line · step · scatter</span>
+                  </button>
+                  <button
+                    class="viz-preset"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked="false"
+                    data-viz-preset="bars">
+                    <span class="viz-preset-title">Category bars</span>
+                    <span class="viz-preset-meta">raw list · bar</span>
+                  </button>
+                  <button
+                    class="viz-preset"
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked="false"
+                    data-viz-preset="complex">
+                    <span class="viz-preset-title">Complex plane</span>
+                    <span class="viz-preset-meta">sqrt · plane</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
           <label class="viz-live-switch">
             <input type="checkbox" data-viz-toggle="autoRun" checked />
             <span>Live</span>
@@ -729,7 +616,6 @@ const VIZ_HTML = html`
             </button>
             <button type="button" data-viz-layout-option="side">Side</button>
           </div>
-          <span class="viz-status" data-viz-status>Ready</span>
           <button class="btn primary" type="button" data-viz-run>
             Refresh
           </button>
@@ -780,7 +666,15 @@ const VIZ_HTML = html`
 
           <div class="viz-code-panel-wrap">
             <details class="viz-code-panel">
-              <summary>Code</summary>
+              <summary>
+                <svg
+                  class="viz-code-chevron"
+                  viewBox="0 0 12 12"
+                  aria-hidden="true">
+                  <path d="m4 2.5 3.5 3.5L4 9.5"></path>
+                </svg>
+                <span>Code</span>
+              </summary>
               <pre><code data-viz-code></code></pre>
             </details>
             <button class="viz-code-copy" type="button" data-viz-copy-code>
@@ -1126,22 +1020,22 @@ const VIZ_HTML = html`
         </aside>
       </div>
     </div>
-  </main>
+  </div>
 `;
 
 const REPL_HTML = html`
-  <main class="wrap repl-wrap">
+  <div class="wrap repl-wrap">
     <div class="repl-shell" data-inspector-open="false">
       <section class="repl repl-flow" aria-label="wq terminal REPL">
         <header class="repl-terminal-bar">
           <div class="repl-terminal-identity">
             <span class="repl-status-dot" aria-hidden="true"></span>
-            <strong>wq repl</strong>
-            <span id="terminalStatus" class="repl-terminal-status">ready</span>
+            <span id="terminalStatus" class="repl-terminal-status">Ready</span>
           </div>
           <div class="repl-terminal-actions">
             <div
               class="repl-runtime-actions"
+              role="group"
               aria-label="REPL runtime controls">
               <div class="runtime-control" data-runtime-menu>
                 <button
@@ -1156,7 +1050,7 @@ const REPL_HTML = html`
                   <div class="runtime-panel-head">
                     <span class="mini">result display</span>
                   </div>
-                  <div class="pills" role="list">
+                  <div class="pills">
                     <button
                       class="pill inactive"
                       type="button"
@@ -1203,7 +1097,7 @@ const REPL_HTML = html`
                   <div class="runtime-panel-head">
                     <span class="mini">debug output</span>
                   </div>
-                  <div class="pills" role="list">
+                  <div class="pills">
                     <button
                       class="pill inactive"
                       type="button"
@@ -1358,6 +1252,9 @@ const REPL_HTML = html`
             role="dialog"
             aria-label="REPL history"
             hidden>
+            <label class="visually-hidden" for="historySearchInput">
+              Search REPL history
+            </label>
             <input
               type="text"
               id="historySearchInput"
@@ -1421,14 +1318,14 @@ const REPL_HTML = html`
           hidden></div>
       </aside>
     </div>
-  </main>
+  </div>
 `;
 
 const MORE_HTML = html`
-  <main class="wrap">
+  <div class="wrap">
     <article class="article more-page">
       <div class="more-head">
-        <h1>About wqide</h1>
+        <h2>About wqide</h2>
       </div>
       <div class="more-grid">
         <section class="more-card span-2">
@@ -1503,11 +1400,11 @@ const MORE_HTML = html`
         </section>
       </div>
     </article>
-  </main>
+  </div>
 `;
 
 const SUBFOLDER_HTML = html`
-  <main class="wrap">
+  <div class="wrap">
     <nav class="breadcrumbs" aria-label="Breadcrumb">
       <button class="crumb-back" type="button" aria-label="Go back">
         <span aria-hidden="true">&#8592;</span>
@@ -1525,11 +1422,11 @@ const SUBFOLDER_HTML = html`
     <div class="grid" data-role="section-grid"></div>
 
     <div class="divider"></div>
-  </main>
+  </div>
 `;
 
 const ARTICLE_HTML = html`
-  <main class="wrap">
+  <div class="wrap">
     <nav class="breadcrumbs" aria-label="Breadcrumb">
       <button class="crumb-back" type="button" aria-label="Go back">
         <span aria-hidden="true">&#8592;</span>
@@ -1571,7 +1468,7 @@ const ARTICLE_HTML = html`
         </div>
       </article>
     </div>
-  </main>
+  </div>
 `;
 
 function readStoredTheme() {
@@ -1586,21 +1483,25 @@ function readStoredTheme() {
     : THEME_LIGHT;
 }
 
-function syncThemeToggle() {
-  const button = document.querySelector("[data-theme-toggle]");
-  if (!button) return;
-  const isMidnight = document.documentElement.dataset.theme === THEME_MIDNIGHT;
-  button.classList.toggle("active", isMidnight);
-  button.classList.toggle("inactive", !isMidnight);
-  button.setAttribute("aria-pressed", String(isMidnight));
-  button.setAttribute(
-    "aria-label",
-    isMidnight
-      ? "Midnight mode. Switch to light mode"
-      : "Light mode. Switch to midnight mode",
-  );
-  const label = button.querySelector(".theme-toggle-label");
-  if (label) label.textContent = isMidnight ? "midnight" : "light";
+function syncThemeToggle(options = {}) {
+  const control = document.querySelector("[data-theme-toggle]");
+  if (!control) return;
+  const theme =
+    document.documentElement.dataset.theme === THEME_MIDNIGHT
+      ? THEME_MIDNIGHT
+      : THEME_LIGHT;
+  control.dataset.theme = theme;
+  for (const option of control.querySelectorAll("[data-theme-option]")) {
+    const selected = option.dataset.themeOption === theme;
+    option.setAttribute("aria-checked", String(selected));
+    option.tabIndex = selected ? 0 : -1;
+  }
+  if (options.preservePosition !== true) {
+    control.style.setProperty(
+      "--theme-position",
+      theme === THEME_MIDNIGHT ? "1" : "0",
+    );
+  }
 }
 
 function applyTheme(theme, options = {}) {
@@ -1613,28 +1514,117 @@ function applyTheme(theme, options = {}) {
       console.debug("theme persist failed", err);
     }
   }
-  syncThemeToggle();
+  syncThemeToggle({ preservePosition: options.preserveTogglePosition });
   return next;
 }
 
+function themeTogglePosition(control, clientX) {
+  const rect = control.getBoundingClientRect();
+  const travel = rect.width / 2;
+  if (travel <= 0) return 0;
+  return Math.max(
+    0,
+    Math.min(1, (clientX - rect.left - rect.width / 4) / travel),
+  );
+}
+
+function setThemeTogglePosition(control, position) {
+  control.style.setProperty("--theme-position", String(position));
+}
+
+function themeForTogglePosition(position) {
+  return position >= 0.5 ? THEME_MIDNIGHT : THEME_LIGHT;
+}
+
 function wireThemeToggle() {
-  const button = document.querySelector("[data-theme-toggle]");
-  if (!button || button.dataset.wired === "true") return;
-  button.dataset.wired = "true";
+  const control = document.querySelector("[data-theme-toggle]");
+  if (!control || control.dataset.wired === "true") return;
+  control.dataset.wired = "true";
   syncThemeToggle();
-  button.addEventListener("pointerdown", (event) => {
-    if (
-      event.isPrimary &&
-      event.button === 0 &&
-      document.activeElement?.matches(".wq-editor")
-    ) {
+
+  let pointerId = null;
+  let suppressPointerClick = false;
+
+  const previewPointerTheme = (event) => {
+    const position = themeTogglePosition(control, event.clientX);
+    setThemeTogglePosition(control, position);
+    const theme = themeForTogglePosition(position);
+    if (document.documentElement.dataset.theme !== theme) {
+      applyTheme(theme, {
+        persist: false,
+        preserveTogglePosition: true,
+      });
+    }
+    return position;
+  };
+
+  control.addEventListener("pointerdown", (event) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    pointerId = event.pointerId;
+    suppressPointerClick = true;
+    control.classList.add("is-dragging");
+    control.setPointerCapture(pointerId);
+    previewPointerTheme(event);
+    if (document.activeElement?.matches(".wq-editor")) {
       event.preventDefault();
     }
   });
-  button.addEventListener("click", () => {
-    const isMidnight =
-      document.documentElement.dataset.theme === THEME_MIDNIGHT;
-    applyTheme(isMidnight ? THEME_LIGHT : THEME_MIDNIGHT);
+
+  control.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId) return;
+    previewPointerTheme(event);
+  });
+
+  control.addEventListener("pointerup", (event) => {
+    if (event.pointerId !== pointerId) return;
+    const position = previewPointerTheme(event);
+    control.releasePointerCapture(pointerId);
+    pointerId = null;
+    control.classList.remove("is-dragging");
+    applyTheme(themeForTogglePosition(position));
+  });
+
+  control.addEventListener("pointercancel", (event) => {
+    if (event.pointerId !== pointerId) return;
+    if (control.hasPointerCapture(pointerId)) {
+      control.releasePointerCapture(pointerId);
+    }
+    pointerId = null;
+    control.classList.remove("is-dragging");
+    syncThemeToggle();
+  });
+
+  control.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-theme-option]");
+    if (!option) return;
+    if (event.detail > 0 && suppressPointerClick) {
+      suppressPointerClick = false;
+      event.preventDefault();
+      return;
+    }
+    applyTheme(option.dataset.themeOption);
+  });
+
+  control.addEventListener("keydown", (event) => {
+    const option = event.target.closest("[data-theme-option]");
+    if (!option) return;
+    let theme = null;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      theme = THEME_LIGHT;
+    } else if (
+      event.key === "ArrowRight" ||
+      event.key === "ArrowDown"
+    ) {
+      theme = THEME_MIDNIGHT;
+    } else if (event.key === "Home") {
+      theme = THEME_LIGHT;
+    } else if (event.key === "End") {
+      theme = THEME_MIDNIGHT;
+    }
+    if (!theme) return;
+    event.preventDefault();
+    applyTheme(theme);
+    control.querySelector(`[data-theme-option="${theme}"]`)?.focus();
   });
 }
 
@@ -1687,56 +1677,7 @@ function getPathFile() {
 }
 
 function parseRoute() {
-  const outerParams = new URLSearchParams(location.search);
-  const routedFile = outerParams.get("route");
-  const slug = outerParams.get("slug");
-  const section = outerParams.get("section");
-  const file = routedFile || getPathFile();
-  const params = new URLSearchParams(location.search);
-  if (routedFile) {
-    params.delete("route");
-  }
-  if (!routedFile && slug) {
-    return {
-      key: `article:${slug}`,
-      area: "featured",
-      params,
-    };
-  }
-  if (!routedFile && section) {
-    return {
-      key: `subfolder:${section}`,
-      area: "featured",
-      params,
-    };
-  }
-  if (file === "playground.html") {
-    return { key: "playground", area: "playground", params };
-  }
-  if (file === "viz.html") {
-    return { key: "viz", area: "viz", params };
-  }
-  if (file === "repl.html") {
-    return { key: "repl", area: "repl", params };
-  }
-  if (file === "more.html") {
-    return { key: "more", area: "more", params };
-  }
-  if (file === "subfolder.html") {
-    return {
-      key: `subfolder:${params.get("section") || "Basics"}`,
-      area: "featured",
-      params,
-    };
-  }
-  if (file === "article.html") {
-    return {
-      key: `article:${params.get("slug") || ""}`,
-      area: "featured",
-      params,
-    };
-  }
-  return { key: "featured", area: "featured", params };
+  return resolveRoute(location.pathname, location.search);
 }
 
 function persistNav(area) {
@@ -2177,7 +2118,7 @@ async function mountFeatured(route) {
   const root = getView("featured", FEATURED_HTML);
   wireFeaturedSearch(root);
   applyFeaturedSearchRoute(root, route);
-  document.title = "wqide - Featured";
+  document.title = "wqide - Home";
   showView(root);
 }
 

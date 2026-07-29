@@ -37,6 +37,24 @@ test("terminal chrome keeps established pills and utilities outside the prompt",
   );
   assert.match(styles, /\.repl-status-dot/);
   assert.match(
+    appSource,
+    /class="repl-status-dot"[\s\S]*id="terminalStatus" class="repl-terminal-status">Ready<\/span>/
+  );
+  assert.doesNotMatch(appSource, /<h2>wq repl<\/h2>/);
+  assert.match(
+    styles,
+    /\.repl-terminal-status\s*\{[^}]*font-family:\s*var\(--font-display\);/
+  );
+  for (const label of [
+    "Ready",
+    "Waiting for input",
+    "Paused",
+    "Stopping",
+    "Running"
+  ]) {
+    assert.match(replSource, new RegExp(`\\? "${label}"|: "${label}"`));
+  }
+  assert.match(
     styles,
     /\.repl-terminal-bar \.runtime-panel-head \.mini\s*\{[^}]*color:\s*var\(--terminal-text\);/,
   );
@@ -86,6 +104,25 @@ test("desktop inspector keeps the same minimum height as the REPL", () => {
   assert.match(
     styles,
     /\.globals-panel\s*\{[^}]*min-height:\s*440px;/,
+  );
+});
+
+test("green inspector controls use local surface tokens", () => {
+  assert.match(
+    styles,
+    /\.globals-panel \.btn\s*\{[^}]*border-color:\s*var\(--inspector-control-border\);[^}]*background:\s*var\(--inspector-control-bg\);[^}]*color:\s*var\(--inspector-control-text\);/
+  );
+  assert.match(
+    styles,
+    /\.inspector-tab\.active\s*\{[^}]*background:\s*var\(--inspector-control-active-bg\);[^}]*color:\s*var\(--inspector-control-active-text\);/
+  );
+  assert.match(
+    styles,
+    /\.wqdb-granularity-option\.active\s*\{[^}]*border-color:\s*var\(--inspector-control-active-border\);[^}]*background:\s*var\(--inspector-control-active-bg\);/
+  );
+  assert.match(
+    styles,
+    /\.wqdb-panel-status\s*\{[^}]*font-family:\s*var\(--font-body\);/
   );
 });
 
