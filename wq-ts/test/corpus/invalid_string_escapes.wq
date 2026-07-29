@@ -27,3 +27,62 @@ Malformed Hex Escape
     (UNEXPECTED '"'))
   (separator
     (newline)))
+
+============================
+Malformed Unicode Name Escape
+============================
+"\N{}"
+
+---
+
+(source_file
+  (ERROR
+    (UNEXPECTED '"'))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (function_literal))))))))))))))
+  (ERROR
+    (UNEXPECTED '"'))
+  (separator
+    (newline)))
+
+============================
+Python Unicode Escape
+============================
+"\U0001f980"
+
+---
+
+(source_file
+  (ERROR
+    (UNEXPECTED '"'))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (variable_ref
+                              (identifier)))))))))))))))
+  (ERROR
+    (UNEXPECTED '"'))
+  (separator
+    (newline)))

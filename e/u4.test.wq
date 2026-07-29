@@ -1,6 +1,6 @@
 u4:@i"u4.wq"
 t:u4[]
-version_ok:t 14=@u"4"
+version_ok:t 14="4"
 variant_ok:t 19|int 16|bin|{x[0..4]="0b10"}
 assert[version_ok;"UUID version"]
 assert[variant_ok;"UUID variant"]

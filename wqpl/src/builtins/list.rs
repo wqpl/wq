@@ -598,13 +598,17 @@ fn split_string_by_delim(s: &str, delim: &str, maxsplit: Option<usize>) -> Value
 }
 
 fn split_string_by_whitespace(s: &str, maxsplit: Option<usize>) -> Value {
-    let parts: Vec<String> = s.split_whitespace().map(str::to_string).collect();
+    let split = || {
+        s.split(crate::unicode::is_whitespace)
+            .filter(|part| !part.is_empty())
+    };
+    let parts: Vec<String> = split().map(str::to_string).collect();
     if let Some(n) = maxsplit {
         if parts.len() <= n + 1 {
             Value::value_from_str_chunks(parts)
         } else {
             let mut chunks: Vec<String> = parts.into_iter().take(n).collect();
-            let remaining: Vec<&str> = s.split_whitespace().skip(n).collect();
+            let remaining: Vec<&str> = split().skip(n).collect();
             chunks.push(remaining.join(" "));
             Value::value_from_str_chunks(chunks)
         }
@@ -1115,6 +1119,22 @@ mod tests {
     }
 
     #[test]
+    fn split_uses_the_unicode_white_space_property() {
+        assert_eq!(
+            split(BuiltinFnArgs::from("a\u{85}b\u{3000}c".into_wq_value())).unwrap(),
+            Value::List(Arc::new(vec![
+                "a".into_wq_value(),
+                "b".into_wq_value(),
+                "c".into_wq_value(),
+            ]))
+        );
+        assert_eq!(
+            split(BuiltinFnArgs::from("a\u{180e}b".into_wq_value())).unwrap(),
+            Value::List(Arc::new(vec!["a\u{180e}b".into_wq_value()]))
+        );
+    }
+
+    #[test]
     fn remove_in_place_updates_lists_and_dicts() {
         let mut ints = Value::IntList(Arc::new(vec![10, 20, 30, 40]));
         assert_eq!(
@@ -1589,11 +1609,7 @@ mod tests {
         assert_eq!(error.msg.as_deref(), Some("expected int, inf, or -inf"));
         assert_eq!(
             error.notes.as_ref(),
-            &[
-                "at argument 3",
-                "got @u\"x\" (char)",
-                "usage: zip[xs;ys;d?]",
-            ]
+            &["at argument 3", "got \"x\" (char)", "usage: zip[xs;ys;d?]",]
         );
     }
 

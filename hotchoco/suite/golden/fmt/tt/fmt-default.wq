@@ -10,11 +10,11 @@ tokenize:{[s]
   t:();
   N[#s;
     ch:s _n;
-    $$[ch=@u" ";0
-      ch=@u"&";t,:mkleaf[OP_AND;""];ch=@u"|";t,:mkleaf[OP_OR;""]
-      ch=@u"^";t,:mkleaf[OP_XOR;""];ch=@u"~";t,:mkleaf[OP_NOT;""]
-      ch=@u"(";t,:mkleaf[OP_LPAR;""];ch=@u")";t,:mkleaf[OP_RPAR;""]
-      ch=@u">";t,:mkleaf[OP_IMPLY;""];ch=@u"=";t,:mkleaf[OP_EQUAL;""]
+    $$[ch=" ";0
+      ch="&";t,:mkleaf[OP_AND;""];ch="|";t,:mkleaf[OP_OR;""]
+      ch="^";t,:mkleaf[OP_XOR;""];ch="~";t,:mkleaf[OP_NOT;""]
+      ch="(";t,:mkleaf[OP_LPAR;""];ch=")";t,:mkleaf[OP_RPAR;""]
+      ch=">";t,:mkleaf[OP_IMPLY;""];ch="=";t,:mkleaf[OP_EQUAL;""]
       alpha? ch;t,:mkleaf[OP_VAR;ch];raise@f"Illegal character: {ch}"]]
   t,:mkleaf[OP_END;""]}
 parse:{[toks]

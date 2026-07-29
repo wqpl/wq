@@ -6,20 +6,20 @@ parse_csv:{[csv]rows:();cols:();field:""
   W[i<#csv;c:csv i
     next:$[i+1<#csv;csv[i+1];""]
     $$[in_quote
-      [$[c=@u"\""
-          $[next=@u"\""
+      [$[c="\""
+          $[next="\""
             [field,:c;i+:1]
             [in_quote:F;quote_closed:T]]
           field,:c]]
       quote_closed
-      $$[c=@u",";push_field[]
-         c=@u"\n";push_row[]
-         c=@u"\r";[push_row[];$.[next=@u"\n";i+:1]]
+      $$[c=",";push_field[]
+         c="\n";push_row[]
+         c="\r";[push_row[];$.[next="\n";i+:1]]
         raise@f"csv: expected comma or newline after closing quote at position {i}"]
-      c=@u",";push_field[]
-      c=@u"\n";push_row[]
-      c=@u"\r";[push_row[];$.[next=@u"\n";i+:1]]
-      c=@u"\""
+      c=",";push_field[]
+      c="\n";push_row[]
+      c="\r";[push_row[];$.[next="\n";i+:1]]
+      c="\""
       $[at_field_start;[in_quote:T;at_field_start:F]
         raise@f"csv: unexpected quote in unquoted field at position {i}"]
       [field,:c;at_field_start:F]]

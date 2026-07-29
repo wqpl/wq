@@ -1,5 +1,5 @@
 use super::{all_topics, builtin_topic, render_markdown, resolve};
-use crate::builtins::{BuiltinEnum, Builtins};
+use crate::builtins::Builtins;
 use crate::doc::{DocExample, DocRenderTarget, DocTopic, ExampleExpectation};
 use crate::session::Session;
 
@@ -50,10 +50,6 @@ fn resolves_keywords_and_depth_modifiers() {
     assert_eq!(
         resolve(r"\i").expect(r"\i doc").id,
         "interpreters".to_string()
-    );
-    assert_eq!(
-        resolve("words").expect("words doc").builtin,
-        Some(BuiltinEnum::Words)
     );
 }
 

@@ -1771,7 +1771,7 @@ mod tests {
     }
 
     #[test]
-    fn import_requires_a_literal_string() {
+    fn import_requires_a_quoted_literal() {
         let mut session = Session::new();
         let error = session
             .eval_string("path:\"module\";@i path")
@@ -1780,7 +1780,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("expected string literal after '@i'")
+                .contains("expected quoted literal after '@i'")
         );
     }
 
@@ -2768,7 +2768,7 @@ mod tests {
                 mapper[xs;{[x]x+1}];
                 argparse[
                     (`name:"tool";`args:,(`name:`value;`kind:`positional;`multiple:T;`parse:{[s]int s}));
-                    ("1";"2";"3";"4";"5";"6";"7";"8")
+                    (,"1";,"2";,"3";,"4";,"5";,"6";,"7";,"8")
                 ];
                 argparse[
                     (`name:"tool";`args:,(`name:`value;`kind:`positional;`parse:{[s]1/0}));
@@ -3919,24 +3919,22 @@ mod tests {
     }
 
     #[test]
-    fn unicode_scalar_literals_are_distinct_from_strings() {
+    fn chars_are_distinct_from_singleton_strings() {
         let mut session = Session::new();
 
         assert_eq!(
-            session
-                .eval_string("\"a\"")
-                .expect("string should evaluate"),
-            crate::value::into_wq_string("a")
-        );
-        assert_eq!(
-            session
-                .eval_string("@u\"a\"")
-                .expect("unicode scalar should evaluate"),
+            session.eval_string("\"a\"").expect("char should evaluate"),
             Value::Char('a')
         );
         assert_eq!(
             session
-                .eval_string("\"a\"=@u\"a\"")
+                .eval_string(",\"a\"")
+                .expect("singleton string should evaluate"),
+            crate::value::into_wq_string("a")
+        );
+        assert_eq!(
+            session
+                .eval_string("\"a\"=,\"a\"")
                 .expect("comparison should evaluate"),
             Value::Bool(false)
         );

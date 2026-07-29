@@ -50,7 +50,6 @@ export default grammar({
     $._format_string_start,
     $._format_string_end,
     $._format_spec_content,
-    $._unicode_scalar_content,
     $._indented_newline,
     $.directive,
     $.shebang,
@@ -878,7 +877,6 @@ export default grammar({
         $.imaginary,
         $.float,
         $.integer,
-        $.unicode_scalar,
         $.string,
         $.raw_string,
         $.format_string,
@@ -1071,7 +1069,6 @@ export default grammar({
     imaginary: (_) => token(seq(choice(decimalFloat, integerBody), "i")),
 
     string: ($) => $._string_content,
-    unicode_scalar: ($) => $._unicode_scalar_content,
     raw_string: ($) => seq("@l", optional(/[ \t\r]*/), $._raw_string_content),
     format_string: ($) =>
       seq(
@@ -1089,7 +1086,8 @@ export default grammar({
             /[^"\\{}]+/,
             /\\x[0-9a-fA-F]{2}/,
             /\\u\{[0-9a-fA-F]{1,6}\}/,
-            /\\[^xu]/,
+            /\\N\{[^}\r\n]+\}/,
+            /\\[^xuUN]/,
             "{{",
             "}}",
           ),

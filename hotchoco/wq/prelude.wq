@@ -12,7 +12,7 @@ expect["delta2 single";delta2[,9];,9]
 expect["join";join["/";("usr";"local";"bin")];"usr/local/bin"]
 expect["join single";join["/";,"tmp"];"tmp"]
 
-expect["enumerate";enumerate "ab";((0;@u"a");(1;@u"b"))]
+expect["enumerate";enumerate "ab";((0;"a");(1;"b"))]
 expect["enumerate empty";enumerate ();()]
 expect["mapidx";mapidx[(10;20;30);{[v;i]v+i}];(10;21;32)]
 expect["mapidx empty";mapidx[();{[v;i]v+i}];()]
@@ -42,7 +42,7 @@ expect["windows too large";windows[(1;2);3];()]
 expect["windows rejects zero";(@t windows[(1;2);0])0;`error]
 
 animals:("ant";"ape";"bee")
-expect["groupby";groupby[animals;{x 0}];((@u"a";("ant";"ape"));(@u"b";,"bee"))]
+expect["groupby";groupby[animals;{x 0}];(("a";("ant";"ape"));("b";,"bee"))]
 expect["groupby empty";groupby[();{x}];()]
 expect["groupdict";groupdict[animals;{x 0}];(`a:("ant";"ape");`b:,"bee")]
 expect["groupdict empty";groupdict[();{x}];(`)]

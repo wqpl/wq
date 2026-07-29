@@ -1398,11 +1398,11 @@ mod tests {
         let frontend = Frontend::default();
         let topic = frontend
             .builtins()
-            .doc_for_name("words")
-            .expect("words doc");
+            .doc_for_name("unicode")
+            .expect("unicode doc");
         let rendered = doc::render_markdown(&topic, DocRenderTarget::Lsp);
-        assert!(rendered.contains("words builtin"));
-        assert!(rendered.contains("words[s]"));
+        assert!(rendered.contains("unicode builtin"));
+        assert!(rendered.contains("unicode[]"));
     }
 
     #[test]

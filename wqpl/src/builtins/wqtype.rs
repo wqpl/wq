@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(key_error.msg.as_deref(), Some("expected tag"));
         assert_eq!(
             key_error.notes.as_slice(),
-            ["at argument 1", "at index 0, pair key", "got \"a\" (list)"]
+            ["at argument 1", "at index 0, pair key", "got ,\"a\" (list)"]
         );
     }
 }

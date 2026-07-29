@@ -10,6 +10,7 @@ mod lex;
 mod parse;
 mod range;
 mod tree_pretty;
+mod unicode;
 
 pub mod ast;
 pub mod boxmode;

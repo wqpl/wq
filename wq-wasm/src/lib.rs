@@ -2961,14 +2961,17 @@ mod tests {
     }
 
     #[test]
-    fn html_highlighter_distinguishes_valid_and_invalid_unicode_scalars() {
+    fn html_highlighter_distinguishes_chars_and_strings() {
         let frontend = default_frontend();
-        let html = highlight_wq_data(&frontend, r#""a" @u"a" @u"\n" @u"" @u"ab" @u"\q" @u"x"#);
+        let html = highlight_wq_data(
+            &frontend,
+            r#""a" "\n" "\N{SNOWMAN}" "ab" "é" "\N{KEYCAP DIGIT ONE}""#,
+        );
 
-        assert!(html.contains("<span class=\"hl-string\">&quot;a&quot;</span>"));
-        assert!(html.contains("<span class=\"hl-character\">@u&quot;a&quot;</span>"));
+        assert!(html.contains("<span class=\"hl-character\">&quot;a&quot;</span>"));
+        assert!(html.contains("<span class=\"hl-string\">&quot;ab&quot;</span>"));
         assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
-        assert_eq!(html.matches("class=\"hl-character-invalid\"").count(), 4);
+        assert!(html.contains("<span class=\"hl-string-escape\">\\N{SNOWMAN}</span>"));
     }
 
     #[test]

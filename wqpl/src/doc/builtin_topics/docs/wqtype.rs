@@ -4,7 +4,7 @@ use crate::builtins::BuiltinEnum;
 const TYPE_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Inspect several public categories",
-        code: "(type[42];type[1/.3];type[@u\"x\"];type[\"wq\"])",
+        code: "(type[42];type[1/.3];type[\"x\"];type[\"wq\"])",
         expectation: ExampleExpectation::ResultContains("(\"int\";\"fraction\";\"char\";\"list\")"),
     },
     DocExample {
@@ -33,7 +33,7 @@ const BOOL_EXAMPLES: &[DocExample] = &[DocExample {
 
 const CHAR_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Convert a string containing one Unicode scalar",
-    code: "char \"x\"",
+    code: "char ,\"x\"",
     expectation: ExampleExpectation::ResultContains("\"x\""),
 }];
 

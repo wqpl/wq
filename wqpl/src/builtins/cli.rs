@@ -1236,7 +1236,7 @@ mod tests {
     use crate::session::Session;
     use crate::value::Value;
 
-    const SPEC: &str = r#"(`name:"rgrep";`version:"1.0";`about:"search files";`args:((`name:`ignore_case;`kind:`flag;`short:@u"i";`help:"ignore case");(`name:`max_count;`kind:`option;`short:@u"m";`parse:int;`value_name:"N");(`name:`pattern;`kind:`positional;`required:T);(`name:`paths;`kind:`positional;`required:T;`multiple:T)))"#;
+    const SPEC: &str = r#"(`name:"rgrep";`version:"1.0";`about:"search files";`args:((`name:`ignore_case;`kind:`flag;`short:"i";`help:"ignore case");(`name:`max_count;`kind:`option;`short:"m";`parse:int;`value_name:,"N");(`name:`pattern;`kind:`positional;`required:T);(`name:`paths;`kind:`positional;`required:T;`multiple:T)))"#;
 
     #[test]
     fn argv_returns_session_arguments() {
@@ -1254,7 +1254,7 @@ mod tests {
     fn argparse_parses_flags_values_and_positionals() {
         let mut session = Session::new();
         let source = format!(
-            "spec:{SPEC};r:argparse[spec;(\"-i\";\"-m\";\"3\";\"needle\";\"a.txt\";\"b.txt\")];(r[`kind];r[`status];r[`value][`args][`ignore_case];r[`value][`args][`max_count];r[`value][`args][`pattern];r[`value][`args][`paths])"
+            "spec:{SPEC};r:argparse[spec;(\"-i\";\"-m\";,\"3\";\"needle\";\"a.txt\";\"b.txt\")];(r[`kind];r[`status];r[`value][`args][`ignore_case];r[`value][`args][`max_count];r[`value][`args][`pattern];r[`value][`args][`paths])"
         );
 
         let value = session.eval_string(&source).expect("parse arguments");
@@ -1302,8 +1302,8 @@ mod tests {
         let mut session = Session::new();
         let source = r#"
 spec:(`name:"tool";`args:(
-  (`name:`verbose;`kind:`count;`short:@u"v");
-  (`name:`define;`kind:`option;`short:@u"D";`multiple:T);
+  (`name:`verbose;`kind:`count;`short:"v");
+  (`name:`define;`kind:`option;`short:"D";`multiple:T);
   (`name:`mode;`kind:`option;`choices:("fast";"safe");`default:"safe");
   (`name:`input;`kind:`positional;`required:T)));
 r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
@@ -1316,7 +1316,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
 
         let duplicate = session
             .eval_string(
-                r#"r:argparse[(`name:"tool";`args:,(`name:`quiet;`kind:`flag;`short:@u"q"));("-q";"-q")];r[`error][`code]"#,
+                r#"r:argparse[(`name:"tool";`args:,(`name:`quiet;`kind:`flag;`short:"q"));("-q";"-q")];r[`error][`code]"#,
             )
             .expect("parse duplicate flag");
         assert_eq!(duplicate.to_string(), "`duplicate_argument");
@@ -1361,7 +1361,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
                 "'spec.args[0].value_name' is only valid for options and positionals",
             ),
             (
-                "argparse[(`name:\"bad\";`args:,(`name:`quiet;`kind:`flag;`short:@u\"-\"));()]",
+                "argparse[(`name:\"bad\";`args:,(`name:`quiet;`kind:`flag;`short:\"-\"));()]",
                 "'spec.args[0].short' cannot be '-', '=', or whitespace",
             ),
         ] {

@@ -741,61 +741,201 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::String(Arc::new(result)))
 }
 
-/// Count grapheme clusters (user-perceived characters)
-pub(super) fn graphemes(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Graphemes, [1], &args)?;
-    let s = args[0]
+fn string_arg(args: &BuiltinFnArgs, index: usize, builtin: BE) -> WqResult<String> {
+    args[index]
         .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::Graphemes))?;
-    let count = s.graphemes(true).count();
-    Ok(count.into_wq_value())
+        .ok_or_else(|| expected_string1(&args[index]).src(builtin).at_arg(index))
 }
 
-/// Split str by Unicode word boundaries
-pub(super) fn words(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Words, [1], &args)?;
-    let s = args[0]
-        .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::Words))?;
-    let res = s
-        .split_word_bounds()
-        .filter(|w| !w.trim().is_empty())
-        .map(|v| v.into_wq_value())
-        .collect();
-    Ok(Value::List(Arc::new(res)))
+fn transformed_string(input: &Value, output: String) -> Value {
+    if matches!(input, Value::Char(_)) {
+        let mut chars = output.chars();
+        if let (Some(value), None) = (chars.next(), chars.next()) {
+            return Value::Char(value);
+        }
+    }
+    Value::String(Arc::new(output))
+}
+
+fn selector_error(builtin: BE, value: &Value, selectors: &[&'static str]) -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .src(builtin)
+        .expected(Requirement::one_of(
+            selectors
+                .iter()
+                .map(|selector| Requirement::literal(format!("`{selector}"))),
+        ))
+        .at_arg(1)
+        .got1(value)
+}
+
+pub(super) fn unicode(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Unicode, [0, 2], &args)?;
+    if args.is_empty() {
+        return Ok(crate::unicode::VERSION_STRING.into_wq_value());
+    }
+
+    let selector = match &args[1] {
+        Value::Tag(selector) => selector.as_ref(),
+        value => {
+            return Err(selector_error(
+                BE::Unicode,
+                value,
+                &["name", "from_name", "xid_start", "xid_continue"],
+            ));
+        }
+    };
+
+    match selector {
+        "name" => {
+            let name = match &args[0] {
+                Value::Char(value) => crate::unicode::character_name(*value),
+                value => {
+                    let value = value
+                        .try_to_rust_string()
+                        .ok_or_else(|| expected_string1(value).src(BE::Unicode).at_arg(0))?;
+                    crate::unicode::named_sequence_name(&value).map(str::to_string)
+                }
+            };
+            Ok(name.map_or_else(Value::empty_list, IntoWqValue::into_wq_value))
+        }
+        "from_name" => {
+            let name = string_arg(&args, 0, BE::Unicode)?;
+            Ok(
+                crate::unicode::lookup_name(&name).map_or_else(Value::empty_list, |value| {
+                    let mut chars = value.chars();
+                    match (chars.next(), chars.next()) {
+                        (Some(value), None) => Value::Char(value),
+                        _ => Value::String(Arc::new(value)),
+                    }
+                }),
+            )
+        }
+        "xid_start" | "xid_continue" => {
+            let Value::Char(value) = &args[0] else {
+                return Err(type_mismatch(BE::Unicode, 0, Requirement::CHAR, &args[0]));
+            };
+            let result = if selector == "xid_start" {
+                crate::unicode::is_xid_start(*value)
+            } else {
+                crate::unicode::is_xid_continue(*value)
+            };
+            Ok(Value::Bool(result))
+        }
+        _ => Err(selector_error(
+            BE::Unicode,
+            &args[1],
+            &["name", "from_name", "xid_start", "xid_continue"],
+        )),
+    }
+}
+
+pub(super) fn normalize(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Normalize, [1, 2], &args)?;
+    let form = match args.get(1) {
+        None => crate::unicode::NormalizationForm::Nfc,
+        Some(Value::Tag(form)) if form.as_ref() == "nfc" => crate::unicode::NormalizationForm::Nfc,
+        Some(Value::Tag(form)) if form.as_ref() == "nfd" => crate::unicode::NormalizationForm::Nfd,
+        Some(Value::Tag(form)) if form.as_ref() == "nfkc" => {
+            crate::unicode::NormalizationForm::Nfkc
+        }
+        Some(Value::Tag(form)) if form.as_ref() == "nfkd" => {
+            crate::unicode::NormalizationForm::Nfkd
+        }
+        Some(value) => {
+            return Err(selector_error(
+                BE::Normalize,
+                value,
+                &["nfc", "nfd", "nfkc", "nfkd"],
+            ));
+        }
+    };
+    let input = string_arg(&args, 0, BE::Normalize)?;
+    Ok(transformed_string(
+        &args[0],
+        crate::unicode::normalize(&input, form),
+    ))
+}
+
+pub(super) fn change_case(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Case, [2], &args)?;
+    let mode = match &args[1] {
+        Value::Tag(mode) if mode.as_ref() == "lower" => crate::unicode::CaseMode::Lower,
+        Value::Tag(mode) if mode.as_ref() == "upper" => crate::unicode::CaseMode::Upper,
+        Value::Tag(mode) if mode.as_ref() == "fold" => crate::unicode::CaseMode::Fold,
+        value => return Err(selector_error(BE::Case, value, &["lower", "upper", "fold"])),
+    };
+    let input = string_arg(&args, 0, BE::Case)?;
+    Ok(transformed_string(
+        &args[0],
+        crate::unicode::change_case(&input, mode),
+    ))
+}
+
+/// Split into extended grapheme clusters.
+pub(super) fn graphemes(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Graphemes, [1], &args)?;
+    let value = string_arg(&args, 0, BE::Graphemes)?;
+    Ok(Value::from_items(
+        value
+            .graphemes(true)
+            .map(|cluster| {
+                let mut chars = cluster.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(value), None) => Value::Char(value),
+                    _ => Value::String(Arc::new(cluster.to_string())),
+                }
+            })
+            .collect(),
+    ))
 }
 
 pub(super) fn trim(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Trim, [1], &args)?;
-    let s = args[0]
-        .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::Trim))?;
-    Ok(s.trim().into_wq_value())
+    let value = string_arg(&args, 0, BE::Trim)?;
+    Ok(value
+        .trim_matches(crate::unicode::is_whitespace)
+        .into_wq_value())
 }
 
 pub(super) fn trim_left(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::LTrim, [1], &args)?;
-    let s = args[0]
-        .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::LTrim))?;
-    Ok(s.trim_start().into_wq_value())
+    let value = string_arg(&args, 0, BE::LTrim)?;
+    Ok(value
+        .trim_start_matches(crate::unicode::is_whitespace)
+        .into_wq_value())
 }
 
 pub(super) fn trim_right(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::RTrim, [1], &args)?;
-    let s = args[0]
-        .try_to_rust_string()
-        .ok_or_else(|| expected_string1(&args[0]).src(BE::RTrim))?;
-    Ok(s.trim_end().into_wq_value())
+    let value = string_arg(&args, 0, BE::RTrim)?;
+    Ok(value
+        .trim_end_matches(crate::unicode::is_whitespace)
+        .into_wq_value())
 }
 
-/// Check if a character is whitespace
 pub(super) fn is_whitespace(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::WsQ, [1], &args)?;
+    check_arity(BE::WhitespaceQ, [1], &args)?;
     match &args[0] {
-        Value::Char(c) => Ok(Value::Bool(c.is_whitespace())),
-        v => Err(type_mismatch(BE::WsQ, 0, Requirement::CHAR, v)),
+        Value::Char(value) => Ok(Value::Bool(crate::unicode::is_whitespace(*value))),
+        value => Err(type_mismatch(BE::WhitespaceQ, 0, Requirement::CHAR, value)),
     }
+}
+
+pub(super) fn term_width(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Termwidth, [1], &args)?;
+    let value = string_arg(&args, 0, BE::Termwidth)?;
+    if value.chars().any(char::is_control) {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Termwidth)
+            .expected(Requirement::phrase(
+                "char or string without control characters",
+                "chars or strings without control characters",
+            ))
+            .at_arg(0)
+            .got1(&args[0]));
+    }
+    Ok(crate::unicode::terminal_width(&value).into_wq_value())
 }
 
 #[cfg(test)]
@@ -822,20 +962,80 @@ mod tests {
     fn test_graphemes() {
         assert_eq!(
             graphemes(BuiltinFnArgs::from("hello".into_wq_value())).unwrap(),
-            Value::Int(5)
+            "hello".into_wq_value()
         );
         assert_eq!(
-            graphemes(BuiltinFnArgs::from("café".into_wq_value())).unwrap(),
-            Value::Int(4)
-        );
-        // Grapheme clusters
-        assert_eq!(
-            graphemes(BuiltinFnArgs::from("👨‍👩‍👧‍👦".into_wq_value())).unwrap(),
-            Value::Int(1)
+            graphemes(BuiltinFnArgs::from("e\u{301}x".into_wq_value())).unwrap(),
+            Value::List(Arc::new(vec!["e\u{301}".into_wq_value(), Value::Char('x')]))
         );
     }
 
-    // --- format spec tests ---
+    #[test]
+    fn unicode_properties_include_xid() {
+        assert_eq!(
+            unicode(BuiltinFnArgs::from(vec![
+                Value::Char('λ'),
+                Value::Tag("xid_start".into())
+            ]))
+            .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            unicode(BuiltinFnArgs::from(vec![
+                Value::Char('\u{301}'),
+                Value::Tag("xid_continue".into())
+            ]))
+            .unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn unicode_names_round_trip_named_sequences() {
+        let value = unicode(BuiltinFnArgs::from(vec![
+            "KEYCAP DIGIT ONE".into_wq_value(),
+            Value::Tag("from_name".into()),
+        ]))
+        .unwrap();
+        assert_eq!(value, "1\u{fe0f}\u{20e3}".into_wq_value());
+        assert_eq!(
+            unicode(BuiltinFnArgs::from(vec![value, Value::Tag("name".into())])).unwrap(),
+            "KEYCAP DIGIT ONE".into_wq_value()
+        );
+    }
+
+    #[test]
+    fn case_and_normalization_preserve_char_shape_when_possible() {
+        assert_eq!(
+            change_case(BuiltinFnArgs::from(vec![
+                Value::Char('A'),
+                Value::Tag("lower".into())
+            ]))
+            .unwrap(),
+            Value::Char('a')
+        );
+        assert_eq!(
+            change_case(BuiltinFnArgs::from(vec![
+                Value::Char('ß'),
+                Value::Tag("upper".into())
+            ]))
+            .unwrap(),
+            "SS".into_wq_value()
+        );
+        assert_eq!(
+            normalize(BuiltinFnArgs::from(Value::Char('é'))).unwrap(),
+            Value::Char('é')
+        );
+    }
+
+    #[test]
+    fn terminal_width_rejects_controls() {
+        let error = term_width(BuiltinFnArgs::from(Value::Char('\t')))
+            .expect_err("tab width is context-dependent");
+        assert!(error.to_string().contains("without control characters"));
+    }
+
+    // Format spec tests
 
     fn run_fmt(template: &str, args: &[Value]) -> String {
         let t = template.into_wq_value();

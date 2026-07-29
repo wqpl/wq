@@ -1019,7 +1019,7 @@ mod tests {
         assert!(!frontend.is_complete_input(&format!("{metadata}f:{{[x]\n  x+1\n")));
         assert!(frontend.is_complete_input(&format!("{metadata}f:{{[x]\n  x+1\n}}\n")));
         assert!(frontend.is_complete_input(&format!("{metadata})\n")));
-        assert!(frontend.is_complete_input(&format!("{metadata}@u\"ab\"\n")));
+        assert!(frontend.is_complete_input(&format!("{metadata}\"ab\"\n")));
         assert!(frontend.is_complete_input(metadata));
     }
 

@@ -1,7 +1,7 @@
 (`parse_rpn;`rpn):@i"rpn.wq"
 assert_eq[
   parse_rpn "1 2 */";
-  ((`noun;1);(`noun;2);(`adverb;@u"/";@u"*"));
+  ((`noun;1);(`noun;2);(`adverb;"/";"*"));
   "parses / as an adverb"]
 assert_eq[rpn "3 4 + 2 * 1 -";13;"parses and evaluates RPN"]
 assert_eq[rpn "3 4 + -";-7;"uses - as unary minus"]

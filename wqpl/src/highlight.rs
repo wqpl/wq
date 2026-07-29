@@ -598,7 +598,7 @@ impl Highlighter {
                         }
                     }
                     TokenType::Character(_) => {
-                        if Self::unicode_scalar_token_is_valid(src, tok) {
+                        if Self::character_token_is_valid(src, tok) {
                             Self::push_string_events(
                                 &mut events,
                                 src,
@@ -718,7 +718,7 @@ impl Highlighter {
         events.push(HighlightEvent::HighlightEnd);
     }
 
-    fn unicode_scalar_token_is_valid(src: &str, tok: &Token) -> bool {
+    fn character_token_is_valid(src: &str, tok: &Token) -> bool {
         let Some(token_src) = src.get(tok.byte_start..tok.byte_end) else {
             return false;
         };
@@ -1058,9 +1058,8 @@ fn push_offset_events(
 fn invalid_literal_error(src: &str, tok: &Token) -> Option<(usize, HighlightName)> {
     let token_src = src.get(tok.byte_start..tok.byte_end)?;
     let trimmed = token_src.trim_start_matches(|ch: char| ch.is_whitespace() && ch != '\n');
-    let name = if trimmed.starts_with("@u") {
-        HighlightName::InvalidCharacter
-    } else if trimmed.starts_with('"') || trimmed.starts_with("@f") || trimmed.starts_with("@l") {
+    let name = if trimmed.starts_with('"') || trimmed.starts_with("@f") || trimmed.starts_with("@l")
+    {
         HighlightName::InvalidString
     } else {
         return None;
@@ -1229,7 +1228,7 @@ mod tests {
 
     #[test]
     fn invalid_and_unknown_escapes_do_not_use_special_highlight() {
-        let src = r#""\q" "\x" "\x4" "\xGG" "\u" "\u{}" "\u{d800}" "\u{110000}" "\u{0000000}""#;
+        let src = r#""\q" "\x" "\x4" "\xGG" "\u" "\u1234" "\U0001f980" "\u{}" "\u{d800}" "\u{110000}" "\u{0000000}" "\N{}" "\N{NOT A NAME}""#;
         let h = Highlighter::new();
         let regions = named_regions(&h.highlight(src), src);
 
@@ -1238,7 +1237,7 @@ mod tests {
 
     #[test]
     fn malformed_hex_and_unicode_escapes_mark_the_whole_string_invalid() {
-        let src = r#""ok" "\x41" "\x" "\x4" "\xGG" "\u{}z" "\u{d800}" @f"\x" "\q""#;
+        let src = r#""ok" "\x41" "\x" "\x4" "\xGG" "\u1234" "\U0001f980" "\u{}z" "\u{d800}" "\N{}" "\N{NOT A NAME}" @f"\x" "\q""#;
         let h = Highlighter::new();
         let regions = named_regions(&h.highlight(src), src);
 
@@ -1251,8 +1250,12 @@ mod tests {
                 r#""\x""#,
                 r#""\x4""#,
                 r#""\xGG""#,
+                r#""\u1234""#,
+                r#""\U0001f980""#,
                 r#""\u{}z""#,
                 r#""\u{d800}""#,
+                r#""\N{}""#,
+                r#""\N{NOT A NAME}""#,
                 r#"@f"\x""#
             ]
         );
@@ -1267,48 +1270,34 @@ mod tests {
     }
 
     #[test]
-    fn unicode_scalar_literals_distinguish_valid_invalid_and_string_regions() {
-        let src = r#""a" @u"a" @u"\n" @u{41} @u{1f980} @u"" @u"ab" @u"é" @u"\q" @u{} @u{d800} @u{110000} @u{xyz} @u"x"#;
+    fn quoted_literals_distinguish_char_and_string_regions() {
+        let src = r#""a" "\n" "\N{SNOWMAN}" "ab" "é" "\N{KEYCAP DIGIT ONE}""#;
         let h = Highlighter::new();
         let regions = named_regions(&h.highlight(src), src);
 
-        assert_region(&regions, r#""a""#, HighlightName::String);
-        assert_region(&regions, r#"@u"a""#, HighlightName::Character);
-        assert_region(&regions, "@u{41}", HighlightName::Character);
-        assert_region(&regions, "@u{1f980}", HighlightName::Character);
+        assert_region(&regions, r#""a""#, HighlightName::Character);
+        assert_region(&regions, r#""ab""#, HighlightName::String);
+        assert_region(&regions, r#""é""#, HighlightName::String);
         assert_region(&regions, r"\n", HighlightName::StringEscape);
-        assert_eq!(
-            regions_with_name(&regions, HighlightName::InvalidCharacter),
-            vec![
-                r#"@u"""#,
-                r#"@u"ab""#,
-                r#"@u"é""#,
-                r#"@u"\q""#,
-                "@u{}",
-                "@u{d800}",
-                "@u{110000}",
-                "@u{xyz}",
-                r#"@u"x"#,
-            ]
+        assert_region(&regions, r"\N{SNOWMAN}", HighlightName::StringEscape);
+        assert_region(
+            &regions,
+            r"\N{KEYCAP DIGIT ONE}",
+            HighlightName::StringEscape,
         );
     }
 
     #[test]
-    fn invalid_unicode_scalar_literal_suppresses_completion_inside_its_contents() {
-        assert_eq!(cursor_context_at(r#"@u"x"#, 4), CursorContext::String);
-    }
-
-    #[test]
-    fn incomplete_unicode_scalar_shorthand_stays_in_character_context() {
-        let src = "@u{1f980";
+    fn invalid_unicode_name_stays_in_string_context() {
+        let src = r#""\N{NOT A NAME}""#;
         let h = Highlighter::new();
         let regions = named_regions(&h.highlight(src), src);
 
         assert_eq!(
-            regions_with_name(&regions, HighlightName::InvalidCharacter),
+            regions_with_name(&regions, HighlightName::InvalidString),
             vec![src]
         );
-        assert_eq!(cursor_context_at(src, src.len()), CursorContext::String);
+        assert_eq!(cursor_context_at(src, src.len() - 1), CursorContext::String);
     }
 
     #[test]

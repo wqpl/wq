@@ -109,7 +109,7 @@ const ARGV_EXAMPLES: &[DocExample] = &[DocExample {
 
 const ARGPARSE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Parse a flag and positional argument",
-    code: r#"spec:(`name:"demo";`args:((`name:`quiet;`kind:`flag;`short:@u"q");(`name:`file;`kind:`positional;`required:T)));argparse[spec;("-q";"input.wq")][`kind]"#,
+    code: r#"spec:(`name:"demo";`args:((`name:`quiet;`kind:`flag;`short:"q");(`name:`file;`kind:`positional;`required:T)));argparse[spec;("-q";"input.wq")][`kind]"#,
     expectation: ExampleExpectation::ResultContains("`ok"),
 }];
 

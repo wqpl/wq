@@ -168,7 +168,7 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace(&mut self) {
         while let Some(ch) = self.current_char {
-            if ch.is_whitespace() && ch != '\n' {
+            if crate::unicode::is_whitespace(ch) && ch != '\n' {
                 self.advance();
             } else {
                 break;
@@ -495,7 +495,13 @@ impl<'a> Lexer<'a> {
                 }
 
                 self.decode_string_content(&raw, start_line, start_column, content_start_byte)
-                    .map(TokenType::String)
+                    .map(|content| {
+                        let mut chars = content.chars();
+                        match (chars.next(), chars.next()) {
+                            (Some(value), None) => TokenType::Character(value),
+                            _ => TokenType::String(content),
+                        }
+                    })
             }
             n if n >= 3 => {
                 let content_start_byte = self.byte_pos;
@@ -568,6 +574,8 @@ impl<'a> Lexer<'a> {
             let msg = match err.kind {
                 InvalidHexEscape => "invalid hex escape",
                 InvalidUnicodeEscape | InvalidUnicodeScalar => "invalid unicode escape",
+                InvalidUnicodeNameEscape => "invalid Unicode name escape",
+                UnknownUnicodeName => "unknown Unicode name",
             };
             let err_byte_start = content_start_byte.saturating_add(err.index);
             self.syntax_error_span(
@@ -589,110 +597,6 @@ impl<'a> Lexer<'a> {
         while self.byte_pos < end && self.current_char.is_some() {
             self.advance();
         }
-    }
-
-    fn read_unicode_scalar_literal(
-        &mut self,
-        start_line: usize,
-        start_column: usize,
-        start_byte: usize,
-    ) -> WqResult<TokenType> {
-        self.skip_whitespace();
-        if self.current_char == Some('{') {
-            return self.read_unicode_scalar_shorthand(start_line, start_column, start_byte);
-        }
-        if self.current_char != Some('"') {
-            return Err(self.syntax_error_span(
-                start_line,
-                start_column,
-                start_byte,
-                self.byte_pos,
-                "expected quoted Unicode scalar or hexadecimal shorthand after @u",
-            ));
-        }
-
-        let TokenType::String(content) =
-            self.read_string_literal(start_line, start_column, start_byte)?
-        else {
-            unreachable!("quoted literal reader always returns a string")
-        };
-        let mut chars = content.chars();
-        let Some(value) = chars.next() else {
-            return Err(self.syntax_error_span(
-                start_line,
-                start_column,
-                start_byte,
-                self.byte_pos,
-                "Unicode scalar literal must contain exactly one scalar",
-            ));
-        };
-        if chars.next().is_some() {
-            return Err(self.syntax_error_span(
-                start_line,
-                start_column,
-                start_byte,
-                self.byte_pos,
-                "Unicode scalar literal must contain exactly one scalar",
-            ));
-        }
-        Ok(TokenType::Character(value))
-    }
-
-    fn read_unicode_scalar_shorthand(
-        &mut self,
-        start_line: usize,
-        start_column: usize,
-        start_byte: usize,
-    ) -> WqResult<TokenType> {
-        debug_assert_eq!(self.current_char, Some('{'));
-        self.advance();
-
-        let mut digits = String::new();
-        let mut closed = false;
-        while let Some(ch) = self.current_char {
-            if ch == '}' {
-                self.advance();
-                closed = true;
-                break;
-            }
-            digits.push(ch);
-            self.advance();
-        }
-
-        if !closed && !self.recovery_mode {
-            return Err(self.eof_error_span(
-                start_line,
-                start_column,
-                start_byte,
-                self.byte_pos,
-                "Unicode scalar shorthand is not properly terminated",
-            ));
-        }
-
-        if !(1..=6).contains(&digits.len()) || !digits.bytes().all(|byte| byte.is_ascii_hexdigit())
-        {
-            return Err(self.syntax_error_span(
-                start_line,
-                start_column,
-                start_byte,
-                self.byte_pos,
-                "Unicode scalar shorthand must contain 1 to 6 hexadecimal digits",
-            ));
-        }
-
-        let value = u32::from_str_radix(&digits, 16)
-            .expect("validated hexadecimal Unicode scalar shorthand");
-        let Some(value) = char::from_u32(value) else {
-            return Err(self.syntax_error_span(
-                start_line,
-                start_column,
-                start_byte,
-                self.byte_pos,
-                "invalid Unicode scalar shorthand value",
-            ));
-        };
-
-        Ok(TokenType::Character(value))
     }
 
     fn read_inline_comment(
@@ -1284,15 +1188,6 @@ impl<'a> Lexer<'a> {
                                 self.read_raw_string(token_line, token_column, token_byte_start)?;
                             return emit(t, self.byte_pos);
                         }
-                        Some('u') => {
-                            self.advance();
-                            let t = self.read_unicode_scalar_literal(
-                                token_line,
-                                token_column,
-                                token_byte_start,
-                            )?;
-                            return emit(t, self.byte_pos);
-                        }
                         unknown => {
                             if unknown.is_some() {
                                 self.advance();
@@ -1758,43 +1653,32 @@ mod tests {
     }
 
     #[test]
-    fn test_single_unicode_scalar_quoted_literal_is_string() {
-        let mut lexer = Lexer::new("\"a\"");
-        let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens[0].token_type, TokenType::String("a".to_string()));
-    }
-
-    #[test]
-    fn test_tokenize_unicode_scalar_literal() {
-        let mut lexer = Lexer::new("@u\"a\" @u\"\\n\" @u\"🦀\"");
+    fn test_single_unicode_scalar_quoted_literal_is_character() {
+        let mut lexer = Lexer::new("\"a\" \"\\n\" \"\\u{1f980}\" \"\\N{SNOWMAN}\"");
         let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::Character('a'));
         assert_eq!(tokens[1].token_type, TokenType::Character('\n'));
         assert_eq!(tokens[2].token_type, TokenType::Character('🦀'));
+        assert_eq!(tokens[3].token_type, TokenType::Character('☃'));
     }
 
     #[test]
-    fn test_tokenize_unicode_scalar_shorthand() {
-        let mut lexer = Lexer::new("@u{0} @u{41} @u {a} @u{1f980} @u{10FFFF}+1");
+    fn test_named_sequence_escape_is_a_string() {
+        let mut lexer = Lexer::new("\"\\N{KEYCAP DIGIT ONE}\"");
         let tokens = lexer.tokenize().unwrap();
-        assert_eq!(tokens[0].token_type, TokenType::Character('\0'));
-        assert_eq!(tokens[1].token_type, TokenType::Character('A'));
-        assert_eq!(tokens[2].token_type, TokenType::Character('\n'));
-        assert_eq!(tokens[3].token_type, TokenType::Character('🦀'));
-        assert_eq!(tokens[4].token_type, TokenType::Character('\u{10ffff}'));
-        assert_eq!(tokens[5].token_type, TokenType::Plus);
-        assert_eq!(tokens[6].token_type, TokenType::Integer(1));
+        assert_eq!(
+            tokens[0].token_type,
+            TokenType::String("1\u{fe0f}\u{20e3}".to_string())
+        );
     }
 
     #[test]
-    fn test_unicode_scalar_shorthand_rejects_invalid_code_points() {
+    fn test_strings_reject_malformed_or_unknown_unicode_names() {
         for source in [
-            "@u{}",
-            "@u{xyz}",
-            "@u{41_}",
-            "@u{1234567}",
-            "@u{d800}",
-            "@u{110000}",
+            r#""\N""#,
+            r#""\N{}""#,
+            r#""\N{SNOWMAN""#,
+            r#""\N{NOT A UNICODE NAME}""#,
         ] {
             let mut lexer = Lexer::new(source);
             assert!(lexer.tokenize().is_err(), "{source} should be rejected");
@@ -1802,25 +1686,10 @@ mod tests {
     }
 
     #[test]
-    fn test_unterminated_unicode_scalar_shorthand_is_incomplete() {
-        let error = lexer_err("@u{1f980");
-
-        assert_eq!(error.err_type, WqErrorType::Eof);
-    }
-
-    #[test]
-    fn test_unicode_scalar_literal_requires_exactly_one_scalar() {
-        for source in ["@u\"\"", "@u\"ab\"", "@u\"é\""] {
-            let mut lexer = Lexer::new(source);
-            assert!(lexer.tokenize().is_err(), "{source} should be rejected");
-        }
-    }
-
-    #[test]
-    fn test_unicode_scalar_literal_requires_quoted_content() {
-        for source in ["@u", "@u  ", "@u a"] {
-            let mut lexer = Lexer::new(source);
-            assert!(lexer.tokenize().is_err(), "{source} should be rejected");
+    fn test_strings_reject_python_style_unicode_escapes() {
+        for source in [r#""\u1234""#, r#""\U0001f980""#] {
+            let error = lexer_err(source);
+            assert_eq!(error.msg.as_deref(), Some("invalid unicode escape"));
         }
     }
 

@@ -41,7 +41,7 @@ impl fmt::Display for Value {
             }
             Value::Char(c) => {
                 let esc = escape_str_for_display(&c.to_string());
-                write!(f, "@u\"{esc}\"")
+                write!(f, "\"{esc}\"")
             }
             Value::Tag(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "T" } else { "F" }),
@@ -58,7 +58,11 @@ impl fmt::Display for Value {
                     return write!(f, "()");
                 }
                 let esc = escape_str_for_display(s);
-                write!(f, "\"{esc}\"")
+                if s.chars().count() == 1 {
+                    write!(f, ",\"{esc}\"")
+                } else {
+                    write!(f, "\"{esc}\"")
+                }
             }
             Value::List(items) => {
                 // Empty list
@@ -78,18 +82,24 @@ impl fmt::Display for Value {
                         })
                         .collect();
                     let esc = escape_str_for_display(&s);
-                    write!(f, "\"{esc}\"")
+                    if items.len() == 1 {
+                        write!(f, ",\"{esc}\"")
+                    } else {
+                        write!(f, "\"{esc}\"")
+                    }
                 } else if items.len() == 1 {
                     let item = &items[0];
                     match item {
+                        Value::String(value) if value.chars().count() == 1 => {
+                            write!(f, ",({})", item)
+                        }
                         Value::List(_)
                         | Value::IntList(_)
                         | Value::IntRange(_)
                         | Value::FloatList(_)
                         | Value::BoolList(_)
                             if !item.is_unit() =>
-                        // Nest a 1‑element list inside another 1‑element list
-                        // renders as ,(,a) instead of the invalid ,,a.
+                        // Nest a one-item list inside another one-item list.
                         {
                             write!(f, ",({})", item)
                         }

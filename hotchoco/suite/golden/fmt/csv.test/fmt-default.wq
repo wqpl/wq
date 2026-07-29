@@ -4,7 +4,7 @@ assert_eq[
   (("name";"age");("Alice";"30");("Bob";"25"));
   "basic"]
 assert_eq[parse_csv "\"hello, world\",123";,(("hello, world";"123"));"quoted field with comma"]
-assert_eq[parse_csv "a,\"b,c\",d";,("a";"b,c";"d");"mixed quoted and unquoted"]
+assert_eq[parse_csv "a,\"b,c\",d";,(,"a";"b,c";,"d");"mixed quoted and unquoted"]
 assert_eq[
   parse_csv "\"hello \"\"world\"\"\",123";
   ,(("hello \"world\"";"123"));
@@ -14,11 +14,11 @@ assert_eq[
   parse_csv "\"line1\nline2\",tail";
   ,(("line1\nline2";"tail"));
   "newline inside quoted field"]
-assert_eq[parse_csv "a,b\n";,("a";"b");"trailing newline"]
-assert_eq[parse_csv "a,b\r\nc,d";(("a";"b");("c";"d"));"crlf rows"]
-assert_eq[parse_csv "a,b\rc,d";(("a";"b");("c";"d"));"cr rows"]
+assert_eq[parse_csv "a,b\n";,(,"a";,"b");"trailing newline"]
+assert_eq[parse_csv "a,b\r\nc,d";((,"a";,"b");(,"c";,"d"));"crlf rows"]
+assert_eq[parse_csv "a,b\rc,d";((,"a";,"b");(,"c";,"d"));"cr rows"]
 assert_eq[parse_csv "";();"empty input"]
-assert_eq[parse_csv "a,b,";,("a";"b";"");"trailing comma"]
+assert_eq[parse_csv "a,b,";,(,"a";,"b";"");"trailing comma"]
 assert_eq[(@t parse_csv "\"a,b") 0;`error;"unterminated quote errors"]
 assert_eq[(@t parse_csv "a\"b,c") 0;`error;"quote in unquoted field errors"]
 assert_eq[(@t parse_csv "\"a\"b,c") 0;`error;"text after closing quote errors"]

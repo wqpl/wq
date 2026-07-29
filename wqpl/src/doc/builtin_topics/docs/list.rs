@@ -53,7 +53,7 @@ const SORT_EXAMPLES: &[DocExample] = &[
 const SPLIT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Limit delimiter splits",
     code: "split[\"a,b,c\";\",\";`max:1]",
-    expectation: ExampleExpectation::ResultContains("(\"a\";\"b,c\")"),
+    expectation: ExampleExpectation::ResultContains("(,\"a\";\"b,c\")"),
 }];
 
 const FIND_EXAMPLES: &[DocExample] = &[DocExample {
@@ -135,7 +135,7 @@ pub(super) const SPLIT: BuiltinDoc = BuiltinDoc {
     summary: "Split a value into groups.",
     details: "`split[xs]` splits strings on whitespace. `split[xs;delim]` splits strings and lists on a delimiter. The named `max` argument limits the number of splits; `inf` means unlimited.",
     examples: SPLIT_EXAMPLES,
-    related: &["splitw", "words"],
+    related: &["splitw", "graphemes"],
 };
 
 pub(super) const FIND: BuiltinDoc = BuiltinDoc {

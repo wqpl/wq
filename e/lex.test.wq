@@ -3,21 +3,21 @@ echo "--- Test 1: basic ---"
 basic:lex "a+b*12"
 assert_eq[
   basic;
-  ((`id;"a");(`op;@u"+");(`id;"b");(`op;@u"*");(`int;"12"));
+  ((`id;,"a");(`op;"+");(`id;,"b");(`op;"*");(`int;"12"));
   "basic"]
 echo basic
 echo "--- Test 2: identifiers and ops mixed ---"
 mixed:lex "ABC123-xyz/9"
 assert_eq[
   mixed;
-  ((`id;"ABC123");(`op;@u"-");(`id;"xyz");(`op;@u"/");(`int;"9"));
+  ((`id;"ABC123");(`op;"-");(`id;"xyz");(`op;"/");(`int;,"9"));
   "identifiers and operators"]
 echo mixed
 echo "--- Test 3: consecutive same ops ---"
 operators:lex "++--"
 assert_eq[
   operators;
-  ((`op;@u"+");(`op;@u"+");(`op;@u"-");(`op;@u"-"));
+  ((`op;"+");(`op;"+");(`op;"-");(`op;"-"));
   "consecutive operators"]
 echo operators
 echo "--- Test 4: single identifier ---"
@@ -26,5 +26,5 @@ assert_eq[identifier;,((`id;"helloWorld"));"single identifier"]
 echo identifier
 echo "--- Test 5: deny 1k ---"
 digit_prefixed:lex "1k"
-assert_eq[digit_prefixed;((`int;"1");(`id;"k"));"digit-prefixed input"]
+assert_eq[digit_prefixed;((`int;,"1");(`id;,"k"));"digit-prefixed input"]
 echo digit_prefixed

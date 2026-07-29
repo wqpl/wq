@@ -8,21 +8,51 @@ const STR_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const GRAPHEMES_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Count grapheme clusters",
-    code: "graphemes \"café\"",
-    expectation: ExampleExpectation::ResultContains("4"),
+    title: "Split extended grapheme clusters",
+    code: "graphemes \"éx\"",
+    expectation: ExampleExpectation::ResultContains("(\"é\";\"x\")"),
 }];
 
-const WS_Q_EXAMPLES: &[DocExample] = &[DocExample {
+const UNICODE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Look up a character name",
+        code: "unicode[\"☃\";`name]",
+        expectation: ExampleExpectation::ResultContains("\"SNOWMAN\""),
+    },
+    DocExample {
+        title: "Look up a named sequence",
+        code: "unicode[\"KEYCAP DIGIT ONE\";`from_name]",
+        expectation: ExampleExpectation::ResultContains("1"),
+    },
+    DocExample {
+        title: "Test an identifier property",
+        code: "unicode[\"λ\";`xid_start]",
+        expectation: ExampleExpectation::ResultContains("T"),
+    },
+];
+
+const NORMALIZE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Compose a decomposed string",
+    code: "normalize \"é\"",
+    expectation: ExampleExpectation::ResultContains("é"),
+}];
+
+const CASE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Apply a full uppercase mapping",
+    code: "case[\"ß\";`upper]",
+    expectation: ExampleExpectation::ResultContains("\"SS\""),
+}];
+
+const WHITESPACE_Q_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Test for whitespace",
-    code: "ws? @u\" \"",
+    code: "whitespace? \" \"",
     expectation: ExampleExpectation::ResultContains("T"),
 }];
 
-const WORDS_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Split on Unicode word boundaries",
-    code: "words \"red, green\"",
-    expectation: ExampleExpectation::ResultContains("(\"red\";\",\";\"green\")"),
+const TERM_WIDTH_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Measure terminal columns",
+    code: "termwidth \"猫\"",
+    expectation: ExampleExpectation::ResultContains("2"),
 }];
 
 const TRIM_EXAMPLES: &[DocExample] = &[DocExample {
@@ -91,26 +121,42 @@ pub(super) const STR: BuiltinDoc = BuiltinDoc {
 
 pub(super) const GRAPHEMES: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Graphemes,
-    summary: "Count grapheme clusters in a string.",
-    details: "`graphemes` converts its argument to a string and counts Unicode grapheme clusters rather than bytes or Unicode scalars.",
+    summary: "Split a char or string into extended grapheme clusters.",
+    details: "`graphemes` returns Unicode extended grapheme clusters in order. A one-scalar cluster is a char. A multi-scalar cluster is a string.",
     examples: GRAPHEMES_EXAMPLES,
-    related: &["words", "len"],
+    related: &["unicode", "len"],
 };
 
-pub(super) const WS_Q: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::WsQ,
+pub(super) const UNICODE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Unicode,
+    summary: "Query Unicode version, names, named sequences, and identifier properties.",
+    details: "`unicode[]` returns the Unicode version used by the Unicode builtins. `` unicode[c;`name] `` returns the primary Unicode character name. For an approved Unicode named sequence, `` unicode[s;`name] `` returns its sequence name. `` unicode[name;`from_name] `` performs loose reverse lookup across primary names, formal aliases, and approved named sequences. `` unicode[c;`xid_start] `` and `` unicode[c;`xid_continue] `` expose the raw Unicode identifier properties. A lookup with no result returns `()`.",
+    examples: UNICODE_EXAMPLES,
+    related: &["normalize", "case", "graphemes"],
+};
+
+pub(super) const NORMALIZE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Normalize,
+    summary: "Normalize a char or string.",
+    details: "`normalize[x]` applies NFC. Pass `` `nfc ``, `` `nfd ``, `` `nfkc ``, or `` `nfkd `` as the second argument to select another Unicode normalization form. A char result stays a char when the normalized result contains one scalar; otherwise it becomes a string. A string input always returns a string.",
+    examples: NORMALIZE_EXAMPLES,
+    related: &["unicode", "case", "graphemes"],
+};
+
+pub(super) const CASE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Case,
+    summary: "Apply full Unicode case conversion or folding.",
+    details: "`` case[x;`lower] `` and `` case[x;`upper] `` use full, context-aware root-locale mappings. `` case[x;`fold] `` performs locale-independent Unicode case folding. A char result stays a char only when the mapping contains one scalar. A string input always returns a string.",
+    examples: CASE_EXAMPLES,
+    related: &["unicode", "normalize"],
+};
+
+pub(super) const WHITESPACE_Q: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::WhitespaceQ,
     summary: "Return true when a character is whitespace.",
-    details: "`ws?` accepts a char and uses Unicode whitespace classification. Create chars with `@u\"...\"`; ordinary quoted literals are strings at every length.",
-    examples: WS_Q_EXAMPLES,
-    related: &["trim", "words"],
-};
-
-pub(super) const WORDS: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Words,
-    summary: "Split a string on Unicode word boundaries.",
-    details: "`words` uses Unicode word-boundary segmentation and filters out empty or whitespace-only spans. It is not just whitespace splitting: punctuation such as `,` may be returned as its own token.",
-    examples: WORDS_EXAMPLES,
-    related: &["splitw", "trim", "graphemes"],
+    details: "`whitespace?` accepts a char and tests the Unicode White_Space property. The trim family, whitespace splitting, and source lexer use the same property.",
+    examples: WHITESPACE_Q_EXAMPLES,
+    related: &["trim", "unicode"],
 };
 
 pub(super) const TRIM: BuiltinDoc = BuiltinDoc {
@@ -118,7 +164,7 @@ pub(super) const TRIM: BuiltinDoc = BuiltinDoc {
     summary: "Trim whitespace from both ends of a string.",
     details: "`trim` converts its argument to a string and removes leading and trailing Unicode whitespace.",
     examples: TRIM_EXAMPLES,
-    related: &["ltrim", "rtrim", "ws?"],
+    related: &["ltrim", "rtrim", "whitespace?"],
 };
 
 pub(super) const L_TRIM: BuiltinDoc = BuiltinDoc {
@@ -126,7 +172,7 @@ pub(super) const L_TRIM: BuiltinDoc = BuiltinDoc {
     summary: "Trim whitespace from the start of a string.",
     details: "`ltrim` converts its argument to a string and removes leading Unicode whitespace, leaving trailing whitespace unchanged.",
     examples: L_TRIM_EXAMPLES,
-    related: &["trim", "rtrim", "ws?"],
+    related: &["trim", "rtrim", "whitespace?"],
 };
 
 pub(super) const R_TRIM: BuiltinDoc = BuiltinDoc {
@@ -134,7 +180,15 @@ pub(super) const R_TRIM: BuiltinDoc = BuiltinDoc {
     summary: "Trim whitespace from the end of a string.",
     details: "`rtrim` converts its argument to a string and removes trailing Unicode whitespace, leaving leading whitespace unchanged.",
     examples: R_TRIM_EXAMPLES,
-    related: &["trim", "ltrim", "ws?"],
+    related: &["trim", "ltrim", "whitespace?"],
+};
+
+pub(super) const TERM_WIDTH: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Termwidth,
+    summary: "Measure terminal display width.",
+    details: "`termwidth` returns the default Unicode terminal width of a char or string. It has one stable width mode. Control characters are rejected because their width depends on terminal state.",
+    examples: TERM_WIDTH_EXAMPLES,
+    related: &["graphemes", "len"],
 };
 
 pub(super) const FMT: BuiltinDoc = BuiltinDoc {

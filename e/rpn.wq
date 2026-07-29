@@ -1,6 +1,6 @@
-verb?:{O[x=@u"+";x=@u"-";x=@u"*";x=@u"%"]}
+verb?:{O[x="+";x="-";x="*";x="%"]}
 verb:{[symbol]
-  $$[symbol=@u"+";+;symbol=@u"-";-;symbol=@u"*";*;symbol=@u"%";/;
+  $$[symbol="+";+;symbol="-";-;symbol="*";*;symbol="%";/;
     raise@f"rpn: unknown verb {symbol}"]}
 parse_number:{[token]
   parsed_integer:@t int token
@@ -11,9 +11,9 @@ parse_number:{[token]
 parse_rpn:{
   split x|map{
     token:x
-    $[A[#token>1;token[-1]=@u"/"]
+    $[A[#token>1;token[-1]="/"]
       [base:token 0..(#token-1);$.[~A[#base=1;verb? base 0];raise@f"rpn: / cannot modify {base}"]
-        (`adverb;@u"/";base 0)]
+        (`adverb;"/";base 0)]
       $[A[#token=1;verb? token 0];(`verb;token 0);(`noun;parse_number token)]]}}
 eval_rpn:{[program]
   sta:()
@@ -21,7 +21,7 @@ eval_rpn:{[program]
     $$[kind=`noun;sta,:instruction 1
       kind=`verb;
       [symbol:instruction 1;fn:verb symbol
-        $[and[symbol=@u"-";#sta=1]
+        $[and[symbol="-";#sta=1]
           [value:sta[!];sta,:fn value]
           [$.[#sta<2;raise "rpn: verb needs two operands"]
             operands:sta[!-2;-1];sta,:fold[operands;fn]]]]

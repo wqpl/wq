@@ -9,9 +9,9 @@ name    math eng sci
 "Sunny"   78  82  85
 ================================
 row    price qty brand
-laptop  1200  10 "D"
-mouse     25 100 "L"
-desk     300  15 "I"
+laptop  1200  10 ,"D"
+mouse     25 100 ,"L"
+desk     300  15 ,"I"
 ================================
 id   cust   items
 1001 "A123" ((`p:"Pen";`q:2);(`p:"Notebook";`q:1))

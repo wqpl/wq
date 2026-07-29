@@ -4063,10 +4063,12 @@ impl Parser {
             .ok_or_else(|| self.eof_error_here("unexpected end of input after '@i'"))?;
         self.advance();
         let Some(path) = self.current_token().cloned() else {
-            return Err(self.eof_error_here("expected string literal after '@i'"));
+            return Err(self.eof_error_here("expected quoted literal after '@i'"));
         };
-        let TokenType::String(specifier) = path.token_type else {
-            return Err(self.syntax_err(&path, "expected string literal after '@i'"));
+        let specifier = match path.token_type {
+            TokenType::String(specifier) => specifier,
+            TokenType::Character(character) => character.to_string(),
+            _ => return Err(self.syntax_err(&path, "expected quoted literal after '@i'")),
         };
         self.advance();
         Ok(AstNode::Import {

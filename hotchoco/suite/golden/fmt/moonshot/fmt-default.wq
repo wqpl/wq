@@ -19,14 +19,14 @@ spec:(
       `name:`seed;
       `kind:`option;
       `parse:positive_int;
-      `value_name:"N";
+      `value_name:,"N";
       `help:"replay a mission with a positive seed");
     (
       `name:`max_turns;
       `kind:`option;
       `parse:positive_int;
       `default:160;
-      `value_name:"N";
+      `value_name:,"N";
       `help:"abort after N turns (default: 160)")))
 
 options:cliargs[spec] `args
@@ -53,41 +53,41 @@ make_mission:{[]
 
 command_cost:{[command]
   $$[or[command="wa";command="wd"];3
-    command="w";2
-    or[command="a";command="d"];1
+    command=,"w";2
+    or[command=,"a";command=,"d"];1
     0]}
 
-main_burn?:{[command]or[command="w";command="wa";command="wd"]}
+main_burn?:{[command]or[command=,"w";command="wa";command="wd"]}
 
 lateral_burn:{[command]
-  $$[or[command="a";command="wa"];-side_thrust
-    or[command="d";command="wd"];side_thrust
+  $$[or[command=,"a";command="wa"];-side_thrust
+    or[command=,"d";command="wd"];side_thrust
     0.0]}
 
-valid_command?:{[command]has?[("";".";"w";"a";"d";"wa";"wd";"q");command]}
+valid_command?:{[command]has?[("";,".";,"w";,"a";,"d";"wa";"wd";,"q");command]}
 
 autopilot_command:{[state]
   altitude:max[0.0;state `y]
   error:state `pad-state `x
   speed_limit:$[altitude<18.0;0.65;1.45]
   desired_vx:clamp[error*0.19;-speed_limit;speed_limit]
-  horizontal:$$[state `vx>desired_vx+0.16;"a"
-    state `vx<desired_vx-0.16;"d"
+  horizontal:$$[state `vx>desired_vx+0.16;,"a"
+    state `vx<desired_vx-0.16;,"d"
     ""]
   next_vy:state `vy+gravity
   landing_next?:altitude-next_vy<=0.0
   desired_vy:clamp[0.72*sqrt altitude;3.0;7.2]
   // Commit to a safe coast touchdown instead of hovering over the pad.
   vertical?:and[not[and[landing_next?;next_vy<=3.5]];next_vy>desired_vy]
-  $$[and[vertical?;horizontal="a"];"wa"
-    and[vertical?;horizontal="d"];"wd"
-    vertical?;"w"
-    horizontal="";"."
+  $$[and[vertical?;horizontal=,"a"];"wa"
+    and[vertical?;horizontal=,"d"];"wd"
+    vertical?;,"w"
+    horizontal="";,"."
     horizontal]}
 
 advance:{[state;requested_command]
   cost:command_cost requested_command
-  command:$[cost<=state `fuel;requested_command;"."]
+  command:$[cost<=state `fuel;requested_command;,"."]
   new_vx:0.985*(state `vx+lateral_burn command)
   new_vy:state `vy+gravity+$[main_burn? command;-main_thrust;0.0]
   state `x:state `x+new_vx
@@ -96,8 +96,8 @@ advance:{[state;requested_command]
   state `vy:new_vy
   state `fuel:state `fuel-command_cost command
   state `turn:state `turn+1
-  state `message:$$[and[cost>0;command="."];"Fuel tank coughed: burn cancelled."
-    command=".";"Coasting through the silver quiet."
+  state `message:$$[and[cost>0;command=,"."];"Fuel tank coughed: burn cancelled."
+    command=,".";"Coasting through the silver quiet."
     main_burn? command;"Main engine paints a blue-white plume."
     "Side thruster nudges the cargo home."]
   (state;command)}
@@ -109,18 +109,18 @@ star_at?:{[row;column;turn](row*37+column*17+turn*3+seed)%67=0}
 
 sky_line:{[state;row;lander_row;lander_column]
   line:repeat[" ";screen_width]
-  N[screen_width;$.[star_at?[row;_n;state `turn];line _n:@u"."]]
+  N[screen_width;$.[star_at?[row;_n;state `turn];line _n:"."]]
   $.[row=lander_row
     left:clamp[lander_column-1;0;screen_width-3]
-    line left:@u"/"
-    line[left+1]:@u"A"
-    line[left+2]:@u"\\"]
+    line left:"/"
+    line[left+1]:"A"
+    line[left+2]:"\\"]
   line}
 
 ground_line:{[state]
   line:repeat["_";screen_width];left:state `pad-3
   N[7;column:left+_n
-    $.[and[column>=0;column<screen_width];line column:@u"="]]
+    $.[and[column>=0;column<screen_width];line column:"="]]
   line}
 
 render:{[state]
@@ -142,9 +142,9 @@ lower_ascii:{[s]
 
 read_command:{[]
   W[T;line:input "burn [w/a/d/wa/wd/. or q] > "
-    $.[#line=0;@r "q"]
+    $.[#line=0;@r ,"q"]
     command:lower_ascii line
-    $.[valid_command? command;@r $[command="";".";command]]
+    $.[valid_command? command;@r $[command="";,".";command]]
     echo "Flight computer: command not understood."]}
 
 landed_on_pad?:{[state]abs[state `x-state `pad]<=3.5}
@@ -174,7 +174,7 @@ run_mission:{[]
       or[state `x<-8.0;state `x>screen_width+8.0];
       [echo "\nThe lander drifted beyond the tracking horizon.";@r 1]
       [command:$[demo;autopilot_command state;read_command[]]
-        $.[command="q";echo "\nMission abandoned. The cargo sends a disappointed beep.";@r 130]
+        $.[command=,"q";echo "\nMission abandoned. The cargo sends a disappointed beep.";@r 130]
         $.[plain;echo@f"  command {command}"]
         advanced:advance[state;command]
         state:advanced 0]]]}

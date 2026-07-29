@@ -1121,13 +1121,21 @@ mod tests {
     fn string_display_quotes_and_escapes() {
         assert_eq!(into_wq_string("hello").to_string(), "\"hello\"");
         assert_eq!(into_wq_string("a\"b").to_string(), "\"a\\\"b\"");
+        assert_eq!(into_wq_string("a").to_string(), ",\"a\"");
         assert_eq!(into_wq_string("").to_string(), "()");
     }
 
     #[test]
-    fn char_display_uses_unicode_scalar_literal() {
-        assert_eq!(Value::Char('a').to_string(), "@u\"a\"");
-        assert_eq!(Value::Char('\n').to_string(), "@u\"\\n\"");
+    fn char_display_uses_single_scalar_quotes() {
+        assert_eq!(Value::Char('a').to_string(), "\"a\"");
+        assert_eq!(Value::Char('\n').to_string(), "\"\\n\"");
+    }
+
+    #[test]
+    fn nested_singleton_string_display_is_unambiguous() {
+        let one_item_string = into_wq_string("a");
+        let outer = Value::List(Arc::new(vec![one_item_string]));
+        assert_eq!(outer.to_string(), ",(,\"a\")");
     }
 
     #[test]

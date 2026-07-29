@@ -1172,10 +1172,6 @@
         {
           "type": "true",
           "named": true
-        },
-        {
-          "type": "unicode_scalar",
-          "named": true
         }
       ]
     }
@@ -2114,11 +2110,6 @@
         }
       ]
     }
-  },
-  {
-    "type": "unicode_scalar",
-    "named": true,
-    "fields": {}
   },
   {
     "type": "unpack_target",

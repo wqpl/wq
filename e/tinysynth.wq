@@ -30,13 +30,13 @@ note_frequency:{[name]
 
   letter:name 0
   semitone:$$[
-    letter=@u"C";0
-    letter=@u"D";2
-    letter=@u"E";4
-    letter=@u"F";5
-    letter=@u"G";7
-    letter=@u"A";9
-    letter=@u"B";11
+    letter="C";0
+    letter="D";2
+    letter="E";4
+    letter="F";5
+    letter="G";7
+    letter="A";9
+    letter="B";11
     raise fmt["invalid note '{}': pitch names use uppercase A through G";name]]
 
   accidental:0
@@ -44,8 +44,8 @@ note_frequency:{[name]
   $.[size=3
     mark:name 1
     accidental:$$[
-      mark=@u"#";1
-      mark=@u"b";-1
+      mark="#";1
+      mark="b";-1
       raise fmt["invalid note '{}': the accidental must be '#' or 'b'";name]]
     octave_index:2]
 
@@ -74,7 +74,7 @@ parse_event:{[token;tempo;wave;volume;attack;release]
   pitches:pieces 0
   $.[#pitches=0;raise fmt["invalid event '{}': missing a note or R";token]]
   seconds:parse_duration[pieces 1;tempo;token]
-  frequencies:$[pitches="R";();map[split[pitches;"+"];note_frequency]]
+  frequencies:$[pitches=,"R";();map[split[pitches;"+"];note_frequency]]
 
   (`token:token;
    `seconds:seconds;

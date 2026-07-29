@@ -1,0 +1,29 @@
+unicode[]|echo
+unicode["☃";`name]|echo
+unicode["SNOWMAN";`from_name]|echo
+unicode["BACKSPACE";`from_name]|ord|echo
+unicode["KEYCAP DIGIT ONE";`from_name]="\N{KEYCAP DIGIT ONE}"|echo
+unicode["\N{KEYCAP DIGIT ONE}";`name]|echo
+
+normalize "é"=,"é"|echo
+normalize[,"é";`nfd]="é"|echo
+normalize["①";`nfkc]="1"|echo
+
+case["ß";`upper]="SS"|echo
+case["ΟΣ";`lower]="ος"|echo
+case["Straße";`fold]="strasse"|echo
+
+graphemes "éx"|echo
+whitespace? " "|echo
+whitespace? "\u{85}"|echo
+whitespace? "\u{180e}"|echo
+split "a\u{85}b\u{3000}c"|echo
+trim "\u{a0}hello\u{3000}"|echo
+
+termwidth "cat"|echo
+termwidth "猫"|echo
+(@t termwidth "\t")0|echo
+
+unicode["λ";`xid_start]|echo
+unicode["\u{301}";`xid_continue]|echo
+unicode["_";`xid_start]|echo

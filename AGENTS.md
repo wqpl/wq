@@ -31,13 +31,14 @@
   - `and[...]` and `or[...]` are parser aliases for `A[...]` and `O[...]`.
   - `(1)` is not a list. It is atom `1`.
   - comments: `//` `/* */`. `/ a` is division and not a comment.
-  - ordinary quoted literals are strings at every length: `"a"` is a one-character string, not a char atom
-  - char atoms use `@u"..."`, where `u` means one Unicode scalar
-    - the contents are escape-decoded and must contain exactly one Unicode scalar, so `@u"a"`, `@u"\n"`, and `@u"🦀"` are valid
-    - hex escapes use exactly two digits, such as `\x41`; malformed forms such as `\x`, `\x4`, and `\xGG` are syntax errors in strings and chars
-    - `@u""`, `@u"ab"`, and a multi-scalar grapheme such as `@u"é"` are invalid
-    - indexing a string returns char atoms, so compare an indexed character with `@u`, for example `"abc" 0=@u"a"`
-    - char atoms display as `@u"..."`; use `graphemes` when user-perceived characters rather than Unicode scalars matter
+  - quoted literals that decode to exactly one Unicode scalar are char atoms, so `"a"`, `"\n"`, and `"🦀"` are chars
+    - other quoted literals are strings; use `,"a"` to create a one-character string
+    - char atoms display as `"..."`; one-character strings display as `,"..."`
+    - indexing a string returns char atoms, so compare an indexed character directly, for example `"abc" 0="a"`
+    - hex escapes use exactly two digits, such as `\x41`; malformed forms such as `\x`, `\x4`, and `\xGG` are syntax errors
+    - Unicode escapes use Rust-style `\u{...}` syntax with 1 to 6 hexadecimal digits
+    - `\N{...}` accepts Unicode primary names, formal aliases, and approved named sequences
+    - use `graphemes` when user-perceived characters rather than Unicode scalars matter
   - canonical value naming:
     - user-facing containers are `list` and `dict`
     - user-facing non-containers are atoms; do not call wq values scalars

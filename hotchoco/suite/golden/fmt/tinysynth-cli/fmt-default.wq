@@ -32,7 +32,7 @@ spec:(
     (
       `name:`sample_rate;
       `kind:`option;
-      `short:@u"r";
+      `short:"r";
       `parse:positive_sample_rate;
       `default:44100;
       `value_name:"HZ";
@@ -40,12 +40,12 @@ spec:(
     (
       `name:`gain;
       `kind:`option;
-      `short:@u"g";
+      `short:"g";
       `parse:unit_gain;
       `default:0.85;
       `value_name:"LEVEL";
       `help:"master gain from 0 through 1 (default: 0.85)");
-    (`name:`quiet;`kind:`flag;`short:@u"q";`help:"do not print the render summary")))
+    (`name:`quiet;`kind:`flag;`short:"q";`help:"do not print the render summary")))
 
 options:cliargs[spec] `args
 

@@ -9,7 +9,6 @@ enum TokenType {
   FORMAT_STRING_START,
   FORMAT_STRING_END,
   FORMAT_SPEC,
-  UNICODE_SCALAR_CONTENT,
   INDENTED_NEWLINE,
   DIRECTIVE,
   SHEBANG,
@@ -74,6 +73,30 @@ static bool scan_escape(TSLexer *lexer) {
       advance(lexer);
     }
     return true;
+  }
+
+  if (kind == 'N') {
+    if (lexer->lookahead != '{') {
+      return false;
+    }
+    advance(lexer);
+    unsigned characters = 0;
+    while (!lexer->eof(lexer) && lexer->lookahead != '}') {
+      if (lexer->lookahead == '\n' || lexer->lookahead == '\r') {
+        return false;
+      }
+      characters++;
+      advance(lexer);
+    }
+    if (characters == 0 || lexer->lookahead != '}') {
+      return false;
+    }
+    advance(lexer);
+    return true;
+  }
+
+  if (kind == 'U') {
+    return false;
   }
 
   if (kind != 'u') {
@@ -270,109 +293,6 @@ static bool scan_format_quote(TSLexer *lexer) {
   return true;
 }
 
-static bool scan_unicode_scalar_string(TSLexer *lexer) {
-  if (lexer->lookahead != '"') {
-    return false;
-  }
-
-  unsigned quote_count = 0;
-  while (lexer->lookahead == '"') {
-    advance(lexer);
-    quote_count++;
-  }
-
-  if (quote_count == 2) {
-    return false;
-  }
-
-  unsigned scalar_count = 0;
-  if (quote_count == 1) {
-    while (!lexer->eof(lexer)) {
-      if (lexer->lookahead == '\\') {
-        if (!scan_escape(lexer)) {
-          return false;
-        }
-        scalar_count++;
-        continue;
-      }
-      if (lexer->lookahead == '"') {
-        advance(lexer);
-        lexer->mark_end(lexer);
-        return scalar_count == 1;
-      }
-      scalar_count++;
-      advance(lexer);
-    }
-    return false;
-  }
-
-  unsigned consecutive_quotes = 0;
-  while (!lexer->eof(lexer)) {
-    if (lexer->lookahead == '"') {
-      advance(lexer);
-      consecutive_quotes++;
-      if (consecutive_quotes == quote_count) {
-        lexer->mark_end(lexer);
-        return scalar_count == 1;
-      }
-      continue;
-    }
-
-    scalar_count += consecutive_quotes;
-    consecutive_quotes = 0;
-    if (lexer->lookahead == '\\') {
-      if (!scan_escape(lexer)) {
-        return false;
-      }
-      scalar_count++;
-      continue;
-    }
-    scalar_count++;
-    advance(lexer);
-  }
-  return false;
-}
-
-static bool scan_unicode_scalar(TSLexer *lexer) {
-  if (lexer->lookahead != '@') {
-    return false;
-  }
-  advance(lexer);
-  if (lexer->lookahead != 'u') {
-    return false;
-  }
-  advance(lexer);
-  skip_inline_whitespace(lexer);
-
-  if (lexer->lookahead == '"') {
-    return scan_unicode_scalar_string(lexer);
-  }
-  if (lexer->lookahead != '{') {
-    return false;
-  }
-  advance(lexer);
-
-  uint32_t value = 0;
-  unsigned digits = 0;
-  while (is_hex_digit(lexer->lookahead)) {
-    if (digits == 6) {
-      return false;
-    }
-    value = (value << 4) | hex_value(lexer->lookahead);
-    digits++;
-    advance(lexer);
-  }
-  if (digits == 0 || lexer->lookahead != '}') {
-    return false;
-  }
-  advance(lexer);
-  if (value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) {
-    return false;
-  }
-  lexer->mark_end(lexer);
-  return true;
-}
-
 static bool scan_indented_newline(TSLexer *lexer) {
   if (lexer->lookahead != '\n') {
     return false;
@@ -508,11 +428,6 @@ bool tree_sitter_wq_external_scanner_scan(
   if (valid_symbols[FORMAT_SPEC] && lexer->lookahead == '[') {
     lexer->result_symbol = FORMAT_SPEC;
     return scan_format_spec(lexer);
-  }
-
-  if (valid_symbols[UNICODE_SCALAR_CONTENT] && lexer->lookahead == '@') {
-    lexer->result_symbol = UNICODE_SCALAR_CONTENT;
-    return scan_unicode_scalar(lexer);
   }
 
   if (valid_symbols[INDENTED_NEWLINE] && lexer->lookahead == '\n') {

@@ -3366,10 +3366,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "unicode_scalar"
-        },
-        {
-          "type": "SYMBOL",
           "name": "string"
         },
         {
@@ -4768,10 +4764,6 @@
       "type": "SYMBOL",
       "name": "_string_content"
     },
-    "unicode_scalar": {
-      "type": "SYMBOL",
-      "name": "_unicode_scalar_content"
-    },
     "raw_string": {
       "type": "SEQ",
       "members": [
@@ -4863,7 +4855,11 @@
             },
             {
               "type": "PATTERN",
-              "value": "\\\\[^xu]"
+              "value": "\\\\N\\{[^}\\r\\n]+\\}"
+            },
+            {
+              "type": "PATTERN",
+              "value": "\\\\[^xuUN]"
             },
             {
               "type": "STRING",
@@ -5100,10 +5096,6 @@
     {
       "type": "SYMBOL",
       "name": "_format_spec_content"
-    },
-    {
-      "type": "SYMBOL",
-      "name": "_unicode_scalar_content"
     },
     {
       "type": "SYMBOL",

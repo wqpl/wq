@@ -46,6 +46,24 @@ const IDENTIFIER_EXAMPLES: &[DocExample] = &[
     },
 ];
 
+const CHAR_STRING_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Distinguish a char from a one-character string",
+        code: "(type[\"a\"];type[,\"a\"])",
+        expectation: ExampleExpectation::ResultContains("(\"char\";\"list\")"),
+    },
+    DocExample {
+        title: "Use a hexadecimal Unicode escape",
+        code: "\"\\u{1f980}\"",
+        expectation: ExampleExpectation::ResultContains("🦀"),
+    },
+    DocExample {
+        title: "Use a Unicode name or named sequence",
+        code: "(\"\\N{SNOWMAN}\";\"\\N{KEYCAP DIGIT ONE}\")",
+        expectation: ExampleExpectation::ResultContains("☃"),
+    },
+];
+
 const EQUALITY_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Compare two values",
@@ -169,7 +187,7 @@ const RANGE_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Char range",
-        code: "@u\"a\"..=@u\"d\"",
+        code: "\"a\"..=\"d\"",
         expectation: ExampleExpectation::ResultContains("\"abcd\""),
     },
     DocExample {
@@ -400,6 +418,22 @@ wq normalizes identifiers to Unicode NFC, so canonically equivalent spellings re
     related: &["assignment-forms", "functions"],
 };
 
+pub(super) const CHARS_AND_STRINGS: StaticDoc = StaticDoc {
+    id: "chars-and-strings",
+    title: "Chars, Strings, and Escapes",
+    kind: DocKind::Syntax,
+    group: "Syntax",
+    aliases: &["char", "character", "string", "escape", "\\u", "\\N"],
+    summary: "Write chars, strings, Unicode escapes, and named sequences.",
+    details: "A quoted literal that decodes to exactly one Unicode scalar is a char, so `\"a\"`, `\"\\n\"`, and `\"\\u{1f980}\"` are chars. Other quoted literals are strings. Use the enlist syntax `,\"a\"` for a one-character string. Empty strings use `\"\"` in source and display as `()`.
+
+Cooked strings support the Rust-style escape `\\u{...}` with 1 to 6 hexadecimal digits. Surrogates and values above `10ffff` are rejected. The `\\xNN` escape requires exactly two hexadecimal digits. Python-style `\\uNNNN` and `\\UNNNNNNNN` escapes are not supported.
+
+`\\N{...}` resolves a Unicode primary name, formal alias, or approved named sequence using loose Unicode name matching. Named sequences can decode to multiple scalars, so they produce strings. `@l\"...\"` creates a raw string without escape processing. Use `graphemes` when a user-perceived character can contain multiple Unicode scalars.",
+    examples: CHAR_STRING_EXAMPLES,
+    related: &["@l", "unicode", "chr", "ord", "graphemes"],
+};
+
 pub(super) const ASSIGNMENT: StaticDoc = StaticDoc {
     id: "assignment-forms",
     title: "Assignment Forms",
@@ -511,7 +545,7 @@ pub(super) const RANGES: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["range", "ranges", "slice", "slices", "..", "..="],
     summary: "Build ranges for lists, loops, strings, and slices.",
-    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Use `a..next..b` or `a..next..=b` when you want a stride, as in `0..2..10` or `0..2..=10`. Numeric ranges produce lists of numbers. Char ranges return strings in Unicode scalar order, so `@u\"a\"..=@u\"d\"` is `\"abcd\"`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
+    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Use `a..next..b` or `a..next..=b` when you want a stride, as in `0..2..10` or `0..2..=10`. Numeric ranges produce lists of numbers. Char ranges return strings in Unicode scalar order, so `\"a\"..=\"d\"` is `\"abcd\"`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
     examples: RANGE_EXAMPLES,
     related: &["lists", "calls", "index-mutation", "precedence"],
 };

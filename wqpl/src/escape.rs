@@ -3,6 +3,8 @@ pub(crate) enum UnescapeErrorKind {
     InvalidHexEscape,
     InvalidUnicodeEscape,
     InvalidUnicodeScalar,
+    InvalidUnicodeNameEscape,
+    UnknownUnicodeName,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +162,44 @@ pub(crate) fn unescape_string_inner(s: &str) -> Result<String, UnescapeError> {
                     }
                 }
             }
+            'U' => {
+                return Err(UnescapeError {
+                    kind: UnescapeErrorKind::InvalidUnicodeEscape,
+                    index: esc_start,
+                });
+            }
+            'N' => {
+                if chars.next() != Some('{') {
+                    return Err(UnescapeError {
+                        kind: UnescapeErrorKind::InvalidUnicodeNameEscape,
+                        index: esc_start,
+                    });
+                }
+                i += 1;
+                let mut name = String::new();
+                let mut closed = false;
+                for value in chars.by_ref() {
+                    i += value.len_utf8();
+                    if value == '}' {
+                        closed = true;
+                        break;
+                    }
+                    name.push(value);
+                }
+                if !closed || name.is_empty() {
+                    return Err(UnescapeError {
+                        kind: UnescapeErrorKind::InvalidUnicodeNameEscape,
+                        index: esc_start,
+                    });
+                }
+                let Some(value) = crate::unicode::lookup_name(&name) else {
+                    return Err(UnescapeError {
+                        kind: UnescapeErrorKind::UnknownUnicodeName,
+                        index: esc_start,
+                    });
+                };
+                out.push_str(&value);
+            }
             other => {
                 // Compatibility with previous lexer: keep unknown escapes literally
                 out.push('\\');
@@ -196,6 +236,11 @@ pub(crate) fn valid_escape_sequence_len(s: &str) -> Option<usize> {
             let digits = std::str::from_utf8(digits).ok()?;
             let value = u32::from_str_radix(digits, 16).ok()?;
             char::from_u32(value).map(|_| close + 1)
+        }
+        b'N' if bytes.get(2) == Some(&b'{') => {
+            let close = bytes.get(3..)?.iter().position(|byte| *byte == b'}')? + 3;
+            let name = std::str::from_utf8(&bytes[3..close]).ok()?;
+            (!name.is_empty() && crate::unicode::lookup_name(name).is_some()).then_some(close + 1)
         }
         _ => None,
     }
@@ -236,6 +281,11 @@ mod tests {
             unescape_string_inner("\\u{1f4a9}").unwrap(),
             "\u{1f4a9}".chars().collect::<String>()
         );
+        assert_eq!(unescape_string_inner("\\N{SNOWMAN}").unwrap(), "☃");
+        assert_eq!(
+            unescape_string_inner("\\N{KEYCAP DIGIT ONE}").unwrap(),
+            "1\u{fe0f}\u{20e3}"
+        );
     }
 
     #[test]
@@ -249,6 +299,8 @@ mod tests {
             );
         }
         assert!(unescape_string_inner("\\u{}").is_err());
+        assert!(unescape_string_inner("\\u1234").is_err());
+        assert!(unescape_string_inner("\\U0001f980").is_err());
         // Trailing backslash kept literally
         assert_eq!(unescape_string_inner("\\").unwrap(), "\\");
         // Unknown escapes kept literally
@@ -268,6 +320,8 @@ mod tests {
             r"\x41",
             r"\u{0}",
             r"\u{10ffff}",
+            r"\N{SNOWMAN}",
+            r"\N{KEYCAP DIGIT ONE}",
         ] {
             assert_eq!(valid_escape_sequence_len(escape), Some(escape.len()));
         }
@@ -278,10 +332,15 @@ mod tests {
             r"\x4",
             r"\xGG",
             r"\u",
+            r"\u1234",
+            r"\U0001f980",
             r"\u{}",
             r"\u{d800}",
             r"\u{110000}",
             r"\u{0000000}",
+            r"\N{}",
+            r"\N{NOT A UNICODE NAME}",
+            r"\N{SNOWMAN",
         ] {
             assert_eq!(valid_escape_sequence_len(escape), None);
         }
