@@ -26,11 +26,11 @@ test("Playground mobile reading order follows the primary task", () => {
 test("desktop grid places examples and inspector beside the split workbench", () => {
   assert.match(
     styles,
-    /grid-template-areas:\s*"examples editor inspector";/
+    /grid-template-areas:\s*"header header header"\s*"examples editor inspector";/
   );
   assert.match(
     styles,
-    /grid-template-areas:\s*"editor"\s*"examples"\s*"inspector";/
+    /grid-template-areas:\s*"header"\s*"editor"\s*"examples"\s*"inspector";/
   );
 });
 
@@ -62,5 +62,12 @@ test("coarse pointers receive durable touch targets", () => {
   assert.match(
     styles,
     /\.crumb-back,\s*\.crumb-path\s*\{[^}]*height:\s*44px;/
+  );
+});
+
+test("grouped tutorial cells keep a proportional numbered rail on phones", () => {
+  assert.match(
+    styles,
+    /@media \(max-width: 560px\)[\s\S]*?\.tutorial-cell\s*\{[^}]*grid-template-columns:\s*42px minmax\(0, 1fr\);/
   );
 });

@@ -56,21 +56,27 @@ test("palette options show four trailing color dots", () => {
   assert.match(dotRule, /background:\s*var\(--viz-palette-color\);/);
 });
 
-test("viz separates its title from the control toolbar", () => {
+test("viz combines its title and actions in one workbench header", () => {
   assert.match(
     appSource,
     /class="viz-topbar"[\s\S]*class="viz-stage-title"[\s\S]*data-viz-title[\s\S]*data-viz-status>Ready<\/span>[\s\S]*class="viz-stage-actions"[\s\S]*data-viz-preset-menu/
   );
 
   const topbarRule = styleRule(".viz-topbar");
-  assert.match(topbarRule, /flex-direction:\s*column;/);
+  assert.match(
+    topbarRule,
+    /grid-template-columns:\s*minmax\(0, 1fr\) auto;/
+  );
   assert.match(topbarRule, /gap:\s*0;/);
+  assert.match(topbarRule, /background:\s*var\(--workbench-header-bg\);/);
+  assert.match(
+    topbarRule,
+    /border-bottom:\s*1px solid var\(--workbench-border\);/
+  );
 
   const titleRule = styleRule(".viz-stage-title");
-  assert.match(
-    titleRule,
-    /border-bottom:\s*1px solid var\(--surface-border-muted\);/
-  );
+  assert.match(titleRule, /padding:\s*17px 20px;/);
+  assert.match(titleRule, /border-bottom:\s*0;/);
 });
 
 test("viz code disclosure uses a quiet conventional affordance", () => {
@@ -84,9 +90,23 @@ test("viz code disclosure uses a quiet conventional affordance", () => {
   );
   assert.match(
     styleRule(".viz-code-panel summary"),
-    /background:\s*var\(--surface-bg-soft\);/
+    /background:\s*var\(--workbench-output-bg\);/
   );
   assert.doesNotMatch(styles, /viz-code-summary-hint|Generated code|Collapse/);
+});
+
+test("expanded viz code overlays the stage without stretching Data", () => {
+  assert.match(
+    appSource,
+    /class="viz-code-panel"[\s\S]*<summary>[\s\S]*data-viz-copy-code[\s\S]*data-viz-code/
+  );
+  const openRule = styleRule(".viz-code-panel[open]");
+  assert.match(openRule, /position:\s*absolute;/);
+  assert.match(openRule, /top:\s*0;/);
+  assert.match(openRule, /bottom:\s*auto;/);
+  assert.match(openRule, /max-height:\s*min\(70vh, 640px\);/);
+  assert.match(openRule, /box-shadow:\s*var\(--terminal-menu-shadow\);/);
+  assert.match(styleRule(".viz-control-group.viz-data-panel"), /height:\s*auto;/);
 });
 
 test("viz controls use the shared blue and green control palette", () => {
@@ -111,13 +131,44 @@ test("viz controls use the shared blue and green control palette", () => {
 test("viz output follows the active surface theme", () => {
   assert.match(
     styleRule(".viz-output"),
-    /background:\s*var\(--surface-bg-output\);[\s\S]*color:\s*var\(--surface-text\);/
+    /background:\s*var\(--workbench-output-bg\);[\s\S]*color:\s*var\(--surface-text\);/
   );
   const midnightOutputRule = styleRules(
     ':root[data-theme="midnight"] .viz-output'
-  ).find((rule) => rule.includes("background: #060b16"));
+  ).find((rule) => rule.includes("background: var(--workbench-output-bg)"));
   assert.match(
     midnightOutputRule,
-    /background:\s*#060b16;[\s\S]*color:\s*#f1f1f3;/
+    /background:\s*var\(--workbench-output-bg\);[\s\S]*color:\s*#f1f1f3;/
   );
+});
+
+test("viz view toggles sit inside one control capsule", () => {
+  assert.match(
+    appSource,
+    /class="viz-view-controls"[\s\S]*class="viz-live-switch"[\s\S]*class="viz-layout-toggle"/
+  );
+  const clusterRule = styleRule(".viz-view-controls");
+  assert.match(clusterRule, /padding:\s*4px;/);
+  assert.match(
+    clusterRule,
+    /border:\s*1px solid var\(--control-cluster-border\);/
+  );
+  assert.match(clusterRule, /background:\s*var\(--control-cluster-bg\);/);
+});
+
+test("viz dropdowns use stroked chevrons and center the Presets popover", () => {
+  for (const selector of [
+    ".viz-preset-trigger::after",
+    ".viz-select-button::after"
+  ]) {
+    const chevronRule = styleRule(selector);
+    assert.match(chevronRule, /width:\s*14px;/);
+    assert.match(chevronRule, /height:\s*14px;/);
+    assert.match(chevronRule, /mask:[\s\S]*m6 9 6 6 6-6/);
+    assert.doesNotMatch(chevronRule, /border-(?:left|right|top):/);
+  }
+
+  const popoverRule = styleRule(".viz-preset-popover");
+  assert.match(popoverRule, /left:\s*50%;/);
+  assert.match(popoverRule, /transform:\s*translateX\(-50%\);/);
 });

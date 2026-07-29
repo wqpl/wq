@@ -4,6 +4,7 @@ mod display;
 mod exec;
 mod help;
 mod interrupt;
+mod learn;
 mod load;
 mod msg;
 mod note;
@@ -87,6 +88,11 @@ fn main() {
             dap::run_dap(script);
             0
         }
+        CliCommand::Learn {
+            chapter,
+            list,
+            no_pager,
+        } => learn::run(chapter.as_deref(), list, no_pager),
         CliCommand::Help {
             no_pager,
             topic,

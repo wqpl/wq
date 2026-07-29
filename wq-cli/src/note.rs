@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
 use terminal_size::{Width, terminal_size};
 use unicode_width::UnicodeWidthStr as _;
+use wqpl::doc;
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 
@@ -16,12 +17,6 @@ pub enum Segment {
     Heading { level: u8, text: String },
     CodeFence { lang: String, code: String },
     Newlines(usize),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SoftBreakMode {
-    Space,
-    Newline,
 }
 
 fn strip_frontmatter(content: &str) -> &str {
@@ -59,6 +54,17 @@ fn strip_frontmatter(content: &str) -> &str {
     }
 
     rest
+}
+
+fn strip_wq_example_directives(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            !(line.starts_with("<!-- wq-example ") && line.ends_with("-->"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn split_markdown_blocks(segments: Vec<Segment>) -> Vec<Segment> {
@@ -462,7 +468,7 @@ fn visible_terminal_width(text: &str) -> usize {
     visible.width()
 }
 
-fn render_terminal_with_soft_break_mode(md: &str, soft_break_mode: SoftBreakMode) -> String {
+fn render_terminal_fragment(md: &str) -> String {
     let parser = Parser::new_ext(md, Options::ENABLE_TABLES);
     let mut out = String::new();
 
@@ -582,7 +588,7 @@ fn render_terminal_with_soft_break_mode(md: &str, soft_break_mode: SoftBreakMode
                 let marker = if *in_list.last().unwrap_or(&false) {
                     format!("{}. ", *item_number.last().unwrap_or(&1))
                 } else {
-                    "• ".to_string()
+                    "- ".to_string()
                 };
                 item_continuation_indent.push(format!(
                     "{}{}",
@@ -605,22 +611,14 @@ fn render_terminal_with_soft_break_mode(md: &str, soft_break_mode: SoftBreakMode
             Event::Code(code) => {
                 out.push_str(&format!("`{}`", note_dim(&code)));
             }
-            Event::SoftBreak => match soft_break_mode {
-                SoftBreakMode::Space => out.push(' '),
-                SoftBreakMode::Newline => {
-                    push_terminal_newline(
-                        &mut out,
-                        item_continuation_indent.last().map(String::as_str),
-                    );
-                }
-            },
+            Event::SoftBreak => out.push(' '),
             Event::HardBreak => {
                 push_terminal_newline(
                     &mut out,
                     item_continuation_indent.last().map(String::as_str),
                 );
             }
-            Event::Rule => out.push_str(&format!("{}\n", note_dim(&"─".repeat(40)))),
+            Event::Rule => out.push_str(&format!("{}\n", note_dim(&"-".repeat(40)))),
             Event::Html(html) => out.push_str(&html),
             _ => {}
         }
@@ -680,14 +678,6 @@ pub(crate) fn render_markdown_document(
     md: &str,
     highlighter: Option<&WqReplHighlighter>,
 ) -> String {
-    render_markdown_document_with_soft_break_mode(md, highlighter, SoftBreakMode::Space)
-}
-
-pub(crate) fn render_markdown_document_with_soft_break_mode(
-    md: &str,
-    highlighter: Option<&WqReplHighlighter>,
-    soft_break_mode: SoftBreakMode,
-) -> String {
     let mut out = String::new();
     let mut segments = split_markdown_blocks(parse_segments(md))
         .into_iter()
@@ -696,7 +686,7 @@ pub(crate) fn render_markdown_document_with_soft_break_mode(
         let is_newlines = matches!(segment, Segment::Newlines(_));
         match segment {
             Segment::Markdown(md) => {
-                out.push_str(&render_terminal_with_soft_break_mode(&md, soft_break_mode));
+                out.push_str(&render_terminal_fragment(&md));
             }
             Segment::Heading { level, text } => {
                 out.push_str(&format_heading(level, &text));
@@ -758,8 +748,25 @@ pub fn run_markdown(path: &Path, no_pager: bool) {
         std::process::exit(1);
     });
 
+    run_markdown_content(strip_frontmatter(&content), no_pager);
+}
+
+pub(crate) fn run_markdown_content(content: &str, no_pager: bool) {
+    run_markdown_content_with_fold_width(content, no_pager, None);
+}
+
+pub(crate) fn run_markdown_content_with_fold_width(
+    content: &str,
+    no_pager: bool,
+    fold_width: Option<usize>,
+) {
     let highlighter = WqReplHighlighter::new();
-    let rendered = render_markdown_document(strip_frontmatter(&content), Some(&highlighter));
+    let content = strip_wq_example_directives(content);
+    let content = match fold_width {
+        Some(width) => doc::fold_markdown(&content, width),
+        None => content,
+    };
+    let rendered = render_markdown_document(&content, Some(&highlighter));
     print_or_page(&rendered, no_pager);
 }
 
@@ -768,7 +775,7 @@ mod tests {
     use super::*;
 
     fn render_terminal(md: &str) -> String {
-        render_terminal_with_soft_break_mode(md, SoftBreakMode::Space)
+        render_terminal_fragment(md)
     }
 
     fn strip_ansi(s: &str) -> String {
@@ -819,6 +826,16 @@ mod tests {
     }
 
     #[test]
+    fn wq_example_directives_do_not_render_in_the_terminal() {
+        let markdown =
+            "# Example\n\n<!-- wq-example {\"expect\":{\"value\":\"2\"}} -->\n```wq\n1+1\n```";
+        let stripped = strip_wq_example_directives(markdown);
+
+        assert!(!stripped.contains("wq-example"));
+        assert!(stripped.contains("```wq"));
+    }
+
+    #[test]
     fn test_strip_frontmatter_keeps_markdown_segments() {
         let content = "---\nbuiltins = \"all\"\n---\n# Title\n\nText.\n\n```wq\n1+1\n```\n\n## Sub\n\nMore text.\n"
             .replace("\r\n", "\n");
@@ -866,8 +883,13 @@ mod tests {
     fn test_render_terminal_list() {
         let md = "- a\n- b\n";
         let out = render_terminal(md);
-        assert!(out.contains('a'));
-        assert!(out.contains('b'));
+
+        assert_eq!(strip_ansi(&out), "- a\n- b");
+    }
+
+    #[test]
+    fn terminal_markdown_rules_use_ascii_hyphens() {
+        assert_eq!(strip_ansi(&render_terminal("---")), "-".repeat(40));
     }
 
     #[test]
@@ -916,10 +938,12 @@ mod tests {
     }
 
     #[test]
-    fn rendered_reference_soft_breaks_can_use_terminal_newlines() {
+    fn folded_markdown_wraps_without_changing_source_soft_breaks() {
+        let folded = doc::fold_markdown("alpha beta\ngamma delta", 11);
+
         assert_eq!(
-            render_terminal_with_soft_break_mode("a.\nb.", SoftBreakMode::Newline),
-            "a.\nb."
+            render_markdown_document(&folded, None),
+            "alpha beta\ngamma delta"
         );
     }
 

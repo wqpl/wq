@@ -216,168 +216,168 @@ const FEATURED_HTML = html`
 const PLAYGROUND_HTML = html`
   <div class="wrap playground-wrap">
     <div class="playground-shell">
+      <div class="toolbar playground-workbench-header">
+        <div class="toolbar-main">
+          <div class="toolbar-left">
+            <span class="playground-workbench-title">wq playground</span>
+            <button id="runBtn" class="btn primary" type="button">Exec</button>
+            <span class="mini">Shift-Enter: exec</span>
+          </div>
+          <div class="toolbar-center">
+            <div
+              class="pills"
+              role="group"
+              aria-label="Playground runtime controls">
+              <div class="runtime-control" data-runtime-menu>
+                <button
+                  id="playgroundBoxBtn"
+                  class="pill inactive"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="playgroundBoxPanel">
+                  box
+                </button>
+                <div id="playgroundBoxPanel" class="runtime-panel">
+                  <div class="runtime-panel-head">
+                    <span class="mini">box</span>
+                  </div>
+                  <div class="pills">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="box">
+                      box
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="axis">
+                      axis
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="color">
+                      color
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="xray">
+                      xray
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <button
+                id="playgroundTimeBtn"
+                class="pill inactive"
+                type="button">
+                time
+              </button>
+              <div class="runtime-control debug-controls" data-runtime-menu>
+                <button
+                  id="playgroundDebugToggle"
+                  class="pill inactive"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="playgroundDebugPanel">
+                  debug
+                </button>
+                <div
+                  id="playgroundDebugPanel"
+                  class="runtime-panel debug-panel">
+                  <div class="runtime-panel-head">
+                    <span class="mini">debug</span>
+                  </div>
+                  <div class="pills">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="token">
+                      token
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cst">
+                      cst
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="ast">
+                      ast
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="ast-v">
+                      ast-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="inst">
+                      inst
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="inst-v">
+                      inst-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="wqdb">
+                      wqdb
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="wqdb-v">
+                      wqdb-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="value">
+                      value
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cas">
+                      cas
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cas-v">
+                      cas-v
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <input id="playgroundDebugFlags" type="hidden" value="" />
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <button id="makePosterBtn" class="btn" type="button">
+              Make Poster
+            </button>
+            <button id="resetBtn" class="btn" type="button">Reset</button>
+          </div>
+        </div>
+      </div>
+
       <div class="playground-main">
         <div
           id="playgroundEditorPanel"
           class="editor"
           role="region"
           aria-label="Playground code editor">
-          <div class="toolbar">
-            <div class="toolbar-main">
-              <div class="toolbar-left">
-                <button id="runBtn" class="btn primary" type="button">
-                  Exec
-                </button>
-                <span class="mini">Shift-Enter: exec</span>
-              </div>
-              <div class="toolbar-center">
-                <div
-                  class="pills"
-                  role="group"
-                  aria-label="Playground runtime controls">
-                  <div class="runtime-control" data-runtime-menu>
-                    <button
-                      id="playgroundBoxBtn"
-                      class="pill inactive"
-                      type="button"
-                      aria-expanded="false"
-                      aria-controls="playgroundBoxPanel">
-                      box
-                    </button>
-                    <div id="playgroundBoxPanel" class="runtime-panel">
-                      <div class="runtime-panel-head">
-                        <span class="mini">box</span>
-                      </div>
-                      <div class="pills">
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-box-flag="box">
-                          box
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-box-flag="axis">
-                          axis
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-box-flag="color">
-                          color
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-box-flag="xray">
-                          xray
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    id="playgroundTimeBtn"
-                    class="pill inactive"
-                    type="button">
-                    time
-                  </button>
-                  <div class="runtime-control debug-controls" data-runtime-menu>
-                    <button
-                      id="playgroundDebugToggle"
-                      class="pill inactive"
-                      type="button"
-                      aria-expanded="false"
-                      aria-controls="playgroundDebugPanel">
-                      debug
-                    </button>
-                    <div
-                      id="playgroundDebugPanel"
-                      class="runtime-panel debug-panel">
-                      <div class="runtime-panel-head">
-                        <span class="mini">debug</span>
-                      </div>
-                      <div class="pills">
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="token">
-                          token
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="cst">
-                          cst
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="ast">
-                          ast
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="ast-v">
-                          ast-v
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="inst">
-                          inst
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="inst-v">
-                          inst-v
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="wqdb">
-                          wqdb
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="wqdb-v">
-                          wqdb-v
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="value">
-                          value
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="cas">
-                          cas
-                        </button>
-                        <button
-                          class="pill inactive"
-                          type="button"
-                          data-debug-flag="cas-v">
-                          cas-v
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <input id="playgroundDebugFlags" type="hidden" value="" />
-                </div>
-              </div>
-              <div class="toolbar-right">
-                <button id="makePosterBtn" class="btn" type="button">
-                  Make Poster
-                </button>
-                <button id="resetBtn" class="btn" type="button">Reset</button>
-              </div>
-            </div>
-          </div>
           <div
             class="playground-filebar"
             data-example-files
@@ -530,11 +530,7 @@ const VIZ_HTML = html`
               data-viz-preset-panel
               role="menu"
               aria-label="Viz presets">
-              <section
-                class="viz-preset-group"
-                role="group"
-                aria-labelledby="vizPresetAsciiplot">
-                <h2 id="vizPresetAsciiplot">asciiplot</h2>
+              <div class="viz-preset-group">
                 <div class="viz-preset-list">
                   <button
                     class="viz-preset active"
@@ -600,21 +596,26 @@ const VIZ_HTML = html`
                     <span class="viz-preset-meta">sqrt · plane</span>
                   </button>
                 </div>
-              </section>
+              </div>
             </div>
           </div>
-          <label class="viz-live-switch">
-            <input type="checkbox" data-viz-toggle="autoRun" checked />
-            <span>Live</span>
-          </label>
-          <div
-            class="viz-layout-toggle"
-            role="group"
-            aria-label="Control layout">
-            <button class="active" type="button" data-viz-layout-option="below">
-              Below
-            </button>
-            <button type="button" data-viz-layout-option="side">Side</button>
+          <div class="viz-view-controls">
+            <label class="viz-live-switch">
+              <input type="checkbox" data-viz-toggle="autoRun" checked />
+              <span>Live</span>
+            </label>
+            <div
+              class="viz-layout-toggle"
+              role="group"
+              aria-label="Control layout">
+              <button
+                class="active"
+                type="button"
+                data-viz-layout-option="below">
+                Below
+              </button>
+              <button type="button" data-viz-layout-option="side">Side</button>
+            </div>
           </div>
           <button class="btn primary" type="button" data-viz-run>
             Refresh
@@ -675,11 +676,11 @@ const VIZ_HTML = html`
                 </svg>
                 <span>Code</span>
               </summary>
+              <button class="viz-code-copy" type="button" data-viz-copy-code>
+                Copy
+              </button>
               <pre><code data-viz-code></code></pre>
             </details>
-            <button class="viz-code-copy" type="button" data-viz-copy-code>
-              Copy
-            </button>
           </div>
         </section>
 
@@ -1466,6 +1467,20 @@ const ARTICLE_HTML = html`
         <div data-role="article-content">
           Please wait while the tutorial loads.
         </div>
+        <nav
+          class="article-sequence"
+          data-role="article-sequence"
+          aria-label="Book chapters"
+          hidden>
+          <a class="article-sequence-link" data-role="previous-chapter">
+            <span>Previous</span>
+            <strong></strong>
+          </a>
+          <a class="article-sequence-link next" data-role="next-chapter">
+            <span>Next</span>
+            <strong></strong>
+          </a>
+        </nav>
       </article>
     </div>
   </div>
@@ -1799,9 +1814,28 @@ window.addEventListener("popstate", () => {
 
 async function getManifest() {
   if (!state.manifestPromise) {
-    state.manifestPromise = fetch("manifest.json").then((res) => {
-      if (!res.ok) throw new Error("Failed to load manifest: " + res.status);
-      return res.json();
+    state.manifestPromise = Promise.all([
+      fetch("manifest.json").then((res) => {
+        if (!res.ok) throw new Error("Failed to load manifest: " + res.status);
+        return res.json();
+      }),
+      fetch("book/catalog.json").then((res) => {
+        if (!res.ok)
+          throw new Error("Failed to load book catalog: " + res.status);
+        return res.json();
+      }),
+    ]).then(([manifest, book]) => {
+      const bookTutorials = (book.chapters || []).map((chapter, index) => ({
+        ...chapter,
+        file: `book/${chapter.file}`,
+        section: "wqpl",
+        bookOrder: index,
+      }));
+      return {
+        ...manifest,
+        book,
+        tutorials: [...bookTutorials, ...(manifest.tutorials || [])],
+      };
     });
   }
   return state.manifestPromise;
@@ -2212,6 +2246,9 @@ async function mountArticle(route) {
   const outlineList = root.querySelector('[data-role="outline-list"]');
   const mobileOutline = root.querySelector('[data-role="mobile-outline"]');
   const articleRoot = root.querySelector('[data-role="article-root"]');
+  const articleSequence = root.querySelector(
+    '[data-role="article-sequence"]',
+  );
   if (articleRoot) articleRoot.setAttribute("data-article-slug", slug);
   wireBackButton(root);
   wireNestedSearch(root);
@@ -2263,7 +2300,13 @@ async function mountArticle(route) {
             contentEl,
             crumbTitle,
             title: tutorial.title,
+            tutorials: manifest.tutorials || [],
           });
+          renderArticleSequence(
+            articleSequence,
+            manifest.tutorials || [],
+            tutorial,
+          );
           root.dataset.loaded = "true";
         }
       }
@@ -2307,9 +2350,53 @@ async function mountArticle(route) {
   }
 }
 
+function renderArticleSequence(container, tutorials, tutorial) {
+  if (!container || !Number.isInteger(tutorial?.bookOrder)) {
+    if (container) container.hidden = true;
+    return;
+  }
+
+  const book = tutorials
+    .filter((item) => Number.isInteger(item.bookOrder))
+    .sort((a, b) => a.bookOrder - b.bookOrder);
+  const current = book.findIndex((item) => item.slug === tutorial.slug);
+  if (current < 0) {
+    container.hidden = true;
+    return;
+  }
+
+  for (const [role, chapter] of [
+    ["previous-chapter", book[current - 1]],
+    ["next-chapter", book[current + 1]],
+  ]) {
+    const link = container.querySelector(`[data-role="${role}"]`);
+    if (!link) continue;
+    link.hidden = !chapter;
+    if (!chapter) continue;
+    link.href = `article.html?slug=${encodeURIComponent(chapter.slug)}`;
+    const title = link.querySelector("strong");
+    if (title) title.textContent = chapter.title;
+  }
+  container.hidden = false;
+}
+
 function renderArticleMarkdown(md, options) {
   const container = document.createElement("div");
   container.innerHTML = parseMarkdown(md);
+  for (const link of container.querySelectorAll("a[href]")) {
+    const href = link.getAttribute("href") || "";
+    const [path, fragment] = href.split("#", 2);
+    const tutorial = (options.tutorials || []).find(
+      (item) =>
+        item.file === path ||
+        item.file?.endsWith(`/${path}`),
+    );
+    if (tutorial) {
+      link.href =
+        `article.html?slug=${encodeURIComponent(tutorial.slug)}` +
+        (fragment ? `#${fragment}` : "");
+    }
+  }
   const h1 = container.querySelector("h1");
   let title = options.title || "Reference";
   if (h1 && h1 === container.firstElementChild) {

@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "title": "The wq Programming Language",
+  "description": "A runnable introduction to the core wq language.",
+  "chapters": [
+    {
+      "slug": "start",
+      "title": "Start Here",
+      "file": "00-Start-Here.md",
+      "description": "Run your first expression and learn how the book, results, and reference fit together.",
+      "code": "1+1"
+    },
+    {
+      "slug": "values",
+      "title": "Values and Display",
+      "file": "01-Values.md",
+      "description": "Recognize atoms, containers, bools, chars, strings, tags, and displayed results.",
+      "code": "(type[\"a\"];type[,\"a\"])"
+    },
+    {
+      "slug": "arithmetic",
+      "title": "Arithmetic",
+      "file": "02-Arithmetic.md",
+      "description": "Use calculator expressions, exact arithmetic, broadcasting, and comparisons.",
+      "code": "(1;2;3)^2+1"
+    },
+    {
+      "slug": "binding",
+      "title": "Binding",
+      "file": "03-Binding.md",
+      "description": "Name values, update bindings, and unpack shapes.",
+      "code": "answer:3*7"
+    },
+    {
+      "slug": "calls",
+      "title": "Calls, Indexing, and Postfix",
+      "file": "04-Calls.md",
+      "description": "Apply functions and containers without falling into postfix precedence traps.",
+      "code": "add:{x+y};add[2;3]"
+    },
+    {
+      "slug": "lists",
+      "title": "Lists",
+      "file": "05-Lists.md",
+      "description": "Create, index, slice, and deliberately mutate ordered containers.",
+      "code": "(1;2;3)*4"
+    },
+    {
+      "slug": "functions",
+      "title": "Functions",
+      "file": "06-Functions.md",
+      "description": "Package transformations, name parameters, and capture nearby bindings.",
+      "code": "twice:{x*2};twice 4"
+    },
+    {
+      "slug": "dicts",
+      "title": "Dicts",
+      "file": "07-Dicts.md",
+      "description": "Use ordered tag-keyed containers and named arguments.",
+      "code": "(`name:\"wq\";`age:0)"
+    },
+    {
+      "slug": "pipes",
+      "title": "Pipes",
+      "file": "08-Pipes.md",
+      "description": "Move values left to right through transformations and checkpoints.",
+      "code": "1..=5|map{x*x}|sum"
+    },
+    {
+      "slug": "control-flow",
+      "title": "Control Flow",
+      "file": "09-Control-Flow.md",
+      "description": "Choose branches, repeat work, and return early with bool conditions.",
+      "code": "n:1;$[n>0;\"+\";\"-\"]"
+    },
+    {
+      "slug": "errors",
+      "title": "Errors",
+      "file": "10-Errors.md",
+      "description": "Read diagnostics, raise errors, assert outcomes, and inspect failures with `@t`.",
+      "code": "@t 1/0"
+    },
+    {
+      "slug": "modules",
+      "title": "Modules",
+      "file": "11-Modules.md",
+      "description": "Export one value from an isolated file and import it through a cached module workspace.",
+      "code": "answer:@i\"answer.wq\""
+    },
+    {
+      "slug": "primes",
+      "title": "A Prime Sieve",
+      "file": "12-Primes.md",
+      "description": "Combine lists, mutation, pipes, control flow, and functions in one complete program.",
+      "code": "x:30;p:x+1|iota|>1;where p"
+    },
+    {
+      "slug": "cas",
+      "title": "Symbolic Math with CAS",
+      "file": "13-CAS.md",
+      "description": "Optional: quote symbolic expressions, transform them, and cross into numeric evaluation.",
+      "code": "factor[@s x^2-1]",
+      "optional": true
+    }
+  ]
+}

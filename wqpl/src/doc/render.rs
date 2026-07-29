@@ -102,7 +102,7 @@ fn kind_label(kind: DocKind) -> &'static str {
     }
 }
 
-fn fold_markdown(markdown: &str, width: usize) -> String {
+pub fn fold_markdown(markdown: &str, width: usize) -> String {
     let mut out = String::new();
     let mut paragraph = String::new();
     let mut in_fence = false;
@@ -124,6 +124,9 @@ fn fold_markdown(markdown: &str, width: usize) -> String {
                 item.body,
                 width,
             );
+            if has_markdown_hard_break(line) {
+                preserve_markdown_hard_break(&mut out);
+            }
         } else if should_preserve_line(line) {
             flush_paragraph(&mut out, &mut paragraph, width);
             push_line(&mut out, line);
@@ -132,6 +135,10 @@ fn fold_markdown(markdown: &str, width: usize) -> String {
                 paragraph.push(' ');
             }
             paragraph.push_str(line.trim());
+            if has_markdown_hard_break(line) {
+                flush_paragraph(&mut out, &mut paragraph, width);
+                preserve_markdown_hard_break(&mut out);
+            }
         }
     }
     flush_paragraph(&mut out, &mut paragraph, width);
@@ -163,8 +170,8 @@ fn fold_prefixed_text(
     for token in fold_tokens(text) {
         let separator_width = usize::from(token.space_before && has_content);
         let token_width = token.visible_width();
-        if has_content && line_width + separator_width + token_width > width {
-            push_line(out, &line);
+        if has_content && token.space_before && line_width + separator_width + token_width > width {
+            push_hard_break_line(out, &line);
             line.clear();
             line.push_str(continuation_prefix);
             line_width = continuation_width;
@@ -193,7 +200,7 @@ fn fold_prefixed_text(
                 line_width += chunk.width() + 2;
                 has_content = true;
                 if index + 1 < chunks.len() {
-                    push_line(out, &line);
+                    push_hard_break_line(out, &line);
                     line.clear();
                     line.push_str(continuation_prefix);
                     line_width = continuation_width;
@@ -418,9 +425,25 @@ fn should_preserve_line(line: &str) -> bool {
         || trimmed.starts_with("* ")
 }
 
+fn has_markdown_hard_break(line: &str) -> bool {
+    line.ends_with("  ")
+}
+
+fn preserve_markdown_hard_break(out: &mut String) {
+    if out.ends_with('\n') {
+        out.truncate(out.len() - 1);
+        out.push_str("  \n");
+    }
+}
+
 fn push_line(out: &mut String, line: &str) {
     out.push_str(line);
     out.push('\n');
+}
+
+fn push_hard_break_line(out: &mut String, line: &str) {
+    out.push_str(line);
+    out.push_str("  \n");
 }
 
 #[cfg(test)]
@@ -434,7 +457,7 @@ mod tests {
         let markdown = "# Topic\n\nalpha beta gamma delta epsilon";
         let folded = fold_markdown(markdown, 18);
 
-        assert_eq!(folded, "# Topic\n\nalpha beta gamma\ndelta epsilon");
+        assert_eq!(folded, "# Topic\n\nalpha beta gamma  \ndelta epsilon");
     }
 
     #[test]
@@ -442,7 +465,7 @@ mod tests {
         let markdown = "before the code fence wraps\n\n```wq\n- this line is intentionally long and must stay whole\n```\n\n    indented block stays whole";
         let folded = fold_markdown(markdown, 12);
 
-        assert!(folded.contains("before the\ncode fence\nwraps"));
+        assert!(folded.contains("before the  \ncode fence  \nwraps"));
         assert!(folded.contains("- this line is intentionally long and must stay whole"));
         assert!(folded.contains("    indented block stays whole"));
     }
@@ -452,7 +475,10 @@ mod tests {
         let markdown = "- alpha beta gamma delta epsilon\n- short";
         let folded = fold_markdown(markdown, 16);
 
-        assert_eq!(folded, "- alpha beta\n  gamma delta\n  epsilon\n- short");
+        assert_eq!(
+            folded,
+            "- alpha beta  \n  gamma delta  \n  epsilon\n- short"
+        );
     }
 
     #[test]
@@ -462,7 +488,7 @@ mod tests {
 
         assert_eq!(
             folded,
-            "12. alpha beta\n    gamma delta\n  - alpha beta\n    gamma"
+            "12. alpha beta  \n    gamma delta\n  - alpha beta  \n    gamma"
         );
     }
 
@@ -470,24 +496,37 @@ mod tests {
     fn inline_code_prefers_starting_on_a_fresh_line() {
         let folded = fold_markdown("alpha ``beta gamma``", 12);
 
-        assert_eq!(folded, "alpha\n``beta gamma``");
+        assert_eq!(folded, "alpha  \n``beta gamma``");
+    }
+
+    #[test]
+    fn folding_keeps_attached_punctuation_with_inline_code() {
+        let folded = fold_markdown("alpha beta `gamma`.", 17);
+
+        assert_eq!(folded, "alpha beta  \n`gamma`.");
     }
 
     #[test]
     fn inline_code_splits_when_it_cannot_fit_a_full_line() {
         let folded = fold_markdown("x ``alpha beta gamma`` y", 10);
 
-        assert_eq!(folded, "x\n``alpha``\n``beta``\n``gamma`` y");
+        assert_eq!(folded, "x  \n``alpha``  \n``beta``  \n``gamma`` y");
 
         let folded = fold_markdown("x ``abcdefghijkl``", 8);
-        assert_eq!(folded, "x\n``abcdef``\n``ghijkl``");
+        assert_eq!(folded, "x  \n``abcdef``  \n``ghijkl``");
     }
 
     #[test]
     fn fold_width_uses_terminal_columns() {
-        assert_eq!(fold_markdown("界 a", 3), "界\na");
+        assert_eq!(fold_markdown("界 a", 3), "界  \na");
         assert_eq!(fold_markdown("e\u{301} x", 3), "e\u{301} x");
-        assert_eq!(fold_markdown("x `界界界`", 6), "x\n`界界`\n`界`");
+        assert_eq!(fold_markdown("x `界界界`", 6), "x  \n`界界`  \n`界`");
+    }
+
+    #[test]
+    fn folding_preserves_source_soft_and_hard_break_semantics() {
+        assert_eq!(fold_markdown("alpha\nbeta", 80), "alpha beta");
+        assert_eq!(fold_markdown("alpha  \nbeta", 80), "alpha  \nbeta");
     }
 
     #[test]
@@ -512,7 +551,7 @@ mod tests {
         let cli = render_markdown_with_options(&topic, DocRenderTarget::Cli, options);
         let web = render_markdown_with_options(&topic, DocRenderTarget::Web, options);
 
-        assert!(cli.contains("alpha beta\ngamma delta"));
+        assert!(cli.contains("alpha beta  \ngamma delta"));
         assert!(web.contains("alpha beta gamma delta"));
     }
 

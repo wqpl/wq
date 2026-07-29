@@ -57,6 +57,24 @@ function inlineParse(raw) {
   return text;
 }
 
+export function parseWqExampleDirective(line) {
+  const match = line.match(
+    /^\s*<!--\s*wq-example\s+(\{.*\})\s*-->\s*$/,
+  );
+  if (!match) return null;
+
+  let value;
+  try {
+    value = JSON.parse(match[1]);
+  } catch (error) {
+    throw new Error(`Invalid wq-example directive: ${error.message}`);
+  }
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error("Invalid wq-example directive: expected a JSON object");
+  }
+  return value;
+}
+
 export function parseMarkdown(md) {
   const lines = md.replace(/\r\n?/g, "\n").split("\n");
   const out = [];
@@ -65,9 +83,11 @@ export function parseMarkdown(md) {
   let codeFence = "";
   let codeLang = "";
   let codeMeta = [];
+  let codeExample = null;
   let codeBuf = [];
   let listStack = [];
   let paraBuf = [];
+  let pendingExample = null;
 
   // --- Table helpers (GFM-style pipe tables) ---
   function splitTableRow(row) {
@@ -221,12 +241,24 @@ export function parseMarkdown(md) {
     const active = listStack[listStack.length - 1];
     active.items.push({ text, children: [] });
   }
+  function addListContinuation(text) {
+    const active = listStack[listStack.length - 1];
+    const item = active?.items[active.items.length - 1];
+    if (!item) return false;
+    item.text += ` ${text.trim()}`;
+    return true;
+  }
   function flushCode() {
     if (inCode) {
       const attrs = [];
       if (codeLang) attrs.push(`class="language-${codeLang}"`);
       if (codeMeta.length) {
         attrs.push(`data-code-meta="${escapeHtml(codeMeta.join(" "))}"`);
+      }
+      if (codeExample) {
+        attrs.push(
+          `data-wq-example="${escapeHtml(JSON.stringify(codeExample))}"`,
+        );
       }
       out.push(
         `<pre><code${attrs.length ? ` ${attrs.join(" ")}` : ""}>${escapeHtml(codeBuf.join("\n"))}</code></pre>`,
@@ -235,6 +267,7 @@ export function parseMarkdown(md) {
       codeFence = "";
       codeLang = "";
       codeMeta = [];
+      codeExample = null;
       codeBuf = [];
     }
   }
@@ -250,6 +283,17 @@ export function parseMarkdown(md) {
   while (i < lines.length) {
     const line = lines[i];
 
+    if (!inCode) {
+      const example = parseWqExampleDirective(line);
+      if (example) {
+        flushParagraph();
+        flushList();
+        pendingExample = example;
+        i++;
+        continue;
+      }
+    }
+
     // Code fence
     const fenceMatch = line.match(/^(`{3,})[ \t]*(.*?)\s*$/);
     if (fenceMatch) {
@@ -262,6 +306,8 @@ export function parseMarkdown(md) {
         const fenceInfo = parseFenceInfo(fenceMatch[2] || "");
         codeLang = fenceInfo[0] || "";
         codeMeta = fenceInfo.slice(1);
+        codeExample = pendingExample;
+        pendingExample = null;
       } else {
         // leaving code
         if (line.trim() === codeFence) {
@@ -287,6 +333,8 @@ export function parseMarkdown(md) {
       i++;
       continue;
     }
+
+    pendingExample = null;
 
     // Heading #..######
     const h = line.match(/^(#{1,6})\s+(.+)$/);
@@ -321,6 +369,13 @@ export function parseMarkdown(md) {
     if (ul) {
       flushParagraph();
       addListItem("ul", getListIndent(line), ul[2]);
+      i++;
+      continue;
+    }
+
+    // CommonMark allows a list item's paragraph to continue on the next
+    // non-blank line, with or without indentation.
+    if (addListContinuation(line)) {
       i++;
       continue;
     }

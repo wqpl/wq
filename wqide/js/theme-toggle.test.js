@@ -71,14 +71,14 @@ test("theme hover feedback stays on the hovered choice", () => {
   assert.match(cssRule(".theme-toggle-option:hover"), /color:/);
 });
 
-test("shared controls avoid purple fills on blue surfaces", () => {
+test("Midnight restores purple controls on dark blue surfaces", () => {
   assert.match(styles, /--btn-bg:\s*#f7fcff;/);
   assert.match(styles, /--btn-primary-bg:\s*#216b55;/);
-  assert.match(styles, /--btn-bg:\s*#14203a;/);
-  assert.match(styles, /--btn-primary-bg:\s*#8ed0b8;/);
-  assert.doesNotMatch(
+  assert.match(styles, /--btn-bg:\s*#2a1a41;/);
+  assert.match(styles, /--btn-primary-bg:\s*#b19cd9;/);
+  assert.match(
     cssRule(':root[data-theme="midnight"] .theme-toggle-thumb'),
-    /#c2b8e0/
+    /background:\s*#c2b8e0;/
   );
 });
 

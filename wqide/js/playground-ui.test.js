@@ -42,42 +42,56 @@ test("interface labels are not forced to uppercase", () => {
   }
 });
 
-test("playground output header is compact and its clear action is neutral", () => {
-  assert.match(styleRule(".run-output-header"), /padding:\s*6px 12px;/);
+test("playground output is a spacious attached tray", () => {
+  const headerRule = styleRule(".run-output-header");
+  assert.match(headerRule, /min-height:\s*48px;/);
+  assert.match(headerRule, /padding:\s*9px 18px;/);
+  assert.match(headerRule, /background:\s*var\(--workbench-output-bg\);/);
+  assert.match(
+    headerRule,
+    /border-bottom:\s*1px solid var\(--workbench-rule\);/
+  );
 
   const clearRule = styleRule(".run-output-clear");
-  assert.match(clearRule, /border:\s*1px solid var\(--surface-border-soft\);/);
-  assert.match(clearRule, /background:\s*var\(--surface-bg\);/);
-  assert.match(clearRule, /color:\s*var\(--surface-text-muted\);/);
-  assert.match(clearRule, /padding:\s*4px 9px;/);
-  assert.match(clearRule, /border-radius:\s*var\(--radius-xs\);/);
+  assert.match(clearRule, /border:\s*0;/);
+  assert.match(clearRule, /background:\s*transparent;/);
+  assert.match(clearRule, /color:\s*var\(--code-secondary-text\);/);
+  assert.match(clearRule, /padding:\s*7px 10px;/);
+  assert.match(clearRule, /border-radius:\s*var\(--radius-sm\);/);
 
   const disabledRule = styleRule(".run-output-clear:disabled");
   assert.match(disabledRule, /cursor:\s*default;/);
   assert.match(disabledRule, /opacity:\s*0\.55;/);
 });
 
-test("playground Examples uses a fixed title row and a scrolling card list", () => {
+test("playground Examples is one connected scrolling rail", () => {
   const sidebarRule = styleRules(".playground-sidebar").find((rule) =>
     rule.includes("overflow: hidden")
   );
   assert.ok(sidebarRule);
   assert.match(sidebarRule, /padding:\s*0;/);
   assert.match(sidebarRule, /overflow:\s*hidden;/);
+  assert.match(sidebarRule, /border-right:\s*1px solid var\(--workbench-border\);/);
+  assert.match(sidebarRule, /background:\s*var\(--workbench-rail-bg\);/);
 
   const headingRule = styleRule(".playground-sidebar h2");
   assert.match(headingRule, /flex:\s*0 0 auto;/);
   assert.match(
     headingRule,
-    /border-bottom:\s*1px solid var\(--surface-border-muted\);/
+    /border-bottom:\s*1px solid var\(--workbench-rule\);/
   );
-  assert.match(headingRule, /background:\s*var\(--surface-bg-soft\);/);
+  assert.match(headingRule, /background:\s*var\(--workbench-rail-bg\);/);
   assert.doesNotMatch(headingRule, /position:\s*sticky;/);
 
   const listRule = styleRule(".playground-template-list");
   assert.match(listRule, /flex:\s*1 1 auto;/);
   assert.match(listRule, /min-height:\s*0;/);
   assert.match(listRule, /overflow-y:\s*auto;/);
+
+  const cardRule = styleRule(".playground-template-card");
+  assert.match(cardRule, /border-bottom:\s*1px solid var\(--workbench-rule\);/);
+  assert.match(cardRule, /border-radius:\s*0;/);
+  assert.match(cardRule, /background:\s*transparent;/);
 });
 
 test("playground editor and output share an accessible vertical split", () => {
@@ -99,18 +113,33 @@ test("playground editor and output share an accessible vertical split", () => {
   );
 });
 
-test("playground inspector panels reuse the green REPL inspector treatment", () => {
-  const panelRule = styleRule(".symbol-panel,\n.structure-panel");
-  assert.match(panelRule, /background:\s*var\(--globals-panel-bg\);/);
+test("playground inspector is an attached workbench rail", () => {
+  const inspectorRule = styleRule(".playground-inspector");
   assert.match(
-    panelRule,
-    /border:\s*1px solid var\(--globals-panel-border\);/
+    inspectorRule,
+    /border-left:\s*1px solid var\(--workbench-border\);/
   );
+  assert.match(
+    inspectorRule,
+    /background:\s*var\(--workbench-rail-bg\);/
+  );
+
+  const panelRule = styleRule(".symbol-panel,\n.structure-panel");
+  assert.match(panelRule, /background:\s*var\(--workbench-rail-bg\);/);
+  assert.match(panelRule, /border:\s*0;/);
+  assert.match(panelRule, /border-radius:\s*0;/);
 
   const headRule = styleRule(".symbol-panel-head,\n.structure-panel-head");
   assert.match(
     headRule,
-    /border-bottom:\s*1px solid var\(--globals-row-border\);/
+    /border-bottom:\s*1px solid var\(--workbench-rule\);/
+  );
+  const structureRule = styleRules(".structure-panel").find((rule) =>
+    rule.includes("border-top")
+  );
+  assert.match(
+    structureRule,
+    /border-top:\s*1px solid var\(--workbench-rule\);/
   );
 
   const countRule = styleRule(".symbol-panel-count");
@@ -146,9 +175,10 @@ test("playground inspector panels reuse the green REPL inspector treatment", () 
 
 test("playground output empty state is centered and subdued", () => {
   const bodyRule = styleRule(".run-output-body");
-  assert.match(bodyRule, /padding:\s*16px 18px;/);
+  assert.match(bodyRule, /padding:\s*20px 18px 24px;/);
   assert.match(bodyRule, /font-size:\s*14px;/);
   assert.match(bodyRule, /line-height:\s*1\.55;/);
+  assert.match(bodyRule, /background:\s*var\(--workbench-output-bg\);/);
 
   const emptyRule = styleRule(".run-output-body:empty");
   assert.match(emptyRule, /display:\s*flex;/);
@@ -159,6 +189,19 @@ test("playground output empty state is centered and subdued", () => {
     emptyRule,
     /color:\s*color-mix\(\s*in srgb,\s*var\(--surface-text-muted\) 68%,\s*transparent\s*\);/,
   );
+});
+
+test("playground runtime pills sit inside one control capsule", () => {
+  const clusterRule = styleRule(
+    ".playground-workbench-header .toolbar-center > .pills"
+  );
+  assert.match(clusterRule, /padding:\s*4px;/);
+  assert.match(
+    clusterRule,
+    /border:\s*1px solid var\(--control-cluster-border\);/
+  );
+  assert.match(clusterRule, /border-radius:\s*var\(--radius-pill\);/);
+  assert.match(clusterRule, /background:\s*var\(--control-cluster-bg\);/);
 });
 
 test("playground clear action stays disabled while output is empty", () => {
@@ -201,6 +244,7 @@ test("poster configuration and display use labelled native dialogs", () => {
   );
   assert.doesNotMatch(playgroundSource, /poster-modal-overlay|poster-show-overlay/);
   assert.match(styles, /\.poster-dialog::backdrop\s*\{/);
+  assert.doesNotMatch(styles, /poster-slide-up/);
 });
 
 test("Playground editor focus stays quiet while REPL focus stays visible", () => {

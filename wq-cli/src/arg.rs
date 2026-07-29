@@ -93,6 +93,11 @@ pub enum CliCommand {
     Dap {
         script: Option<PathBuf>,
     },
+    Learn {
+        chapter: Option<String>,
+        list: bool,
+        no_pager: bool,
+    },
     Help {
         no_pager: bool,
         topic: Option<String>,
@@ -123,7 +128,7 @@ const HELP_STYLES: Styles = Styles::styled()
 
 /// The wq Programming Language, https://wq-pl.com
 ///
-/// Run an interactive wq REPL, wq scripts, or render Markdown docs.
+/// Run an interactive wq REPL, learn the language, or execute wq scripts.
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "wq",
@@ -273,6 +278,14 @@ enum Commands {
         /// config)
         script: Option<PathBuf>,
     },
+    /// Read the bundled introductory wq book.
+    Learn {
+        /// List every chapter and its purpose
+        #[arg(long, conflicts_with = "chapter")]
+        list: bool,
+        /// Chapter slug, such as values, calls, modules, or cas
+        chapter: Option<String>,
+    },
     /// Show wq command help or language reference docs.
     Help {
         /// Fold reference docs at this many columns (default: terminal width)
@@ -351,7 +364,10 @@ where
                         || argv.iter().any(|a| a.to_str() == Some("help"));
                     if is_long_help && !silent {
                         let is_subcommand_help = argv.iter().any(|a| {
-                            matches!(a.to_str(), Some("fmt" | "exec" | "symbols" | "help"))
+                            matches!(
+                                a.to_str(),
+                                Some("fmt" | "exec" | "symbols" | "learn" | "help")
+                            )
                         });
                         if !is_subcommand_help {
                             print_after_help();
@@ -484,6 +500,23 @@ where
                 }
                 CliCommand::Dap { script }
             }
+            Commands::Learn { list, chapter } => {
+                if rt != RuntimeFlags::new() {
+                    let err = CliArgs::command().error(
+                        clap::error::ErrorKind::InvalidValue,
+                        "learn: runtime flags are not supported",
+                    );
+                    if !silent {
+                        let _ = err.print();
+                    }
+                    return Err(2);
+                }
+                CliCommand::Learn {
+                    chapter,
+                    list,
+                    no_pager,
+                }
+            }
             Commands::Help {
                 fold_width,
                 topic,
@@ -528,10 +561,15 @@ where
         CliCommand::Repl
     };
 
-    if no_pager && !matches!(&cmd, CliCommand::Markdown { .. } | CliCommand::Help { .. }) {
+    if no_pager
+        && !matches!(
+            &cmd,
+            CliCommand::Markdown { .. } | CliCommand::Learn { .. } | CliCommand::Help { .. }
+        )
+    {
         let err = CliArgs::command().error(
             clap::error::ErrorKind::InvalidValue,
-            "--no-pager only applies to Markdown files and `wq help`",
+            "--no-pager only applies to Markdown files, `wq learn`, and `wq help`",
         );
         if !silent {
             let _ = err.print();
@@ -643,49 +681,51 @@ fn write_top_examples(out: &mut String) {
 
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", help_header("Examples"));
-    let _ = writeln!(out, "  1. Run a script:");
+    let _ = writeln!(out, "  1. Open the introductory book:");
+    let _ = writeln!(out, "     {wq} {}", help_color("learn", WqAnsiColor::Blue));
+    let _ = writeln!(out, "  2. Run a script:");
     let _ = writeln!(
         out,
         "     {wq} {}",
         help_color("script.wq", WqAnsiColor::Blue)
     );
-    let _ = writeln!(out, "  2. Evaluate inline code and print the result:");
+    let _ = writeln!(out, "  3. Evaluate inline code and print the result:");
     let _ = writeln!(
         out,
         "     {wq} {}",
         help_color("exec '1+1' -p", WqAnsiColor::Blue)
     );
-    let _ = writeln!(out, "  3. Inspect AST and instructions for inline code:");
+    let _ = writeln!(out, "  4. Inspect AST and instructions for inline code:");
     let _ = writeln!(
         out,
         "     {wq} {}",
         help_color("exec '1+1' -d ast,inst -p", WqAnsiColor::Blue)
     );
-    let _ = writeln!(out, "  4. Format a script:");
+    let _ = writeln!(out, "  5. Format a script:");
     let _ = writeln!(
         out,
         "     {wq} {}",
         help_color("fmt script.wq", WqAnsiColor::Blue)
     );
-    let _ = writeln!(out, "  5. Debug a script with wqdb:");
+    let _ = writeln!(out, "  6. Debug a script with wqdb:");
     let _ = writeln!(
         out,
         "     {wq} {}",
         help_color("-w -o bt -o c script.wq", WqAnsiColor::Blue)
     );
-    let _ = writeln!(out, "  6. Render a Markdown note:");
+    let _ = writeln!(out, "  7. Render a Markdown note:");
     let _ = writeln!(
         out,
         "     {wq} {}",
         help_color("notes.wq.md", WqAnsiColor::Blue)
     );
-    let _ = writeln!(out, "  7. Render a Markdown note without a pager:");
+    let _ = writeln!(out, "  8. Render a Markdown note without a pager:");
     let _ = writeln!(
         out,
         "     {wq} {}",
         help_color("--no-pager notes.wq.md", WqAnsiColor::Blue)
     );
-    let _ = writeln!(out, "  8. Pass arguments to a script:");
+    let _ = writeln!(out, "  9. Pass arguments to a script:");
     let _ = writeln!(
         out,
         "     {wq} {}",
@@ -1129,6 +1169,31 @@ mod tests {
             is_err(parse_args(v(&["-d", "2", "--", "-file", "rest"]))),
             2
         );
+    }
+
+    #[test]
+    fn learn_parses_chapters_and_catalog_mode() {
+        let (_, command) = ok(parse_args(v(&["learn", "--no-pager", "values"])));
+        assert!(matches!(
+            command,
+            CliCommand::Learn {
+                chapter: Some(ref chapter),
+                list: false,
+                no_pager: true,
+            } if chapter == "values"
+        ));
+
+        let (_, command) = ok(parse_args(v(&["learn", "--list"])));
+        assert!(matches!(
+            command,
+            CliCommand::Learn {
+                chapter: None,
+                list: true,
+                no_pager: false,
+            }
+        ));
+        assert_eq!(is_err(parse_args(v(&["learn", "--list", "values"]))), 2);
+        assert_eq!(is_err(parse_args(v(&["learn", "-p"]))), 2);
     }
 
     #[test]

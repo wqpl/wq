@@ -75,6 +75,20 @@ fn reference_docs_render_auto_wraps_as_hard_breaks() -> TestResult {
 }
 
 #[test]
+fn reference_docs_render_source_soft_breaks_as_spaces_without_folding() -> TestResult {
+    let output = wq_command()
+        .args(["help", "--no-pager", "named-arguments"])
+        .output()
+        .context("run wq help named-arguments")?;
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
+    let stdout = strip_ansi(&stdout);
+    assert!(stdout.contains("identifier spelling rules. In a call,"));
+    Ok(())
+}
+
+#[test]
 fn builtin_and_keyword_docs_render() -> TestResult {
     let map = wq_command()
         .args(["help", "--no-pager", "map"])

@@ -8,6 +8,8 @@ mod dap;
 mod exit_status;
 #[path = "cli/help.rs"]
 mod help;
+#[path = "cli/learn.rs"]
+mod learn;
 #[path = "cli/print_box.rs"]
 mod print_box;
 #[path = "cli/random.rs"]

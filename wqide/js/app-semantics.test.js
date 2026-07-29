@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("app.js", import.meta.url), "utf8");
+const tutorialSource = await readFile(
+  new URL("tutorial.js", import.meta.url),
+  "utf8"
+);
 const styles = await readFile(
   new URL("../styles.css", import.meta.url),
   "utf8"
@@ -84,9 +88,70 @@ test("interactive chrome does not create accidental text selections", () => {
   );
 });
 
-test("code-fence edge actions use rounded rectangles", () => {
+test("code-fence edge actions use rounded rectangles and contain animated labels", () => {
   assert.match(
     styles,
     /\.code-action-btn\s*\{[^}]*border-radius:\s*var\(--radius-xs\);/
   );
+  assert.match(styles, /\.code-action-btn\s*\{[^}]*overflow:\s*hidden;/);
+});
+
+test("block code does not inherit inline-code margins or Midnight fills", () => {
+  assert.match(
+    styles,
+    /\.article pre code,\s*\.run-result pre code\s*\{[^}]*margin:\s*0;[^}]*background:\s*transparent;/
+  );
+  assert.match(
+    styles,
+    /:root\[data-theme="midnight"\] \.article pre code\s*\{[^}]*background:\s*transparent;[^}]*border-color:\s*transparent;/
+  );
+});
+
+test("standalone runnable fences share the grouped action hierarchy", () => {
+  assert.match(tutorialSource, /className = "tutorial-single-cell"/);
+  assert.match(
+    styles,
+    /\.code-wrapper\s*>\s*\.code-header\s*\.code-action-btn\[data-action="copy"\],[\s\S]*?background:\s*transparent;/
+  );
+  assert.match(
+    styles,
+    /\.code-wrapper[\s\S]*?\.code-action-btn\[data-action="run"\]:not\(\.code-action-danger\),[\s\S]*?background:\s*var\(--code-primary-bg\);/
+  );
+});
+
+test("grouped tutorial cells use one toolbar and a numbered reading rail", () => {
+  assert.match(tutorialSource, /className = "tutorial-cell-group-header"/);
+  assert.match(tutorialSource, /className = "tutorial-cell-index"/);
+  assert.match(tutorialSource, /classList\.add\("tutorial-cell-copy"\)/);
+  assert.match(
+    tutorialSource,
+    /querySelector\("\.code-header"\)\?\.remove\(\)/
+  );
+  assert.match(tutorialSource, /dataset\.action = "copy-all"/);
+  assert.doesNotMatch(tutorialSource, /cellHeaderLabel/);
+  assert.match(tutorialSource, /view\.head\.hidden = heading === "Result"/);
+  assert.doesNotMatch(
+    tutorialSource,
+    /total > 1[\s\S]{0,120}createOutputBar\("info"\)/
+  );
+  assert.match(
+    styles,
+    /\.tutorial-cell\s*\{[^}]*grid-template-columns:\s*52px minmax\(0, 1fr\);/
+  );
+  assert.match(
+    styles,
+    /\.tutorial-cell-group \.code-wrapper \+ \.run-result\s*\{[^}]*border-top:\s*1px solid var\(--code-group-rule\);/
+  );
+});
+
+test("the web book comes from the shared catalog and keeps chapter navigation", () => {
+  assert.match(source, /fetch\("book\/catalog\.json"\)/);
+  assert.match(
+    source,
+    /file: `book\/\$\{chapter\.file\}`[\s\S]*bookOrder: index/
+  );
+  const article = templateSource("ARTICLE_HTML");
+  assert.match(article, /data-role="article-sequence"/);
+  assert.match(article, /data-role="previous-chapter"/);
+  assert.match(article, /data-role="next-chapter"/);
 });

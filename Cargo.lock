@@ -4452,6 +4452,7 @@ dependencies = [
  "ctrlc",
  "pulldown-cmark",
  "rand 0.10.2",
+ "serde_json",
  "signal-hook 0.4.4",
  "terminal_size",
  "toml",

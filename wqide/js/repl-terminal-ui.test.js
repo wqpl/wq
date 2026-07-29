@@ -58,6 +58,10 @@ test("terminal chrome keeps established pills and utilities outside the prompt",
     styles,
     /\.repl-terminal-bar \.runtime-panel-head \.mini\s*\{[^}]*color:\s*var\(--terminal-text\);/,
   );
+  assert.match(
+    styles,
+    /\.repl-terminal-actions\s*\{[^}]*padding:\s*4px;[^}]*border:\s*1px solid var\(--control-cluster-border\);[^}]*background:\s*var\(--control-cluster-bg\);/
+  );
 });
 
 test("submitted input advances immediately and terminal shortcuts remain available", () => {
@@ -107,7 +111,7 @@ test("desktop inspector keeps the same minimum height as the REPL", () => {
   );
 });
 
-test("green inspector controls use local surface tokens", () => {
+test("themed inspector controls use local surface tokens", () => {
   assert.match(
     styles,
     /\.globals-panel \.btn\s*\{[^}]*border-color:\s*var\(--inspector-control-border\);[^}]*background:\s*var\(--inspector-control-bg\);[^}]*color:\s*var\(--inspector-control-text\);/

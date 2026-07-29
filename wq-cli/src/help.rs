@@ -1,8 +1,7 @@
-use terminal_size::{Width, terminal_size};
 use wqpl::doc::{self, DocRenderTarget};
 
 use crate::repl::editor::WqReplHighlighter;
-use crate::{arg, note};
+use crate::{arg, display, note};
 
 const AUTO_FOLD_WIDTH_GUTTER: usize = 4;
 
@@ -29,7 +28,7 @@ pub fn run(
     let highlighter = WqReplHighlighter::new();
     let rendered = render_reference_topic(
         &topic,
-        resolve_fold_width(fold_width, detected_terminal_width()),
+        resolve_fold_width(fold_width, display::terminal_width()),
         &highlighter,
     );
     note::print_or_page(&rendered, no_pager);
@@ -45,11 +44,7 @@ pub(crate) fn render_reference_topic(
         DocRenderTarget::Cli,
         doc::MarkdownRenderOptions { fold_width },
     );
-    note::render_markdown_document_with_soft_break_mode(
-        &markdown,
-        Some(highlighter),
-        note::SoftBreakMode::Newline,
-    )
+    note::render_markdown_document(&markdown, Some(highlighter))
 }
 
 fn resolve_fold_width(explicit: Option<usize>, detected: Option<usize>) -> Option<usize> {
@@ -60,10 +55,6 @@ pub(crate) fn auto_fold_width(detected: Option<usize>) -> Option<usize> {
     detected
         .filter(|width| *width > AUTO_FOLD_WIDTH_GUTTER)
         .map(|width| width - AUTO_FOLD_WIDTH_GUTTER)
-}
-
-fn detected_terminal_width() -> Option<usize> {
-    terminal_size().map(|(Width(width), _)| width as usize)
 }
 
 #[cfg(test)]

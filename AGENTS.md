@@ -131,6 +131,7 @@
 
 ## Documentation Markdown
 
+- Render terminal Markdown unordered list markers and horizontal rules with ASCII `-`, not Unicode glyphs.
 - When inline wq source contains backticks, use a CommonMark delimiter longer than every backtick run inside the source.
 - If the source begins or ends with a backtick, add one padding space inside both delimiters so it renders without padding. For example:
 
