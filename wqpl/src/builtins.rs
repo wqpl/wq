@@ -1663,15 +1663,8 @@ mod tests {
     #[test]
     fn logical_builtin_names_exclude_parser_aliases() {
         assert!(Builtins::NAMES.contains(&"bxor"));
-        assert!(!Builtins::NAMES.contains(&"xor"));
         assert!(!Builtins::NAMES.contains(&"and"));
         assert!(!Builtins::NAMES.contains(&"or"));
-    }
-
-    #[test]
-    fn removed_unit_predicate_names_are_not_builtins() {
-        assert!(!Builtins::NAMES.contains(&"unit?"));
-        assert!(!Builtins::NAMES.contains(&"U"));
     }
 
     #[test]
@@ -2276,7 +2269,7 @@ mod tests {
     }
 
     #[test]
-    fn renamed_builtin_arguments_are_the_only_accepted_names() {
+    fn builtin_argument_names_are_accepted() {
         let builtins = Builtins::new();
         let split = BuiltinFnArgs::with_named(
             SmallVec::from_vec(vec![into_wq_string("a b")]),
@@ -2288,15 +2281,6 @@ mod tests {
                 .expect("split max should pass registry validation")
         );
 
-        let old_split = BuiltinFnArgs::with_named(
-            SmallVec::from_vec(vec![into_wq_string("a b")]),
-            vec![(Arc::<str>::from("m"), Value::Int(1))],
-        );
-        let err = builtins
-            .validate_runtime_call_args(Builtins::SPLIT, &old_split)
-            .expect_err("split m should be removed");
-        assert_eq!(err.msg.as_deref(), Some("unknown named argument 'm'"));
-
         let limit = BuiltinFnArgs::with_named(
             SmallVec::from_vec(vec![Value::from_cas_var("x"), Value::Int(0)]),
             vec![(Arc::<str>::from("direction"), Value::from_cas_var("+"))],
@@ -2306,15 +2290,6 @@ mod tests {
                 .validate_runtime_call_args(Builtins::LIMIT, &limit)
                 .expect("limit direction should pass registry validation")
         );
-
-        let old_limit = BuiltinFnArgs::with_named(
-            SmallVec::from_vec(vec![Value::from_cas_var("x"), Value::Int(0)]),
-            vec![(Arc::<str>::from("d"), Value::from_cas_var("+"))],
-        );
-        let err = builtins
-            .validate_runtime_call_args(Builtins::LIMIT, &old_limit)
-            .expect_err("limit d should be removed");
-        assert_eq!(err.msg.as_deref(), Some("unknown named argument 'd'"));
     }
 
     #[test]

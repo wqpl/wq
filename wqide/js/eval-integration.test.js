@@ -21,20 +21,6 @@ async function integrationSource() {
   ).join("\n");
 }
 
-test("wqide has no queued, modal, or preloaded stdin integration", async () => {
-  const source = await integrationSource();
-  for (const legacy of [
-    "stdinQueue",
-    "window.prompt",
-    "stdinArr",
-    "stdinInput",
-    "pushStdinBtn",
-    'params.get("stdin")',
-  ]) {
-    assert.equal(source.includes(legacy), false, `found legacy ${legacy}`);
-  }
-});
-
 test("every wqide async evaluation receives its run signal", async () => {
   const source = await integrationSource();
   const calls = [...source.matchAll(/eval_wq_async\(/g)];

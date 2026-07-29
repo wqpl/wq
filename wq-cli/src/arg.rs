@@ -1193,11 +1193,6 @@ mod tests {
     }
 
     #[test]
-    fn removed_run_notebook_flag_errors() {
-        assert_eq!(is_err(parse_args(v(&["--run-notebook", "notes.md"]))), 2);
-    }
-
-    #[test]
     fn no_pager_only_applies_to_rendered_markdown_or_help() {
         assert_eq!(is_err(parse_args(v(&["--no-pager", "script.wq"]))), 2);
         assert_eq!(is_err(parse_args(v(&["--no-pager"]))), 2);

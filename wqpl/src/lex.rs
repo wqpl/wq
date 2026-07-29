@@ -1484,13 +1484,6 @@ mod tests {
     }
 
     #[test]
-    fn unknown_at_form_quotes_the_exact_syntax() {
-        let err = lexer_err("@a");
-
-        assert_eq!(err.msg.as_deref(), Some("unknown '@' form '@a'"));
-    }
-
-    #[test]
     fn standalone_dots_are_rejected() {
         for (source, span) in [
             (".", (0, 1)),

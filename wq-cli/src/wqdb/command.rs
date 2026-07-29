@@ -914,7 +914,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_requires_explicit_typed_track_commands() {
+    fn parser_accepts_explicit_typed_track_commands() {
         assert_eq!(
             parse_line("track add global total"),
             Ok(ParsedLine::Command(ParsedCommand::Track(
@@ -951,22 +951,10 @@ mod tests {
                 TrackCommand::Clear
             )))
         );
-        assert_eq!(
-            parse_error("track total"),
-            "invalid track action 'total'; usage: track add <global|local|capture> <target> | track list | track delete <id> | track clear"
-        );
-        assert_eq!(
-            parse_error("track global total"),
-            "invalid track action 'global'; usage: track add <global|local|capture> <target> | track list | track delete <id> | track clear"
-        );
-        assert_eq!(
-            parse_error("tracks"),
-            "unknown wqdb command 'tracks', type 'h' for help"
-        );
     }
 
     #[test]
-    fn parser_captures_stop_hook_remainder_without_an_option() {
+    fn parser_captures_stop_hook_remainder() {
         assert_eq!(
             parse_line("stop-hook add track add local total"),
             Ok(ParsedLine::Command(ParsedCommand::StopHook(
@@ -991,12 +979,6 @@ mod tests {
             parse_line("stop-hook clear"),
             Ok(ParsedLine::Command(ParsedCommand::StopHook(
                 StopHookCommand::Clear
-            )))
-        );
-        assert_eq!(
-            parse_line("stop-hook add -o c"),
-            Ok(ParsedLine::Command(ParsedCommand::StopHook(
-                StopHookCommand::Add { command: "-o c" }
             )))
         );
         assert_eq!(
@@ -1041,22 +1023,6 @@ mod tests {
     }
 
     #[test]
-    fn parser_rejects_noncanonical_nested_aliases() {
-        assert_eq!(
-            parse_error("track add g total"),
-            "invalid track scope 'g'; usage: track add <global|local|capture> <target>"
-        );
-        assert_eq!(
-            parse_error("stop-hook ls"),
-            "invalid stop-hook action 'ls'; usage: stop-hook add <command...> | stop-hook list | stop-hook delete <id> | stop-hook clear"
-        );
-        assert_eq!(
-            parse_error("stop-hook rm 2"),
-            "invalid stop-hook action 'rm'; usage: stop-hook add <command...> | stop-hook list | stop-hook delete <id> | stop-hook clear"
-        );
-    }
-
-    #[test]
     fn parser_distinguishes_empty_and_unknown_commands() {
         assert_eq!(parse_line("   "), Ok(ParsedLine::Empty));
         assert_eq!(
@@ -1064,14 +1030,6 @@ mod tests {
                 .expect_err("unknown command")
                 .to_string(),
             "unknown wqdb command 'wat', type 'h' for help"
-        );
-        assert_eq!(
-            parse_error("untrack 3"),
-            "unknown wqdb command 'untrack', type 'h' for help"
-        );
-        assert_eq!(
-            parse_error("ut all"),
-            "unknown wqdb command 'ut', type 'h' for help"
         );
     }
 

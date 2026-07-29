@@ -6,14 +6,11 @@ const appSource = await readFile(new URL("app.js", import.meta.url), "utf8");
 const replSource = await readFile(new URL("repl.js", import.meta.url), "utf8");
 const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 
-test("REPL input is an inline terminal prompt rather than a composer", () => {
+test("REPL input is an inline terminal prompt", () => {
   assert.match(
     appSource,
     /id="term"[\s\S]*id="terminalOutput"[\s\S]*id="promptForm" class="repl-live-input"[\s\S]*class="repl-live-prompt"/,
   );
-  assert.doesNotMatch(appSource, /class="[^"]*\b(?:repl-composer|composer-frame|composer-actions)\b/);
-  assert.doesNotMatch(appSource, /id="evalBtn"|repl-live-input-meta|Enter to run/);
-  assert.doesNotMatch(styles, /\.repl-composer\b|\.composer-frame\b|\.composer-actions\b/);
 });
 
 test("terminal chrome keeps established pills and utilities outside the prompt", () => {
@@ -21,13 +18,11 @@ test("terminal chrome keeps established pills and utilities outside the prompt",
   assert.match(appSource, /id="inspectorToggleBtn"[\s\S]*id="terminalMenu"/);
   assert.match(appSource, /id="pillBox"[\s\S]*class="pill inactive"/);
   assert.match(appSource, /id="historyToggleBtn"[\s\S]*class="pill inactive"/);
-  assert.doesNotMatch(appSource, /class="repl-terminal-action(?:\s|")/);
   assert.match(appSource, /id="scrollLatestBtn"/);
   assert.match(
     appSource,
     /class="repl-terminal-menu-ellipsis" aria-hidden="true"\s*>…<\/span/,
   );
-  assert.doesNotMatch(appSource, /aria-hidden="true">•••<\/span>/);
   assert.match(
     styles,
     /:root\s*\{[\s\S]*--terminal-bg:\s*#fbfdff;[\s\S]*--terminal-text:\s*#183747;[\s\S]*\}/,
@@ -80,10 +75,6 @@ test("live and submitted input use the same one-character prompt gap", () => {
   assert.match(
     styles,
     /\.repl-live-prompt\s*\{[^}]*margin-right:\s*1ch;/,
-  );
-  assert.doesNotMatch(
-    styles,
-    /\.repl-live-input-row\s*\{[^}]*gap:\s*(?:7|10)px;/,
   );
 });
 

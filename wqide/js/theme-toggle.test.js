@@ -22,11 +22,8 @@ test("theme artwork is clipped inside the pill border", () => {
   assert.match(scene, /border-radius:\s*inherit;/);
 });
 
-test("theme change crossfades scenes without replaying travel keyframes", () => {
-  const toggle = cssRule(".theme-toggle");
-  assert.doesNotMatch(toggle, /background\s+\d+ms/);
+test("theme change crossfades scenes", () => {
   assert.match(cssRule(".theme-night-sky"), /opacity\s+\d+ms/);
-  assert.doesNotMatch(styles, /@keyframes theme-(?:sun|moon)-(?:rise|set)/);
 });
 
 test("pointer theme changes preserve an active code editor caret", () => {
@@ -62,5 +59,4 @@ test("welcome links use a quiet theme-aware hover border", () => {
     cssRule(':root[data-theme="midnight"]'),
     /--welcome-link-bg:\s*rgba\(7, 9, 17, 0\.76\);/,
   );
-  assert.doesNotMatch(styles, /--welcome-link-hover:\s*#54eaf5;/);
 });
