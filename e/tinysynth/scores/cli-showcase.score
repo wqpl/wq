@@ -1,0 +1,35 @@
+// A short score for CLI previews, event dumps, seed overrides, and normalization.
+
+tempo=128
+limit=0.74
+
+track=tones
+pan=-0.28
+octave=4
+duration=8
+wave=pulse
+pulse=0.24
+unison=3
+detune=6
+volume=0.24
+attack=0.005
+decay=0.055
+sustain=0.58
+release=0.07
+gate=0.82
+delay=0.12
+feedback=0.38
+delay_mix=0.26
+C E G > C | < B G E D
+
+track=clicks
+pan=0.36
+wave=noise
+volume=0.16
+attack=0
+decay=0.014
+sustain=0
+release=0.018
+gate=0.3
+delay=0
+N/16 R/16 N/16 R/16 N/8 R/8 N/16*2

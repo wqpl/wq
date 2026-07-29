@@ -1,0 +1,18 @@
+Usage: wq e/tinysynth/cli.wq -- [OPTIONS] <SCORE> [<WAV>]
+
+Render a TinySynth score as a stereo 16-bit PCM WAV file.
+
+Arguments:
+  <SCORE>  TinySynth score file
+  <WAV>  output path (default: out.wav)
+
+Options:
+  -r, --sample-rate <HZ>  sample rate from 8000 through 192000 (default: 44100)
+  -g, --gain <LEVEL>  master gain from 0 through 1 (default: 0.85)
+  -p, --preview <SECONDS>  render at most the first SECONDS of audio
+  -s, --seed <N>  override deterministic event seeds
+  -n, --normalize  normalize the rendered peak to 0.95
+  -d, --dump-events  print parsed event timing and voice settings
+  -q, --quiet  do not print the render summary
+  -h, --help  Print help
+  -V, --version  Print version

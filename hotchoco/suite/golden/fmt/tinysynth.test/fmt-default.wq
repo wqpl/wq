@@ -1,4 +1,4 @@
-synth:@i"tinysynth.wq"
+synth:@i"tinysynth/tinysynth.wq"
 (`parse_score;`synthesize;`wav_bytes):synth
 
 events:parse_score "
@@ -18,22 +18,148 @@ assert_eq[events[2] `seconds;1.5;"dot extends a duration by one half"]
 assert_eq[round[events[3][`frequencies] 0;3];369.994;"parse sharp pitches"]
 assert_eq[round[events[4][`frequencies] 0;3];233.082;"parse flat pitches"]
 
+notation_events:parse_score "
+  tempo=120 octave=3 duration=8
+  C D# | > C/4 < R
+  A/8t B/8.. C*3
+"
+assert_eq[#notation_events;9;"parse notation defaults, bars, shifts, and repetition"]
+assert_eq[notation_events[0] `seconds;0.25;"default duration follows duration directive"]
+assert_eq[
+  round[notation_events[0][`frequencies] 0;3];
+  130.813;
+  "default octave supplies omitted octave"]
+assert_eq[
+  round[notation_events[2][`frequencies] 0;3];
+  261.626;
+  "octave shift applies to following note"]
+assert_eq[notation_events[3] `frequencies;();"bare R uses the default duration"]
+assert_eq[
+  round[notation_events[4] `beats;3];
+  0.333;
+  "triplet duration is two thirds of its base duration"]
+assert_eq[notation_events[5] `beats;0.875;"double-dotted duration adds three quarters"]
+assert_eq[notation_events[6] `token;,"C";"repetition preserves the event token"]
+assert_eq[
+  notation_events[6] `frequencies;
+  notation_events[8] `frequencies;
+  "repetition duplicates events"]
+
+articulated:parse_score "
+  tempo=60 attack=0.01 decay=0.02 sustain=0.3 release=0.01 gate=0.5 C4/4
+"
+assert_eq[articulated[0] `decay;0.02;"attach decay to events"]
+assert_eq[articulated[0] `sustain;0.3;"attach sustain level to events"]
+assert_eq[articulated[0] `gate;0.5;"attach rhythmic gate to events"]
+articulated_samples:synthesize[articulated;8000]
+assert_eq[
+  max abs flatten articulated_samples 5000..#articulated_samples;
+  0.0;
+  "gate leaves silence after release"]
+
+tied_events:parse_score "
+  tempo=120 attack=0.01 decay=0.02 sustain=0.7 release=0.04
+  C4/4~ C4/4 C4+E4/8~ C4+E4/8
+"
+assert_eq[#tied_events;2;"merge tied notes into sustained events"]
+assert_eq[tied_events[0] `seconds;1.0;"tie combines rhythmic durations"]
+assert_eq[tied_events[0] `tied;F;"resolved tie does not remain pending"]
+assert_eq[#tied_events[1] `frequencies;2;"tie supports matching chords"]
+
+oscillator_events:parse_score "
+  seed=17 wave=pulse pulse=0.2 unison=3 detune=12 C4/64
+  wave=fm fm_ratio=3 fm_index=2 E4/64
+  wave=noise N/64
+"
+assert_eq[oscillator_events[0] `pulse;0.2;"attach pulse width to events"]
+assert_eq[oscillator_events[0] `unison;3;"attach unison voice count to events"]
+assert_eq[oscillator_events[0] `detune;12.0;"attach detune cents to events"]
+assert_eq[oscillator_events[1] `fm_ratio;3.0;"attach FM ratio to events"]
+assert_eq[oscillator_events[1] `fm_index;2.0;"attach FM index to events"]
+assert_eq[oscillator_events[2] `frequencies;,0.0;"parse N as a noise event"]
+
+noise_a:parse_score "seed=42 wave=noise attack=0 release=0 N/64"|{synthesize[x;8000]}
+noise_b:parse_score "seed=42 wave=noise attack=0 release=0 N/64"|{synthesize[x;8000]}
+noise_c:parse_score "seed=43 wave=noise attack=0 release=0 N/64"|{synthesize[x;8000]}
+assert_eq[noise_a;noise_b;"noise is reproducible for a score seed"]
+assert[not[noise_a=noise_c];"different score seeds produce different noise"]
+
+track_events:parse_score "
+  tempo=120 track=lead pan=-1 C4/4 C4/4
+  track=bass pan=1 C3/2
+"
+assert_eq[#track_events;3;"parse events from multiple tracks"]
+assert_eq[track_events[0] `track;"lead";"attach track names to events"]
+assert_eq[track_events[0] `start;0.0;"start the first track at zero"]
+assert_eq[track_events[1] `start;0.5;"advance a track cursor by event duration"]
+assert_eq[track_events[2] `start;0.0;"give each track an independent cursor"]
+track_samples:synthesize[track_events;8000]
+assert_eq[#track_samples;8000;"mix simultaneous tracks instead of concatenating them"]
+
+cross_track_tie:parse_score "
+  tempo=120 track=lead C4/4~
+  track=bass E3/4
+  track=lead C4/4
+"
+assert_eq[#cross_track_tie;2;"resolve ties within their own track"]
+assert_eq[cross_track_tie[0] `seconds;1.0;"tie survives a temporary track switch"]
+
+hard_left:parse_score "pan=-1 C4/4"|{synthesize[x;8000]}
+assert_eq[max abs map[hard_left;{x 1}];0.0;"hard-left pan leaves the right channel silent"]
+
+triplet_samples:parse_score "tempo=120 C4/8t*3"|{synthesize[x;8000]}
+assert_eq[#triplet_samples;4000;"absolute scheduling avoids accumulated sample rounding"]
+
+effect_events:parse_score "
+  normalize=0.6 limit=0.8 lowpass=900 delay=0.05 feedback=0.4 delay_mix=0.3 C4/4
+"
+assert_eq[effect_events[0] `lowpass;900.0;"attach low-pass cutoff to events"]
+assert_eq[effect_events[0] `delay;0.05;"attach delay time to events"]
+assert_eq[effect_events[0] `feedback;0.4;"attach delay feedback to events"]
+assert_eq[effect_events[0] `delay_mix;0.3;"attach delay mix to events"]
+
+delayed_samples:parse_score "
+  tempo=240 delay=0.05 feedback=0.5 delay_mix=0.4 C4/4
+"|{
+  synthesize[x;8000]}
+assert_eq[#delayed_samples;3600;"delay echoes extend the render without moving the track cursor"]
+
+normalized_samples:parse_score "
+  normalize=0.5 volume=0.1 attack=0 decay=0 sustain=1 release=0 C4/4
+"|{
+  synthesize[x;8000]}
+assert_eq[round[max abs flatten normalized_samples;6];0.5;"normalize reaches its target peak"]
+
+limited_samples:parse_score "
+  limit=0.5 wave=square volume=1 attack=0 decay=0 sustain=1 release=0
+  track=left C4/4 track=right C4/4
+"|{
+  synthesize[x;8000]}
+assert[max abs flatten limited_samples<1.0;"soft limiter keeps mixed samples below full scale"]
+
 short_events:parse_score "tempo=240 attack=0 release=0 C4/4"
 samples:synthesize[short_events;8000]
 assert_eq[#samples;2000;"synthesis honors score duration and sample rate"]
 
 wav:wav_bytes[samples;8000;0.8]
 assert[bytes? wav;"WAV output is a byte buffer"]
-assert_eq[#wav;4044;"WAV contains a 44-byte header and 16-bit samples"]
+assert_eq[#wav;8044;"WAV contains a 44-byte header and stereo 16-bit frames"]
 assert_eq[decode[wav 0..4;"utf-8"];"RIFF";"WAV starts with RIFF"]
 assert_eq[decode[wav 8..12;"utf-8"];"WAVE";"WAV identifies the WAVE format"]
 assert_eq[decode[wav 12..16;"utf-8"];"fmt ";"WAV contains a format chunk"]
 assert_eq[decode[wav 36..40;"utf-8"];"data";"WAV contains a data chunk"]
-assert_eq[wav 22;1;"WAV is mono"]
+assert_eq[wav 22;2;"WAV is stereo"]
 assert_eq[wav 34;16;"WAV uses 16-bit PCM"]
 
 assert_eq[(@t parse_score "H4/4") 0;`error;"reject invalid note names"]
 assert_eq[(@t parse_score "C4/3") 0;`error;"reject unsupported durations"]
-assert_eq[(@t parse_score "wave=noise C4/4") 0;`error;"reject unsupported waves"]
+assert_eq[(@t parse_score "C4/8...") 0;`error;"reject more than two rhythm dots"]
+assert_eq[(@t parse_score "C4*0") 0;`error;"reject empty repetitions"]
+assert_eq[(@t parse_score "octave=8 > C") 0;`error;"reject octave shifts outside the note range"]
+assert_eq[(@t parse_score "C4/4~ D4/4") 0;`error;"reject ties between different pitches"]
+assert_eq[(@t parse_score "C4/4~") 0;`error;"reject unresolved ties"]
+assert_eq[(@t parse_score "wave=sine N/4") 0;`error;"reject noise events with tonal waves"]
+assert_eq[(@t parse_score "wave=warp C4/4") 0;`error;"reject unsupported waves"]
+assert_eq[(@t parse_score "C4/4 normalize=0.8") 0;`error;"reject late master directives"]
 
 ()

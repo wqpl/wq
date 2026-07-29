@@ -1,0 +1,507 @@
+// TinySynth: parse compact music notation and render mono 16-bit PCM WAV data.
+
+tau:6.283185307179586
+wave_names:("sine";"square";"saw";"triangle";"pulse";"fm";"noise")
+duration_denominators:(1;2;4;8;16;32;64)
+
+parse_int_value:{[value;context]
+  parsed:@t int value
+  $[parsed 0=`ok;parsed 1;raise fmt["invalid {} '{}': expected an int";context;value]]}
+
+parse_float_value:{[value;context]
+  parsed:@t float value
+  $[parsed 0=`ok;parsed 1;raise fmt["invalid {} '{}': expected a number";context;value]]}
+
+parse_int_between:{[value;context;low;high]
+  result:parse_int_value[value;context]
+  $.[or[result<low;result>high]
+    raise fmt["invalid {} '{}': expected {} through {}";context;value;low;high]]
+  result}
+
+parse_float_between:{[value;context;low;high]
+  result:parse_float_value[value;context]
+  $.[or[result<low;result>high]
+    raise fmt["invalid {} '{}': expected {} through {}";context;value;low;high]]
+  result}
+
+note_frequency:{[name;default_octave]
+  size:#name
+  $.[size=0;raise "invalid note: missing a pitch name"]
+
+  letter:name 0
+  semitone:$$[
+    letter="C";0
+    letter="D";2
+    letter="E";4
+    letter="F";5
+    letter="G";7
+    letter="A";9
+    letter="B";11
+    raise fmt["invalid note '{}': pitch names use uppercase A through G";name]]
+
+  accidental:0
+  cursor:1
+  $.[A[cursor<size;O[name cursor="#";name cursor="b"]]
+    mark:name cursor
+    accidental:$$[
+      mark="#";1
+      mark="b";-1
+      raise fmt["invalid note '{}': the accidental must be '#' or 'b'";name]]
+    cursor+:1]
+
+  octave:$[cursor=size;
+    default_octave;
+    $[cursor+1=size;
+      parse_int_between[str name cursor;"octave";0;8];
+      raise fmt["invalid note '{}': expected a pitch with an optional accidental and octave";name]]]
+  midi:12*(octave+1)+semitone+accidental
+  $.[or[midi<12;midi>119]
+    raise fmt["invalid note '{}': pitch is outside C0 through B8";name]]
+  440.0*2^((midi-69)/12.0)}
+
+parse_duration_denominator:{[value;token]
+  denominator:parse_int_value[value;"duration"]
+  $.[not has?[duration_denominators;denominator]
+    raise fmt["invalid duration in '{}': expected 1, 2, 4, 8, 16, 32, or 64";token]]
+  denominator}
+
+parse_duration:{[value;tempo;token]
+  base:value
+  triplet:F
+  $.[A[#base>0;base[-1]="t"]
+    triplet:T
+    base:base[0..(#base-1)]]
+  $.[#base=0
+    raise fmt["invalid duration in '{}': missing a duration denominator";token]]
+  pieces:split[base;"."]
+  dots:#pieces-1
+  $.[dots>2
+    raise fmt["invalid duration in '{}': use at most two rhythm dots";token]]
+  N[dots;
+    $.[#pieces[_n+1]>0
+      raise fmt["invalid duration in '{}': rhythm dots must follow the denominator";token]]]
+  denominator:parse_duration_denominator[pieces 0;token]
+  beats:4.0/denominator
+  beats:$[dots=0;beats;$[dots=1;1.5*beats;1.75*beats]]
+  beats:$[triplet;(2.0/3.0)*beats;beats]
+  (beats;beats*60.0/tempo)}
+
+parse_event:{[token;state]
+  event_token:token
+  tied:A[#event_token>0;event_token[-1]="~"]
+  $.[tied;event_token:event_token[0..(#event_token-1)]]
+  $.[#event_token=0;raise fmt["invalid event '{}': missing a note or R";token]]
+  pieces:split[event_token;"/"]
+  $.[#pieces>2
+    raise fmt["invalid event '{}': expected NOTES/DURATION, for example C4/4 or C4+E4+G4/2";token]]
+
+  pitches:pieces 0
+  $.[#pitches=0;raise fmt["invalid event '{}': missing a note or R";token]]
+  duration_value:$[#pieces=2;pieces 1;str state`duration]
+  duration:parse_duration[duration_value;state`tempo;event_token]
+  octave:state`octave
+  noise_pitch:pitches=,"N"
+  $.[A[noise_pitch;not[state`wave="noise"]]
+    raise "noise event 'N' requires wave=noise"]
+  frequencies:$$[
+    pitches=,"R";()
+    noise_pitch;,0.0
+    map[split[pitches;"+"];{note_frequency[x;octave]}]]
+
+  (`token:event_token;
+   `beats:duration 0;
+   `seconds:duration 1;
+   `frequencies:frequencies;
+   `wave:state`wave;
+   `volume:state`volume;
+   `attack:state`attack;
+   `decay:state`decay;
+   `sustain:state`sustain;
+   `release:state`release;
+   `gate:state`gate;
+   `pulse:state`pulse;
+   `unison:state`unison;
+   `detune:state`detune;
+   `fm_ratio:state`fm_ratio;
+   `fm_index:state`fm_index;
+   `seed:state`seed;
+   `track:state`track;
+   `pan:state`pan;
+   `lowpass:state`lowpass;
+   `delay:state`delay;
+   `feedback:state`feedback;
+   `delay_mix:state`delay_mix;
+   `normalize:state`normalize;
+   `limit:state`limit;
+   `start:0.0;
+   `tied:tied)}
+
+last_track_event_index:{[events;track]
+  index:#events-1
+  W[index>=0;
+    $.[events[index]`track=track;@r index]
+    index-:1]
+  -1}
+
+append_event:{[events;event]
+  previous_index:last_track_event_index[events;event`track]
+  $.[previous_index<0;@r events,(,event)]
+  previous:events previous_index
+  $.[not previous`tied;@r events,(,event)]
+  $.[or[#previous`frequencies=0;#event`frequencies=0]
+    raise fmt["cannot tie rest event '{}'";previous`token]]
+  same_voice:and[
+    previous`frequencies=event`frequencies;
+    previous`wave=event`wave;
+    previous`volume=event`volume;
+    previous`attack=event`attack;
+    previous`decay=event`decay;
+    previous`sustain=event`sustain;
+    previous`pulse=event`pulse;
+    previous`unison=event`unison;
+    previous`detune=event`detune;
+    previous`fm_ratio=event`fm_ratio;
+    previous`fm_index=event`fm_index;
+    previous`pan=event`pan;
+    previous`lowpass=event`lowpass;
+    previous`delay=event`delay;
+    previous`feedback=event`feedback;
+    previous`delay_mix=event`delay_mix]
+  $.[not same_voice
+    raise fmt["tied event '{}' must keep the same pitches and voice settings";event`token]]
+  previous`token:previous`token,"~",event`token
+  previous`beats:previous`beats+event`beats
+  previous`seconds:previous`seconds+event`seconds
+  previous`release:event`release
+  previous`gate:event`gate
+  previous`tied:event`tied
+  events[previous_index]:previous
+  events}
+
+parse_repetition:{[token]
+  pieces:split[token;"*"]
+  $.[#pieces>2;raise fmt["invalid repetition '{}': use EVENT*COUNT";token]]
+  $[#pieces=1;
+    (token;1);
+    [event_token:pieces 0
+     $.[#event_token=0;raise fmt["invalid repetition '{}': missing an event";token]]
+     count:parse_int_between[pieces 1;"repeat count";1;128]
+     (event_token;count)]]}
+
+score_tokens:{[source]
+  lines:split[source;"\n"]
+  token_lines:map[lines;{split[(split[x;"//";`max:1])0]}]
+  fold[token_lines;{x,y};()]}
+
+track_index:{[names;name]
+  N[#names;$.[names _n=name;@r _n]]
+  -1}
+
+parse_score:{[source]
+  state:(
+    `tempo:120;
+    `wave:"sine";
+    `volume:0.75;
+    `attack:0.008;
+    `decay:0.04;
+    `sustain:0.82;
+    `release:0.05;
+    `gate:1.0;
+    `pulse:0.5;
+    `unison:1;
+    `detune:0.0;
+    `fm_ratio:2.0;
+    `fm_index:1.0;
+    `seed:1;
+    `track:"main";
+    `pan:0.0;
+    `lowpass:0.0;
+    `delay:0.0;
+    `feedback:0.35;
+    `delay_mix:0.0;
+    `normalize:0.0;
+    `limit:0.0;
+    `octave:4;
+    `duration:4)
+  events:()
+  track_names:,"main"
+  track_positions:,0.0
+  event_serial:0
+  tokens:score_tokens source
+
+  N[#tokens;
+    token:tokens _n
+    $$[
+      token=,"|";0
+      token=,">";[
+        $.[state`octave=8;raise "cannot shift above octave 8"]
+        state`octave:state`octave+1]
+      token=,"<";[
+        $.[state`octave=0;raise "cannot shift below octave 0"]
+        state`octave:state`octave-1]
+      [directive:split[token;"=";`max:1]
+       $[#directive=2;
+         [name:directive 0
+          value:directive 1
+          $.[#value=0;raise fmt["directive '{}' is missing a value";name]]
+          $$[
+            name="tempo";state`tempo:parse_int_between[value;"tempo";20;400]
+            name="wave";[
+              $.[not has?[wave_names;value]
+                raise fmt[
+                  "invalid wave '{}': expected sine, square, saw, triangle, pulse, fm, or noise";
+                  value]]
+              state`wave:value]
+            name="volume";state`volume:parse_float_between[value;"volume";0.0;1.0]
+            name="attack";state`attack:parse_float_between[value;"attack";0.0;1.0]
+            name="decay";state`decay:parse_float_between[value;"decay";0.0;1.0]
+            name="sustain";state`sustain:parse_float_between[value;"sustain";0.0;1.0]
+            name="release";state`release:parse_float_between[value;"release";0.0;1.0]
+            name="gate";state`gate:parse_float_between[value;"gate";0.0;1.0]
+            name="pulse";state`pulse:parse_float_between[value;"pulse";0.01;0.99]
+            name="unison";state`unison:parse_int_between[value;"unison";1;9]
+            name="detune";state`detune:parse_float_between[value;"detune";0.0;100.0]
+            name="fm_ratio";state`fm_ratio:parse_float_between[value;"fm ratio";0.1;16.0]
+            name="fm_index";state`fm_index:parse_float_between[value;"fm index";0.0;20.0]
+            name="seed";state`seed:parse_int_between[value;"seed";0;2147483647]
+            name="track";[
+              index:track_index[track_names;value]
+              $.[index<0
+                track_names:track_names,(,value)
+                track_positions,:0.0]
+              state`track:value]
+            name="pan";state`pan:parse_float_between[value;"pan";-1.0;1.0]
+            name="lowpass";state`lowpass:parse_float_between[value;"low-pass cutoff";0.0;20000.0]
+            name="delay";state`delay:parse_float_between[value;"delay";0.0;2.0]
+            name="feedback";state`feedback:parse_float_between[value;"feedback";0.0;0.95]
+            name="delay_mix";state`delay_mix:parse_float_between[value;"delay mix";0.0;1.0]
+            name="normalize";[
+              $.[#events>0;raise "normalize directive must appear before the first event"]
+              state`normalize:parse_float_between[value;"normalize target";0.0;1.0]]
+            name="limit";[
+              $.[#events>0;raise "limit directive must appear before the first event"]
+              state`limit:parse_float_between[value;"limit threshold";0.0;0.99]]
+            name="octave";state`octave:parse_int_between[value;"octave";0;8]
+            name="duration";state`duration:parse_duration_denominator[value;token]
+            raise fmt[
+              "unknown directive '{}': expected a TinySynth score directive";
+              name]]];
+         [repetition:parse_repetition token
+          event:parse_event[repetition 0;state]
+          N[repetition 1;
+            index:track_index[track_names;state`track]
+            event`start:track_positions index
+            event`seed:state`seed+event_serial
+            events:append_event[events;event]
+            track_positions[index]:track_positions index+event`seconds
+            event_serial+:1]]]]]]
+
+  $.[#events=0;raise "score contains no note or rest events"]
+  N[#events;
+    $.[events[_n]`tied
+      raise fmt[
+        "track '{}' ends with unresolved tie after event '{}'";
+        events[_n]`track;
+        events[_n]`token]]]
+  events}
+
+noise_wave:{[sample_count;seed]
+  generator:rng seed
+  range[0;sample_count]|map{2.0*generator[]-1.0}}
+
+oscillator:{[event;frequency;times;voice_seed]
+  cycles:frequency*times
+  $$[
+    event`wave="sine";sin[tau*cycles]
+    event`wave="square";sgn sin[tau*cycles]
+    event`wave="saw";2.0*(cycles%1.0)-1.0
+    event`wave="triangle";1.0-4.0*abs[(cycles+0.25)%1.0-0.5]
+    event`wave="pulse";cycles|map{$[x%1.0<event`pulse;1.0;-1.0]}
+    event`wave="fm";
+      sin[tau*cycles+event`fm_index*sin[tau*event`fm_ratio*cycles]]
+    event`wave="noise";noise_wave[#times;voice_seed]
+    raise fmt["unsupported oscillator wave '{}'";event`wave]]}
+
+unison_frequencies:{[frequency;voice_count;detune]
+  $[voice_count=1;
+    ,frequency;
+    [offsets:-1.0+2.0*(range[0;voice_count]+0.0)/(voice_count-1)
+     frequency*2^(detune*offsets/1200.0)]]}
+
+adsr_level:{[sample;attack_samples;decay_samples;sustain]
+  $$[
+    sample<attack_samples;sample/attack_samples
+    sample<attack_samples+decay_samples;
+      1.0-(1.0-sustain)*(sample-attack_samples)/decay_samples
+    sustain]}
+
+adsr_envelope:{[event;sample_count;sample_rate]
+  attack_samples:max[1;int round[event`attack*sample_rate]]
+  decay_samples:max[1;int round[event`decay*sample_rate]]
+  release_samples:max[1;int round[event`release*sample_rate]]
+  gate_sample:int round[event`gate*sample_count]
+  release_start:max[0;min[gate_sample;sample_count-release_samples]]
+  release_end:min[sample_count-1;release_start+release_samples]
+  release_level:adsr_level[
+    release_start;
+    attack_samples;
+    decay_samples;
+    event`sustain]
+  range[0;sample_count]|map{
+    $[x<release_start;
+      adsr_level[x;attack_samples;decay_samples;event`sustain];
+      $[release_end=release_start;
+        0.0;
+        release_level*max[0.0;(release_end-x)/(release_end-release_start)]]]}
+}
+
+lowpass_signal:{[signal;cutoff;sample_rate]
+  $.[cutoff=0.0;@r signal]
+  alpha:1.0-exp[-tau*cutoff/sample_rate]
+  output:repeat[0.0;#signal]
+  previous:0.0
+  N[#signal;
+    previous:previous+alpha*(signal _n-previous)
+    output[_n]:previous]
+  output}
+
+delay_tail_samples:{[event;sample_rate]
+  $[or[#event`frequencies=0;event`delay=0.0;event`delay_mix=0.0];
+    0;
+    4*max[1;int round[event`delay*sample_rate]]]}
+
+feedback_delay:{[signal;delay_samples;feedback;mix]
+  $.[or[delay_samples=0;mix=0.0];@r signal]
+  output:signal,repeat[0.0;4*delay_samples]
+  N[4;
+    offset:(_n+1)*delay_samples
+    gain:mix*feedback^_n
+    indexes:offset+range[0;#signal]
+    output[indexes]:output indexes+gain*signal]
+  output}
+
+synthesize_event:{[event;sample_rate;sample_count]
+  frequencies:event`frequencies
+  $[#frequencies=0;@r repeat[0.0;sample_count]]
+
+  times:(range[0;sample_count]+0.0)/sample_rate
+  signal:repeat[0.0;sample_count]
+  voice_count:0
+  N[#frequencies;
+    note_index:_n
+    voices:unison_frequencies[frequencies note_index;event`unison;event`detune]
+    N[#voices;
+      voice_seed:event`seed+97*note_index+7919*_n
+      signal:signal+oscillator[event;voices _n;times;voice_seed]
+      voice_count+:1]]
+  signal:signal/voice_count
+
+  envelope:adsr_envelope[event;sample_count;sample_rate]
+  signal:event`volume*signal*envelope
+  signal:lowpass_signal[signal;event`lowpass;sample_rate]
+  delay_samples:$[event`delay=0.0;0;max[1;int round[event`delay*sample_rate]]]
+  feedback_delay[signal;delay_samples;event`feedback;event`delay_mix]}
+
+soft_limit_sample:{[sample;threshold]
+  magnitude:abs sample
+  $[magnitude<=threshold;
+    sample;
+    sgn[sample]*(threshold+
+      (1.0-threshold)*(1.0-exp[-(magnitude-threshold)/(1.0-threshold)]))]}
+
+soft_limit_frames:{[frames;threshold]
+  frames|map{frame:x;frame|map{soft_limit_sample[x;threshold]}}}
+
+normalize_frames:{[frames;target]
+  peak:max abs flatten frames
+  $[peak=0.0;frames;frames*(target/peak)]}
+
+synthesize:{[events;sample_rate]
+  $.[or[sample_rate<8000;sample_rate>192000]
+    raise "sample rate must be between 8000 and 192000 Hz"]
+  sample_count:0
+  N[#events;
+    event:events _n
+    start_sample:int round[event`start*sample_rate]
+    end_sample:int round[(event`start+event`seconds)*sample_rate]
+    event_end:end_sample+delay_tail_samples[event;sample_rate]
+    $.[event_end>sample_count;sample_count:event_end]]
+  sample_count:max[1;sample_count]
+  left:repeat[0.0;sample_count]
+  right:repeat[0.0;sample_count]
+  N[#events;
+    event:events _n
+    start_sample:int round[event`start*sample_rate]
+    end_sample:int round[(event`start+event`seconds)*sample_rate]
+    event_sample_count:max[1;end_sample-start_sample]
+    signal:synthesize_event[event;sample_rate;event_sample_count]
+    pan_angle:(event`pan+1.0)*tau/8.0
+    left_gain:cos pan_angle
+    right_gain:sin pan_angle
+    indexes:start_sample+range[0;#signal]
+    left[indexes]:left indexes+left_gain*signal
+    right[indexes]:right indexes+right_gain*signal]
+  frames:zip[left;right]
+  $.[events[0]`limit>0.0;frames:soft_limit_frames[frames;events[0]`limit]]
+  $.[events[0]`normalize>0.0;frames:normalize_frames[frames;events[0]`normalize]]
+  frames}
+
+le16:{[value]
+  (value%256;(int floor[value/256])%256)}
+
+le32:{[value]
+  (value%256;
+   (int floor[value/256])%256;
+   (int floor[value/65536])%256;
+   (int floor[value/16777216])%256)}
+
+pcm16le:{[sample]
+  clipped:max[-1.0;min[1.0;sample]]
+  value:int round[32767.0*clipped]
+  unsigned:$[value<0;value+65536;value]
+  le16 unsigned}
+
+wav_bytes:{[samples;sample_rate;gain]
+  $.[or[gain<0.0;gain>1.0];raise "gain must be between 0 and 1"]
+  pcm:flatten map[flatten samples*gain;pcm16le]
+  data_size:#pcm
+  byte_rate:sample_rate*4
+  encode["RIFF";"utf-8"],
+    le32[36+data_size],
+    encode["WAVEfmt ";"utf-8"],
+    le32[16],
+    le16[1],
+    le16[2],
+    le32[sample_rate],
+    le32[byte_rate],
+    le16[4],
+    le16[16],
+    encode["data";"utf-8"],
+    le32[data_size],
+    pcm}
+
+write_wav:{[path;samples;sample_rate;gain]
+  bytes:wav_bytes[samples;sample_rate;gain]
+  stream:$[path=,"-";
+    open["/dev/stdout";`write:T];
+    open[path;`write:T;`create:T;`truncate:T]]
+  write[stream;bytes]
+  close stream
+  #bytes}
+
+render_score:{[source;path;sample_rate;gain]
+  events:parse_score source
+  samples:synthesize[events;sample_rate]
+  byte_count:write_wav[path;samples;sample_rate;gain]
+  (`path:path;
+   `events:#events;
+   `samples:#samples;
+   `seconds:#samples/sample_rate;
+   `bytes:byte_count)}
+
+(`parse_score:parse_score;
+ `synthesize:synthesize;
+ `normalize_frames:normalize_frames;
+ `wav_bytes:wav_bytes;
+ `write_wav:write_wav;
+ `render_score:render_score)

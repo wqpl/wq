@@ -1,0 +1,59 @@
+// Filtered stereo voices with overlapping echoes and gentle mastering.
+
+tempo=104
+normalize=0.92
+limit=0.76
+seed=404
+
+track=pad
+pan=-0.42
+octave=3
+wave=saw
+unison=3
+detune=7
+volume=0.22
+attack=0.12
+decay=0.2
+sustain=0.64
+release=0.25
+gate=1
+lowpass=1200
+delay=0
+C+E+G/2 F+A+C4/2 A+C4+E4/2 G+B+D4/2
+
+track=echo
+pan=0.38
+octave=4
+duration=8
+wave=fm
+fm_ratio=2
+fm_index=1.4
+unison=1
+volume=0.3
+attack=0.006
+decay=0.08
+sustain=0.6
+release=0.1
+gate=0.78
+lowpass=3600
+delay=0.18
+feedback=0.46
+delay_mix=0.34
+C E G > C | < B G E D
+C F A > C | < A F D C
+
+track=rain
+pan=0.05
+wave=noise
+volume=0.12
+attack=0
+decay=0.018
+sustain=0
+release=0.025
+gate=0.3
+lowpass=5200
+delay=0.09
+feedback=0.28
+delay_mix=0.18
+N/32 R/32 N/32 R/32 N/16 R/16 N/32*2 R/16
+N/32 R/32 N/32 R/32 N/16 R/16 N/32*2 R/16

@@ -1,0 +1,17 @@
+// TinySynth notation tour: defaults, shifts, bars, repeats, dots, and triplets.
+
+tempo=126
+octave=4
+duration=8
+wave=triangle
+volume=0.58
+attack=0.006
+release=0.04
+
+C D E G | > C/4 < G E D
+C/16*4 E/16*4 G/16*4 | > C/2
+
+wave=sine
+volume=0.7
+< A/8t B/8t > C/8t | < G/8.. R/16
+C+E+G/2.

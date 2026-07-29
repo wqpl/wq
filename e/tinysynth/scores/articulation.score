@@ -1,0 +1,27 @@
+// ADSR articulation: clipped pulses, swelling chords, and seamless ties.
+
+tempo=108
+octave=4
+duration=8
+wave=square
+volume=0.22
+attack=0.002
+decay=0.015
+sustain=0.45
+release=0.025
+gate=0.48
+
+C*2 E*2 G*2 > C/4 | < G E C R
+
+wave=triangle
+volume=0.56
+attack=0.08
+decay=0.18
+sustain=0.68
+release=0.22
+gate=1.0
+
+C+E+G/4~ C+E+G/4
+D+F+A/4~ D+F+A/4
+E+G+B/4~ E+G+B/4
+C+E+G/2.

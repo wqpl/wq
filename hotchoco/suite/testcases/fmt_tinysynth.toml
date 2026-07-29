@@ -1,0 +1,10 @@
+name = "fmt_tinysynth"
+source_glob = "e/tinysynth/*.wq"
+exclude_marker = "//fmt exclude"
+output_extension = ".wq"
+
+[[modes]]
+name = "fmt-default"
+subcommand = "fmt"
+flags = []
+capture = "stdout"

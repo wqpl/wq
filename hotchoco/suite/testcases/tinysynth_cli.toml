@@ -1,0 +1,7 @@
+name = "tinysynth_cli"
+source_glob = "e/tinysynth/cli.wq"
+
+[[modes]]
+name = "help"
+flags = ["--", "--help"]
+capture = "stdout+stderr"

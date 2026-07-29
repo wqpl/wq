@@ -1,0 +1,16 @@
+// Sustained chords moving from warm triangle tones to a sine resolution.
+
+tempo=76
+wave=triangle
+volume=0.58
+attack=0.04
+release=0.16
+
+C3+G3+C4+E4/2
+A2+E3+A3+C4/2
+F2+C3+F3+A3/2
+G2+D3+G3+B3/2
+
+wave=sine
+volume=0.72
+C3+G3+C4+E4/1

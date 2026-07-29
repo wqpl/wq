@@ -1,0 +1,29 @@
+// Oscillator lab: pulse width, unison detune, FM color, and seeded noise.
+
+tempo=112
+octave=3
+duration=8
+volume=0.28
+attack=0.008
+decay=0.06
+sustain=0.58
+release=0.08
+gate=0.88
+
+wave=pulse pulse=0.18 unison=3 detune=9
+C E G > C | < G E C R
+
+wave=fm fm_ratio=2 fm_index=1.8 unison=1
+C/8 D/8 E/8 G/8 | > C/4 < G/4
+fm_ratio=3 fm_index=3.2
+C+E+G/2
+
+seed=2026
+wave=noise
+volume=0.36
+attack=0
+decay=0.025
+sustain=0
+release=0.03
+gate=0.4
+N/16*3 R/16 N/8 R/8 N/16*2 R/8
