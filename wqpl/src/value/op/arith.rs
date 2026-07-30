@@ -3,6 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
@@ -279,6 +280,68 @@ where
     } else {
         a.iter().zip(b.iter()).map(|(&x, &y)| f(x, y)).collect()
     }
+}
+
+fn floatlist_map<F>(items: &[OrderedFloat<f64>], f: F) -> Vec<OrderedFloat<f64>>
+where
+    F: Fn(f64) -> f64 + Sync + Send,
+{
+    if items.len() >= PAR_BC_THRESHOLD {
+        items.par_iter().map(|x| OrderedFloat(f(x.0))).collect()
+    } else {
+        items.iter().map(|x| OrderedFloat(f(x.0))).collect()
+    }
+}
+
+fn floatlist_zip_map<F>(
+    left: &[OrderedFloat<f64>],
+    right: &[OrderedFloat<f64>],
+    f: F,
+) -> Option<Vec<OrderedFloat<f64>>>
+where
+    F: Fn(f64, f64) -> f64 + Sync + Send,
+{
+    if left.len() != right.len() {
+        return None;
+    }
+    if left.len() >= PAR_BC_THRESHOLD {
+        Some(
+            left.par_iter()
+                .zip(right.par_iter())
+                .map(|(left, right)| OrderedFloat(f(left.0, right.0)))
+                .collect(),
+        )
+    } else {
+        Some(
+            left.iter()
+                .zip(right.iter())
+                .map(|(left, right)| OrderedFloat(f(left.0, right.0)))
+                .collect(),
+        )
+    }
+}
+
+fn packed_float_binary<F>(left: &Value, right: &Value, f: F) -> Option<Value>
+where
+    F: Fn(f64, f64) -> f64 + Sync + Send + Copy,
+{
+    let values = match (left, right) {
+        (Value::FloatList(left), Value::FloatList(right)) => floatlist_zip_map(left, right, f)?,
+        (Value::FloatList(items), Value::Float(atom)) => {
+            floatlist_map(items, |value| f(value, atom.0))
+        }
+        (Value::Float(atom), Value::FloatList(items)) => {
+            floatlist_map(items, |value| f(atom.0, value))
+        }
+        (Value::FloatList(items), Value::Int(atom)) => {
+            floatlist_map(items, |value| f(value, *atom as f64))
+        }
+        (Value::Int(atom), Value::FloatList(items)) => {
+            floatlist_map(items, |value| f(*atom as f64, value))
+        }
+        _ => return None,
+    };
+    Some(Value::FloatList(Arc::new(values)))
 }
 
 fn affine_int_range(range: &IntRangeData, scale: i64, offset: i64) -> Option<Value> {
@@ -1111,6 +1174,9 @@ impl Value {
         if let Some(res) = add_intlist(self, other) {
             return Ok(res);
         }
+        if let Some(res) = packed_float_binary(self, other, |left, right| left + right) {
+            return Ok(res);
+        }
         if self.is_atom() && other.is_atom() {
             return add_atoms(self, other);
         }
@@ -1121,6 +1187,9 @@ impl Value {
         if let Some(res) = sub_intlist(self, other) {
             return Ok(res);
         }
+        if let Some(res) = packed_float_binary(self, other, |left, right| left - right) {
+            return Ok(res);
+        }
         if self.is_atom() && other.is_atom() {
             return sub_atoms(self, other);
         }
@@ -1129,6 +1198,9 @@ impl Value {
 
     pub(crate) fn multiply(&self, other: &Value) -> WqResult<Value> {
         if let Some(res) = mul_intlist(self, other) {
+            return Ok(res);
+        }
+        if let Some(res) = packed_float_binary(self, other, |left, right| left * right) {
             return Ok(res);
         }
         if self.is_atom() && other.is_atom() {
@@ -1205,6 +1277,28 @@ mod tests {
             }
             other => panic!("expected bigint result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn packed_float_kernels_preserve_arithmetic_results() {
+        let left = Value::from_items(vec![Value::float(1.5), Value::float(-2.0)]);
+        let right = Value::from_items(vec![Value::float(0.5), Value::float(4.0)]);
+
+        assert_eq!(
+            left.add(&right).expect("packed addition succeeds"),
+            Value::from_items(vec![Value::float(2.0), Value::float(2.0)])
+        );
+        assert_eq!(
+            Value::float(10.0)
+                .subtract(&left)
+                .expect("packed subtraction succeeds"),
+            Value::from_items(vec![Value::float(8.5), Value::float(12.0)])
+        );
+        assert_eq!(
+            left.multiply(&Value::Int(2))
+                .expect("packed multiplication succeeds"),
+            Value::from_items(vec![Value::float(3.0), Value::float(-4.0)])
+        );
     }
 
     #[test]
