@@ -492,6 +492,7 @@ fn is_store(op: &Instruction) -> bool {
             | I::StoreLocal(_)
             | I::StoreLocalKeep(_)
             | I::StoreCaptureKeep(_)
+            | I::CatAssign(_)
             | I::IndexAssignVar(_)
             | I::IndexAssignLocal(_)
             | I::IndexAssignCapture(_)

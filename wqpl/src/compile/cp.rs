@@ -427,6 +427,25 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
+        I::CatAssign(data) => {
+            let right = resolve_transfer_operand(&mut state, &data.right);
+            let left = match &data.target {
+                StoreTarget::Local(slot) => state.local(*slot),
+                StoreTarget::Capture(slot) => state.capture(*slot),
+                StoreTarget::Var(name) => state.global(name),
+            };
+            let result = left
+                .zip(right)
+                .map(|(left, right)| left.cat(right))
+                .and_then(trackable_value);
+            match &data.target {
+                StoreTarget::Local(slot) => state.set_local(*slot, result.clone()),
+                StoreTarget::Capture(slot) => state.set_capture(*slot, result.clone()),
+                StoreTarget::Var(name) => state.set_global(name, result.clone()),
+            }
+            state.push(result);
+            fallthrough(pc, state)
+        }
         I::BoolCombine(operator) => {
             let values = state.pop_many(2);
             let result = values
@@ -1176,6 +1195,12 @@ fn note_inst_locals(inst: &Instruction, count: &mut usize) {
             note_operand_locals(&data.left, count);
             note_operand_locals(&data.right, count);
         }
+        I::CatAssign(data) => {
+            if let StoreTarget::Local(slot) = &data.target {
+                note_slot(*slot, count);
+            }
+            note_operand_locals(&data.right, count);
+        }
         I::JumpIfCmpFalse(data) => {
             note_operand_locals(&data.left, count);
             note_operand_locals(&data.right, count);
@@ -1209,6 +1234,12 @@ fn note_inst_captures(inst: &Instruction, count: &mut usize) {
         | I::IndexManyAssignCaptureDrop(slot, _) => note_slot(*slot, count),
         I::BinaryOp(data) => {
             note_operand_captures(&data.left, count);
+            note_operand_captures(&data.right, count);
+        }
+        I::CatAssign(data) => {
+            if let StoreTarget::Capture(slot) = &data.target {
+                note_slot(*slot, count);
+            }
             note_operand_captures(&data.right, count);
         }
         I::JumpIfCmpFalse(data) => {

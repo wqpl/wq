@@ -3919,6 +3919,28 @@ mod tests {
     }
 
     #[test]
+    fn cat_assignment_preserves_aliases_results_and_reference_captures() {
+        let mut session = Session::new();
+
+        let aliases = session
+            .eval_string("f:{[]a:(1;2);b:a;result:(a,:3);(a;b;result)};f[]")
+            .expect("cat assignment with an alias should succeed");
+        assert_eq!(
+            aliases,
+            Value::from_items(vec![
+                Value::from_items(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+                Value::from_items(vec![Value::Int(1), Value::Int(2)]),
+                Value::from_items(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+            ])
+        );
+
+        let captured = session
+            .eval_string("f:{[]s:\"\";push:'{[c]s,:c};push \"a\";push \"b\";s};f[]")
+            .expect("captured cat assignment should succeed");
+        assert_eq!(captured, crate::value::into_wq_string("ab"));
+    }
+
+    #[test]
     fn chars_are_distinct_from_singleton_strings() {
         let mut session = Session::new();
 

@@ -1205,6 +1205,39 @@ mod tests {
     }
 
     #[test]
+    fn cat_reuses_unique_packed_storage() {
+        let ints = Arc::new(Vec::with_capacity(4));
+        let int_ptr = Arc::as_ptr(&ints);
+        let ints = Value::IntList(ints).cat(Value::Int(1));
+        let Value::IntList(ints) = ints else {
+            unreachable!("expected packed int list");
+        };
+        assert_eq!(Arc::as_ptr(&ints), int_ptr);
+
+        let string = Arc::new(String::with_capacity(4));
+        let string_ptr = Arc::as_ptr(&string);
+        let string = Value::String(string).cat(Value::Char('a'));
+        let Value::String(string) = string else {
+            unreachable!("expected string");
+        };
+        assert_eq!(Arc::as_ptr(&string), string_ptr);
+    }
+
+    #[test]
+    fn cat_copies_shared_packed_storage() {
+        let ints = Arc::new(vec![1, 2]);
+        let alias = ints.clone();
+        let ints = Value::IntList(ints).cat(Value::Int(3));
+        let Value::IntList(ints) = ints else {
+            unreachable!("expected packed int list");
+        };
+
+        assert_ne!(Arc::as_ptr(&ints), Arc::as_ptr(&alias));
+        assert_eq!(alias.as_slice(), [1, 2]);
+        assert_eq!(ints.as_slice(), [1, 2, 3]);
+    }
+
+    #[test]
     fn string_cat_with_char() {
         let s = into_wq_string("hello");
         let c = Value::Char('!');

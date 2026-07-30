@@ -544,6 +544,22 @@ impl VanillaInterpreter {
                         hooks.on_binary_result(&op, &result);
                         vm.stack.push(result);
                     }
+                    Instruction::CatAssign(data) => {
+                        let right = resolve_operand(vm, idx, &data.right, 1, hooks)
+                            .map_err(|e| e.src("binary operator ',' right operand"))?;
+                        let result = mutate_target(
+                            vm,
+                            idx,
+                            &data.target,
+                            SymbolMutationKind::Store,
+                            |target| {
+                                let left = std::mem::replace(target, Value::empty_list());
+                                *target = left.cat(right);
+                                Ok(target.clone())
+                            },
+                        )?;
+                        vm.stack.push(result);
+                    }
                     Instruction::Cat(n) => {
                         let count = *n;
                         ensure_stack_len(&vm.stack, count, || "cat operands".into())?;

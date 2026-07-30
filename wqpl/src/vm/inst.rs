@@ -83,6 +83,12 @@ pub(crate) struct BinaryOpData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CatAssignData {
+    pub(crate) target: StoreTarget,
+    pub(crate) right: Operand,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CmpBranchData {
     pub(crate) op: BinaryOperator,
     pub(crate) left: Operand,
@@ -164,6 +170,9 @@ pub(crate) enum Instruction {
     /// Discard the active anonymous unpack frame.
     EndUnpack,
     BinaryOp(Box<BinaryOpData>),
+    /// Concatenate into an existing binding while retaining assignment value
+    /// semantics.
+    CatAssign(Box<CatAssignData>),
     /// Evaluate a chain of comparison operators; expects N+1 operands
     CmpChain(Box<[BinaryOperator]>),
     /// Concatenate N items from the stack into a single value
@@ -261,6 +270,10 @@ impl Instruction {
         Self::BinaryOp(Box::new(BinaryOpData { op, left, right }))
     }
 
+    pub(crate) fn cat_assign(target: StoreTarget, right: Operand) -> Self {
+        Self::CatAssign(Box::new(CatAssignData { target, right }))
+    }
+
     pub(crate) fn jump_if_cmp_false(
         op: BinaryOperator,
         left: Operand,
@@ -295,6 +308,7 @@ impl Instruction {
         matches!(
             self,
             I::BinaryOp(_)
+                | I::CatAssign(_)
                 | I::BoolCombine(_)
                 | I::LoadVar(_)
                 | I::LoadLocal(_)
@@ -371,6 +385,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::StoreVar(_)
         // | I::DeleteVar(_)
         | I::StoreVarKeep(_)
+        | I::CatAssign(_)
         => (Store, false),
 
         // Calls
@@ -707,6 +722,12 @@ impl InstPrettyDumper {
         {
             parts.push(name.into());
         }
+        if let Instruction::CatAssign(data) = inst
+            && let StoreTarget::Local(slot) = &data.target
+            && let Some(name) = Self::local_name(*slot, locals_names)
+        {
+            parts.push(name.into());
+        }
 
         // capture indices
         if let Instruction::LoadCapture(i)
@@ -723,6 +744,13 @@ impl InstPrettyDumper {
             parts.push(desc);
         }
         if let Instruction::LoadCallTarget(Operand::Capture(slot)) = inst {
+            let desc =
+                Self::capture_desc(*slot, captures_spec).unwrap_or_else(|| "capture".to_string());
+            parts.push(desc);
+        }
+        if let Instruction::CatAssign(data) = inst
+            && let StoreTarget::Capture(slot) = &data.target
+        {
             let desc =
                 Self::capture_desc(*slot, captures_spec).unwrap_or_else(|| "capture".to_string());
             parts.push(desc);

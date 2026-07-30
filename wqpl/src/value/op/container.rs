@@ -4,7 +4,7 @@ use crate::value::Value;
 use crate::value::seq::ListStorageSeq;
 
 impl Value {
-    pub(crate) fn cat(self, other: Value) -> Value {
+    pub(crate) fn cat(mut self, other: Value) -> Value {
         // Fast path: if both sides are char-sequences (String, char-list, or Char),
         // produce a unified String result. This also handles mixed String/char-list
         // concatenation which would otherwise fall through to generic List arms.
@@ -14,9 +14,22 @@ impl Value {
                 return Value::empty_list();
             }
 
+            let other = other.try_to_rust_string().expect("valid string");
+            if let Value::String(s) = &mut self {
+                Arc::make_mut(s).push_str(&other);
+                return self;
+            }
+
             let mut s = self.try_to_rust_string().expect("valid string");
-            s.push_str(&other.try_to_rust_string().expect("valid string"));
+            s.push_str(&other);
             return Value::String(Arc::from(s));
+        }
+
+        if let Value::IntList(items) = &mut self
+            && let Some(other) = other.native_int_seq()
+        {
+            Arc::make_mut(items).extend(other.iter());
+            return self;
         }
 
         if let (Some(a), Some(b)) = (self.native_int_seq(), other.native_int_seq()) {

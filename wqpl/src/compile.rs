@@ -213,6 +213,15 @@ impl Compiler {
                 Instruction::BinaryOp(data) => self
                     .ambient_global_from_operand(&data.left)
                     .or_else(|| self.ambient_global_from_operand(&data.right)),
+                Instruction::CatAssign(data) => {
+                    let target = match &data.target {
+                        StoreTarget::Var(name) if !self.builtins.has_function(name) => {
+                            Some((name.to_string(), None))
+                        }
+                        _ => None,
+                    };
+                    target.or_else(|| self.ambient_global_from_operand(&data.right))
+                }
                 Instruction::JumpIfCmpFalse(data) => self
                     .ambient_global_from_operand(&data.left)
                     .or_else(|| self.ambient_global_from_operand(&data.right)),
@@ -1254,27 +1263,37 @@ impl Compiler {
                 ..
             } => {
                 if let Some(op) = op {
-                    if *op == BinaryOperator::Cat {
-                        // Cat assignment: name ,: rhs → name = name, rhs
-                        // Compile both operands as stack values for Cat(n)
-                        self.compile_expr(&AstNode::Variable(name.clone(), *name_span))?;
-                        self.compile_expr(value)?;
-                        self.instructions.push(Instruction::Cat(2));
-                    } else {
-                        let left = if Self::rhs_cannot_mutate_bindings(value) {
-                            self.operand_for_name(name)?
-                        } else {
-                            // Snapshot the old value before evaluating an RHS
-                            // that may mutate this binding directly or through
-                            // a reference capture.
-                            self.compile_expr(&AstNode::Variable(name.clone(), *name_span))?;
-                            Operand::Stack
-                        };
+                    if *op == BinaryOperator::Cat
+                        && self.can_embed_cat_assign_rhs(value)
+                        && let Some(target) = self.cat_assign_target(name)
+                    {
                         let right = self.compile_expr_as_operand(value)?;
+                        debug_assert!(!matches!(right, Operand::Stack));
                         self.instructions
-                            .push(Instruction::binary_op(*op, left, right));
+                            .push(Instruction::cat_assign(target, right));
+                    } else {
+                        if *op == BinaryOperator::Cat {
+                            // Snapshot the old value before evaluating an RHS
+                            // that may mutate this binding.
+                            self.compile_expr(&AstNode::Variable(name.clone(), *name_span))?;
+                            self.compile_expr(value)?;
+                            self.instructions.push(Instruction::Cat(2));
+                        } else {
+                            let left = if Self::rhs_cannot_mutate_bindings(value) {
+                                self.operand_for_name(name)?
+                            } else {
+                                // Snapshot the old value before evaluating an RHS
+                                // that may mutate this binding directly or through
+                                // a reference capture.
+                                self.compile_expr(&AstNode::Variable(name.clone(), *name_span))?;
+                                Operand::Stack
+                            };
+                            let right = self.compile_expr_as_operand(value)?;
+                            self.instructions
+                                .push(Instruction::binary_op(*op, left, right));
+                        }
+                        self.emit_store_keep(name)?;
                     }
-                    self.emit_store_keep(name)?;
                 } else if let AstNode::Function {
                     params,
                     ref_capture,
@@ -1422,29 +1441,42 @@ impl Compiler {
                 ..
             } => {
                 if let Some(op) = op {
-                    if *op == BinaryOperator::Cat {
-                        self.compile_expr(&AstNode::OuterVariable(name.clone(), *name_span))?;
-                        self.compile_expr(value)?;
-                        self.instructions.push(Instruction::Cat(2));
-                    } else {
-                        let left = if Self::rhs_cannot_mutate_bindings(value) {
-                            if let Some(idx) = self.ref_capture_map.get(name) {
-                                Operand::Capture(*idx)
-                            } else {
-                                Operand::Var(name.clone().into())
-                            }
-                        } else {
-                            // Keep augmented assignment evaluation consistent
-                            // with Cat assignment and ordinary binary
-                            // expressions when the RHS may have effects.
-                            self.compile_expr(&AstNode::OuterVariable(name.clone(), *name_span))?;
-                            Operand::Stack
-                        };
+                    if *op == BinaryOperator::Cat
+                        && self.can_embed_cat_assign_rhs(value)
+                        && let Some(target) = self.outer_cat_assign_target(name)
+                    {
                         let right = self.compile_expr_as_operand(value)?;
+                        debug_assert!(!matches!(right, Operand::Stack));
                         self.instructions
-                            .push(Instruction::binary_op(*op, left, right));
+                            .push(Instruction::cat_assign(target, right));
+                    } else {
+                        if *op == BinaryOperator::Cat {
+                            self.compile_expr(&AstNode::OuterVariable(name.clone(), *name_span))?;
+                            self.compile_expr(value)?;
+                            self.instructions.push(Instruction::Cat(2));
+                        } else {
+                            let left = if Self::rhs_cannot_mutate_bindings(value) {
+                                if let Some(idx) = self.ref_capture_map.get(name) {
+                                    Operand::Capture(*idx)
+                                } else {
+                                    Operand::Var(name.clone().into())
+                                }
+                            } else {
+                                // Keep augmented assignment evaluation consistent
+                                // with ordinary binary expressions when the RHS
+                                // can have effects.
+                                self.compile_expr(&AstNode::OuterVariable(
+                                    name.clone(),
+                                    *name_span,
+                                ))?;
+                                Operand::Stack
+                            };
+                            let right = self.compile_expr_as_operand(value)?;
+                            self.instructions
+                                .push(Instruction::binary_op(*op, left, right));
+                        }
+                        self.emit_outer_store_keep(name, *name_span)?;
                     }
-                    self.emit_outer_store_keep(name, *name_span)?;
                 } else {
                     self.compile_expr(value)?;
                     self.emit_outer_store_keep(name, *name_span)?;
@@ -2667,6 +2699,35 @@ impl Compiler {
                 | AstNode::OuterVariable(..)
                 | AstNode::UnpackValue { .. }
         )
+    }
+
+    fn can_embed_cat_assign_rhs(&self, node: &AstNode) -> bool {
+        !self.trace_symbol_operands
+            && matches!(
+                node,
+                AstNode::Literal(..) | AstNode::Variable(..) | AstNode::OuterVariable(..)
+            )
+    }
+
+    fn cat_assign_target(&self, name: &str) -> Option<StoreTarget> {
+        if self.fn_depth == 0 {
+            return None;
+        }
+        if self.is_ref_default_name(name) {
+            return self
+                .ref_capture_map
+                .get(name)
+                .copied()
+                .map(StoreTarget::Capture);
+        }
+        self.locals.get(name).copied().map(StoreTarget::Local)
+    }
+
+    fn outer_cat_assign_target(&self, name: &str) -> Option<StoreTarget> {
+        self.ref_capture_map
+            .get(name)
+            .copied()
+            .map(StoreTarget::Capture)
     }
 
     fn compile_binary_chain(
@@ -4244,6 +4305,47 @@ mod tests {
             .position(|local| local == name)
             .expect("expected local slot");
         u16::try_from(slot).expect("local slot fits in u16")
+    }
+
+    #[test]
+    fn local_cat_assignment_uses_owned_update_instruction() {
+        let top = compile_source("f:{xs:();xs,:1;xs}");
+        let function = compiled_function_in(&top);
+        let xs_slot = slot_named(
+            function
+                .dbg_local_names
+                .as_deref()
+                .expect("local names should exist"),
+            "xs",
+        );
+
+        assert!(function.instructions.iter().any(|instruction| {
+            matches!(
+                instruction,
+                Instruction::CatAssign(data)
+                    if data.target == StoreTarget::Local(xs_slot)
+                        && matches!(&data.right, Operand::Const(value) if **value == Value::Int(1))
+            )
+        }));
+    }
+
+    #[test]
+    fn effectful_cat_assignment_keeps_snapshot_lowering() {
+        let top = compile_source("f:{xs:(1;2);next:{xs:9;3};xs,:next[];xs}");
+        let function = compiled_function_in(&top);
+
+        assert!(
+            function
+                .instructions
+                .iter()
+                .any(|instruction| matches!(instruction, Instruction::Cat(2)))
+        );
+        assert!(
+            !function
+                .instructions
+                .iter()
+                .any(|instruction| matches!(instruction, Instruction::CatAssign(_)))
+        );
     }
 
     #[test]
