@@ -1877,6 +1877,35 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_function_n_loop_uses_iteration_snapshot() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("run:{[n]seen:();N[n;seen,:_n;_n:99];seen};run 5")
+            .expect("dynamic N-loop should evaluate");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![0, 1, 2, 3, 4])));
+    }
+
+    #[test]
+    fn dynamic_function_n_loop_preserves_control_and_outer_index() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string(
+                "_n:42;run:{[n]seen:();N[n;$.[_n=1;@c];seen,:_n;$.[_n=3;@b]];seen};\
+                 (run 6;_n)",
+            )
+            .expect("dynamic N-loop control should evaluate");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![0, 2, 3])),
+                Value::Int(42),
+            ]))
+        );
+    }
+
+    #[test]
     fn const_propagation_preserves_branch_dependent_dict_order() {
         let mut session = Session::new();
         let result = session

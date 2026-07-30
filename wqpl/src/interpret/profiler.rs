@@ -639,6 +639,8 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::Jump(_) => "Jump",
         I::JumpIfFalse(_) => "JumpIfFalse",
         I::JumpIfCmpFalse(_) => "JumpIfCmpFalse",
+        I::NLoopEnter(_) => "NLoopEnter",
+        I::NLoopNext(_) => "NLoopNext",
         I::JumpIfGE(_) => "JumpIfGE",
         I::JumpIfLEZLocal(_, _) => "JumpIfLEZLocal",
         I::JumpIfNamedProvided(_, _, _) => "JumpIfNamedProvided",
@@ -742,6 +744,11 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::Jump(_) => "Jump".to_string(),
         I::JumpIfFalse(_) => "JumpIfFalse".to_string(),
         I::JumpIfCmpFalse(data) => format!("JumpIfCmpFalse({:?})", data.op),
+        I::NLoopEnter(data) => format!(
+            "NLoopEnter({}/{}/{})",
+            data.index, data.count, data.snapshot
+        ),
+        I::NLoopNext(data) => format!("NLoopNext({}/{})", data.snapshot, data.index),
         I::JumpIfGE(_) => "JumpIfGE".to_string(),
         I::JumpIfLEZLocal(slot, _) => format!("JumpIfLEZLocal({slot})"),
         I::JumpIfNamedProvided(slot, bit, _) => {

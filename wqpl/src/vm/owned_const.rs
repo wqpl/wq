@@ -56,6 +56,11 @@ fn successors(pc: usize, inst: &Instruction, len: usize) -> Vec<usize> {
             push_fallthrough(&mut out, pc, len);
             push_target(&mut out, data.target, len);
         }
+        Instruction::NLoopEnter(data) => {
+            push_fallthrough(&mut out, pc, len);
+            push_target(&mut out, data.target, len);
+        }
+        Instruction::NLoopNext(data) => push_target(&mut out, data.target, len),
         Instruction::JumpIfLEZLocal(_, target) => {
             push_fallthrough(&mut out, pc, len);
             push_target(&mut out, *target, len);

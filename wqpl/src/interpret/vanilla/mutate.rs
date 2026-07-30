@@ -172,6 +172,11 @@ pub(super) fn store_local_impl(vm: &mut Vm, idx: usize, i: u16, keep: bool) -> W
         pop1_stack(&mut vm.stack, || "store into local slot".into())
             .map_err(|e| vm.attach_local_slot_note(slot, e))?
     };
+    store_local_value(vm, idx, i, val)
+}
+
+pub(super) fn store_local_value(vm: &mut Vm, idx: usize, i: u16, val: Value) -> WqResult<()> {
+    let slot = usize::from(i);
     let track = vm.symbol_trackers_enabled();
     let new = track.then(|| val.clone());
     let mut old = None;

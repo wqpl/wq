@@ -418,6 +418,12 @@ fn fuse_once(
                 JumpIfCmpFalse(data) => {
                     data.target = old_to_new[data.target];
                 }
+                NLoopEnter(data) => {
+                    data.target = old_to_new[data.target];
+                }
+                NLoopNext(data) => {
+                    data.target = old_to_new[data.target];
+                }
                 BoolAndLazy(pos) | BoolOrLazy(pos) => {
                     *pos = old_to_new[*pos];
                 }

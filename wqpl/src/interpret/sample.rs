@@ -524,6 +524,8 @@ fn is_jump(op: &Instruction) -> bool {
         I::Jump(_)
             | I::JumpIfFalse(_)
             | I::JumpIfCmpFalse(_)
+            | I::NLoopEnter(_)
+            | I::NLoopNext(_)
             | I::JumpIfGE(_)
             | I::JumpIfLEZLocal(_, _)
             | I::JumpIfNamedProvided(_, _, _)
@@ -611,6 +613,13 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::BoolAndLazy(target)
         | I::BoolOrLazy(target) => *target,
         I::JumpIfCmpFalse(data) => data.target,
+        I::NLoopEnter(data) => {
+            usize::from(data.index)
+                ^ usize::from(data.count)
+                ^ usize::from(data.snapshot)
+                ^ data.target
+        }
+        I::NLoopNext(data) => usize::from(data.snapshot) ^ usize::from(data.index) ^ data.target,
         I::JumpIfLEZLocal(slot, target) => usize::from(*slot) ^ *target,
         I::JumpIfNamedProvided(slot, bit, target) => {
             usize::from(*slot) ^ usize::from(*bit) ^ *target

@@ -1324,6 +1324,29 @@ impl VanillaInterpreter {
                             vm.pc = target;
                         }
                     }
+                    Instruction::NLoopEnter(data) => {
+                        let index = read_n_loop_local(vm, data.index)?;
+                        let count = read_n_loop_local(vm, data.count)?;
+                        if eval_n_loop_condition(vm, idx, &index, &count)? {
+                            store_local_value(vm, idx, data.snapshot, index)?;
+                        } else {
+                            vm.pc = data.target;
+                        }
+                    }
+                    Instruction::NLoopNext(data) => {
+                        let snapshot = read_n_loop_local(vm, data.snapshot)?;
+                        let next = match snapshot {
+                            Value::Int(value) if let Some(next) = value.checked_add(1) => {
+                                Value::Int(next)
+                            }
+                            snapshot => {
+                                eval_binary(&BinaryOperator::Add, &snapshot, &Value::Int(1))?
+                            }
+                        };
+                        hooks.on_binary_result(&BinaryOperator::Add, &next);
+                        store_local_value(vm, idx, data.index, next)?;
+                        vm.pc = data.target;
+                    }
                     Instruction::JumpIfGE(pos) => {
                         let target = *pos;
                         // Pop right then left, jump if left >= right
@@ -1879,6 +1902,32 @@ fn eval_cmp_branch_condition(
             eval_binary(&data.op, &left, &right)?
         };
 
+    result.try_to_rust_bool().ok_or_else(|| {
+        attach_pc_source_ctx(
+            vm,
+            idx,
+            domain_requirement(Requirement::BOOL)
+                .got1(&result)
+                .attach_note("this value is used as a branch or loop condition"),
+        )
+    })
+}
+
+fn read_n_loop_local(vm: &Vm, slot: u16) -> WqResult<Value> {
+    vm.locals
+        .last()
+        .and_then(|locals| locals.get(usize::from(slot)))
+        .map(crate::vm::Slot::read)
+        .ok_or_else(|| {
+            vm.attach_local_slot_note(usize::from(slot), vm_err("invalid local slot for N-loop"))
+        })
+}
+
+fn eval_n_loop_condition(vm: &Vm, idx: usize, index: &Value, count: &Value) -> WqResult<bool> {
+    if let (Value::Int(index), Value::Int(count)) = (index, count) {
+        return Ok(index < count);
+    }
+    let result = eval_binary(&BinaryOperator::Lt, index, count)?;
     result.try_to_rust_bool().ok_or_else(|| {
         attach_pc_source_ctx(
             vm,

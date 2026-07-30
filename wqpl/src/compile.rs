@@ -2204,25 +2204,47 @@ impl Compiler {
                     self.emit_load_const(Value::empty_list());
                     self.emit_store(result_var)?;
                 }
+                let local_loop_slots = if self.fn_depth > 0 && !self.trace_symbol_operands {
+                    let index = self
+                        .locals
+                        .get("_n")
+                        .copied()
+                        .expect("N-loop index local should exist");
+                    let count = self
+                        .locals
+                        .get(&count_var)
+                        .copied()
+                        .expect("N-loop count local should exist");
+                    let snapshot = self.local_slot(&old_var)?;
+                    Some((index, count, snapshot))
+                } else {
+                    None
+                };
                 let cmp_start = self.instructions.len();
                 self.backward_jump_targets.insert(cmp_start);
-                let left = self.operand_for_name("_n")?;
-                let right = self.operand_for_name(&count_var)?;
-                self.instructions
-                    .push(Instruction::binary_op(BinaryOperator::Lt, left, right));
+                let jump_pos = if let Some((index, count, snapshot)) = local_loop_slots {
+                    self.instructions
+                        .push(Instruction::n_loop_enter(index, count, snapshot, 0));
+                    cmp_start
+                } else {
+                    let left = self.operand_for_name("_n")?;
+                    let right = self.operand_for_name(&count_var)?;
+                    self.instructions
+                        .push(Instruction::binary_op(BinaryOperator::Lt, left, right));
+                    let jump_pos = self.instructions.len();
+                    self.instructions.push(Instruction::JumpIfFalse(0));
+                    jump_pos
+                };
                 self.dbg_pc_spans.resize(self.instructions.len(), None);
                 if let Some(span) = count_span {
                     self.dbg_pc_spans[cmp_start] = Some(span);
-                }
-                self.mark_current_stmt_pc(cmp_start);
-                let jump_pos = self.instructions.len();
-                self.instructions.push(Instruction::JumpIfFalse(0));
-                self.dbg_pc_spans.resize(self.instructions.len(), None);
-                if let Some(span) = count_span {
                     self.dbg_pc_spans[jump_pos] = Some(span);
                 }
-                self.emit_load("_n", None)?;
-                self.emit_store(&old_var)?;
+                self.mark_current_stmt_pc(cmp_start);
+                if local_loop_slots.is_none() {
+                    self.emit_load("_n", None)?;
+                    self.emit_store(&old_var)?;
+                }
                 self.loop_stack.push(LoopInfo::default());
                 self.compile_stmt_sequence_with_spans(body, self.value_needed, &body_spans)?;
                 if let Some(result_var) = &result_var {
@@ -2231,16 +2253,24 @@ impl Compiler {
                     self.instructions.push(Instruction::Pop);
                 }
                 let continue_target = self.instructions.len();
-                let left = self.operand_for_name(&old_var)?;
-                self.instructions.push(Instruction::binary_op(
-                    BinaryOperator::Add,
-                    left,
-                    Operand::const_val(Value::Int(1)),
-                ));
-                self.emit_store("_n")?;
-                self.instructions.push(Instruction::Jump(cmp_start));
+                if let Some((index, _, snapshot)) = local_loop_slots {
+                    self.instructions
+                        .push(Instruction::n_loop_next(snapshot, index, cmp_start));
+                } else {
+                    let left = self.operand_for_name(&old_var)?;
+                    self.instructions.push(Instruction::binary_op(
+                        BinaryOperator::Add,
+                        left,
+                        Operand::const_val(Value::Int(1)),
+                    ));
+                    self.emit_store("_n")?;
+                    self.instructions.push(Instruction::Jump(cmp_start));
+                }
                 let end = self.instructions.len();
-                self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
+                match &mut self.instructions[jump_pos] {
+                    Instruction::NLoopEnter(data) => data.target = end,
+                    instruction => *instruction = Instruction::JumpIfFalse(end),
+                }
                 if let Some(info) = self.loop_stack.pop() {
                     for pos in info.break_jumps {
                         self.instructions[pos] = Instruction::Jump(end);
@@ -4258,6 +4288,27 @@ mod tests {
         assert_eq!(
             err.notes.as_slice(),
             ["for an n-loop count", "got 1.5 (float)"]
+        );
+    }
+
+    #[test]
+    fn dynamic_function_n_loop_uses_local_control_instructions() {
+        let insts = compile_source("run:{[n]total:0;N[n;total+:_n];total}");
+        let func = compiled_function_in(&insts);
+
+        assert!(
+            func.instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::NLoopEnter(_))),
+            "expected fused N-loop entry in {:#?}",
+            func.instructions
+        );
+        assert!(
+            func.instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::NLoopNext(_))),
+            "expected fused N-loop advance in {:#?}",
+            func.instructions
         );
     }
 

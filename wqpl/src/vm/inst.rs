@@ -102,6 +102,21 @@ pub(crate) struct UnaryOpData {
     pub(crate) operand: Operand,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NLoopEnterData {
+    pub(crate) index: u16,
+    pub(crate) count: u16,
+    pub(crate) snapshot: u16,
+    pub(crate) target: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NLoopNextData {
+    pub(crate) snapshot: u16,
+    pub(crate) index: u16,
+    pub(crate) target: usize,
+}
+
 /// Mutating index operation kind.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum MutationOp {
@@ -232,6 +247,10 @@ pub(crate) enum Instruction {
     JumpIfFalse(usize),
     /// Evaluate a comparison and jump if its bool result is false.
     JumpIfCmpFalse(Box<CmpBranchData>),
+    /// Enter one local N-loop iteration or jump to the loop exit.
+    NLoopEnter(Box<NLoopEnterData>),
+    /// Advance a local N-loop index from its iteration snapshot and jump back.
+    NLoopNext(Box<NLoopNextData>),
     /// Jump if left >= right (pops two operands)
     JumpIfGE(usize),
     /// Jump if local slot value <= 0
@@ -284,6 +303,23 @@ impl Instruction {
             op,
             left,
             right,
+            target,
+        }))
+    }
+
+    pub(crate) fn n_loop_enter(index: u16, count: u16, snapshot: u16, target: usize) -> Self {
+        Self::NLoopEnter(Box::new(NLoopEnterData {
+            index,
+            count,
+            snapshot,
+            target,
+        }))
+    }
+
+    pub(crate) fn n_loop_next(snapshot: u16, index: u16, target: usize) -> Self {
+        Self::NLoopNext(Box::new(NLoopNextData {
+            snapshot,
+            index,
             target,
         }))
     }
@@ -405,6 +441,8 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         I::Jump(_)
         | I::JumpIfFalse(_)
         | I::JumpIfCmpFalse(_)
+        | I::NLoopEnter(_)
+        | I::NLoopNext(_)
         | I::JumpIfGE(_)
         | I::JumpIfLEZLocal(_, _)
         | I::JumpIfNamedProvided(_, _, _)
@@ -884,6 +922,8 @@ impl InstPrettyDumper {
             | Instruction::BoolAndLazy(target)
             | Instruction::BoolOrLazy(target) => Some(*target),
             Instruction::JumpIfCmpFalse(data) => Some(data.target),
+            Instruction::NLoopEnter(data) => Some(data.target),
+            Instruction::NLoopNext(data) => Some(data.target),
             _ => None,
         }
     }

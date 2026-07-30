@@ -745,6 +745,31 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
                 None => vec![(pc + 1, state.clone()), (data.target, state)],
             }
         }
+        I::NLoopEnter(data) => {
+            let index = state.local(data.index);
+            let count = state.local(data.count);
+            let cond = index
+                .as_ref()
+                .zip(count.as_ref())
+                .and_then(|(index, count)| {
+                    eval_binary(&crate::ast::BinaryOperator::Lt, index, count).ok()
+                })
+                .and_then(|value| value.try_to_rust_bool());
+            let mut entered = state.clone();
+            entered.set_local(data.snapshot, index);
+            match cond {
+                Some(true) => fallthrough(pc, entered),
+                Some(false) => vec![(data.target, state)],
+                None => vec![(pc + 1, entered), (data.target, state)],
+            }
+        }
+        I::NLoopNext(data) => {
+            let next = state.local(data.snapshot).and_then(|snapshot| {
+                eval_binary(&crate::ast::BinaryOperator::Add, &snapshot, &Value::Int(1)).ok()
+            });
+            state.set_local(data.index, next);
+            vec![(data.target, state)]
+        }
         I::JumpIfGE(target) => {
             state.pop();
             state.pop();
@@ -1204,6 +1229,15 @@ fn note_inst_locals(inst: &Instruction, count: &mut usize) {
         I::JumpIfCmpFalse(data) => {
             note_operand_locals(&data.left, count);
             note_operand_locals(&data.right, count);
+        }
+        I::NLoopEnter(data) => {
+            note_slot(data.index, count);
+            note_slot(data.count, count);
+            note_slot(data.snapshot, count);
+        }
+        I::NLoopNext(data) => {
+            note_slot(data.snapshot, count);
+            note_slot(data.index, count);
         }
         I::UnaryOp(data) => note_operand_locals(&data.operand, count),
         I::IndexMutate {
