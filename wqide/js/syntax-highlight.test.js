@@ -10,12 +10,15 @@ const SYNTAX_COLOR_TOKENS = [
   "syntax-invalid",
   "syntax-number",
   "syntax-keyword",
+  "syntax-return",
   "syntax-debug",
   "syntax-builtin",
   "syntax-variable",
   "syntax-variable-ref",
   "syntax-parameter",
+  "syntax-operator",
   "syntax-punctuation",
+  "syntax-meta",
   "syntax-bracket-1",
   "syntax-bracket-2",
   "syntax-bracket-3",
@@ -82,6 +85,15 @@ test("source highlighting uses one shared token map on every surface", () => {
     styles,
     /\.hl-character-invalid\s*\{[^}]*var\(--syntax-invalid\)/s,
   );
+  assert.match(
+    styles,
+    /\.hl-keyword-return\s*\{[^}]*var\(--syntax-return\)/s,
+  );
+  assert.match(
+    styles,
+    /\.hl-operator\s*\{[^}]*var\(--syntax-operator\)/s,
+  );
+  assert.match(styles, /\.hl-meta\s*\{[^}]*var\(--syntax-meta\)/s);
   assert.doesNotMatch(styles, /\.repl-flow \.hl-/);
   assert.doesNotMatch(
     styles,
@@ -102,9 +114,31 @@ test("light and midnight syntax tokens stay readable on code surfaces", () => {
     );
     assert.ok(
       contrastRatio(midnightColor, "#11192d") >= 4.5,
-      `${token} ${midnightColor} is not readable on the midnight code surface`,
+      `${token} ${midnightColor} is not readable on the midnight output surface`,
+    );
+    assert.ok(
+      contrastRatio(midnightColor, "#19162d") >= 4.5,
+      `${token} ${midnightColor} is not readable on the midnight editor surface`,
     );
   }
+});
+
+test("syntax roles retain non-color communication cues", () => {
+  assert.match(
+    styles,
+    /\.hl-function-builtin\s*\{[^}]*text-decoration:\s*underline[^}]*text-underline-offset:\s*2px/s,
+  );
+  assert.match(styles, /\.hl-comment\s*\{[^}]*font-style:\s*italic/s);
+  assert.match(styles, /\.hl-bool\s*\{[^}]*font-weight:\s*600/s);
+  assert.match(styles, /\.hl-tag\s*\{[^}]*font-weight:\s*600/s);
+  assert.match(
+    styles,
+    /\.hl-punctuation-bracket-1\s*\{[^}]*font-weight:\s*700/s,
+  );
+  assert.match(
+    styles,
+    /\.hl-punctuation-bracket-2\s*\{[^}]*font-weight:\s*500/s,
+  );
 });
 
 test("symbol occurrences share theme tokens for reads and writes", () => {

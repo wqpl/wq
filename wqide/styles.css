@@ -106,28 +106,31 @@
   --history-focus-ring: #4f88a7;
   --terminal-menu-shadow: 0 16px 36px rgba(34, 78, 103, 0.18);
   --terminal-shell-shadow: 0 18px 42px rgba(34, 78, 103, 0.14);
-  --syntax-comment: #5a7a5a;
-  --syntax-string: #2a5a2a;
-  --syntax-escape: #006d8f;
-  --syntax-invalid: #b42318;
-  --syntax-number: #b35a00;
-  --syntax-keyword: #7a0099;
-  --syntax-debug: #cc4400;
-  --syntax-builtin: #0057b8;
-  --syntax-variable: #004d66;
-  --syntax-variable-ref: #004d66;
-  --syntax-parameter: #8b4513;
-  --syntax-punctuation: #555555;
-  --syntax-bracket-1: #b42318;
-  --syntax-bracket-2: #8b4513;
-  --syntax-bracket-3: #746500;
-  --syntax-bracket-4: #087c50;
-  --syntax-bracket-5: #1e6fbb;
-  --syntax-bracket-6: #7c4db5;
-  --syntax-read-bg: rgba(0, 112, 168, 0.13);
-  --syntax-read-rule: #0070a8;
-  --syntax-write-bg: rgba(179, 90, 0, 0.15);
-  --syntax-write-rule: #b35a00;
+  --syntax-comment: #557067;
+  --syntax-string: #246344;
+  --syntax-escape: #00677d;
+  --syntax-invalid: #b83232;
+  --syntax-number: #9a4f00;
+  --syntax-keyword: #7436a5;
+  --syntax-return: #795000;
+  --syntax-debug: #a43b55;
+  --syntax-builtin: #075fa6;
+  --syntax-variable: #36596b;
+  --syntax-variable-ref: #006b75;
+  --syntax-parameter: #795000;
+  --syntax-operator: #a43b55;
+  --syntax-punctuation: #52636d;
+  --syntax-meta: #6d6200;
+  --syntax-bracket-1: #b63848;
+  --syntax-bracket-2: #925400;
+  --syntax-bracket-3: #6c6500;
+  --syntax-bracket-4: #207147;
+  --syntax-bracket-5: #1f67a4;
+  --syntax-bracket-6: #7046a2;
+  --syntax-read-bg: rgba(0, 107, 117, 0.14);
+  --syntax-read-rule: #006b75;
+  --syntax-write-bg: rgba(121, 80, 0, 0.15);
+  --syntax-write-rule: #795000;
   --code-panel-bg: #e8ffe8;
   --code-panel-border: #b5e6b5;
   --code-panel-head-bg: #d4fcd4;
@@ -195,12 +198,12 @@
   --ansi-cyan: var(--syntax-escape);
   --ansi-white: var(--syntax-punctuation);
   --ansi-bright-black: var(--syntax-comment);
-  --ansi-bright-red: var(--syntax-debug);
+  --ansi-bright-red: var(--syntax-operator);
   --ansi-bright-green: var(--syntax-string);
   --ansi-bright-yellow: var(--syntax-parameter);
   --ansi-bright-blue: var(--syntax-bracket-5);
   --ansi-bright-magenta: var(--syntax-bracket-6);
-  --ansi-bright-cyan: var(--syntax-variable);
+  --ansi-bright-cyan: var(--syntax-variable-ref);
   --ansi-bright-white: var(--syntax-bracket-3);
 }
 
@@ -279,28 +282,31 @@
   --history-focus-ring: #a0c1d1;
   --terminal-menu-shadow: 0 18px 42px rgba(0, 0, 0, 0.46);
   --terminal-shell-shadow: 0 18px 42px rgba(19, 78, 110, 0.12);
-  --syntax-comment: #8798b6;
-  --syntax-string: #9fd6c5;
-  --syntax-escape: #80dfff;
-  --syntax-invalid: #ff8a80;
-  --syntax-number: #f0bf85;
-  --syntax-keyword: #d5b8ff;
-  --syntax-debug: #f0bf85;
-  --syntax-builtin: #8fd7f1;
-  --syntax-variable: #a0c1d1;
-  --syntax-variable-ref: #a0c1d1;
-  --syntax-parameter: #f4d38a;
-  --syntax-punctuation: #c7d2e8;
-  --syntax-bracket-1: #ff8a80;
-  --syntax-bracket-2: #f4d38a;
-  --syntax-bracket-3: #f2d68a;
-  --syntax-bracket-4: #9fd6c5;
-  --syntax-bracket-5: #8fd7f1;
-  --syntax-bracket-6: #d5b8ff;
-  --syntax-read-bg: rgba(143, 215, 241, 0.17);
-  --syntax-read-rule: #8fd7f1;
-  --syntax-write-bg: rgba(244, 211, 138, 0.18);
-  --syntax-write-rule: #f4d38a;
+  --syntax-comment: #93a69f;
+  --syntax-string: #8bd8b0;
+  --syntax-escape: #70d8e8;
+  --syntax-invalid: #ff9290;
+  --syntax-number: #f2b56e;
+  --syntax-keyword: #d3adf7;
+  --syntax-return: #efc96f;
+  --syntax-debug: #f39ab0;
+  --syntax-builtin: #7ac8f5;
+  --syntax-variable: #b5c9d4;
+  --syntax-variable-ref: #72d9df;
+  --syntax-parameter: #efc96f;
+  --syntax-operator: #f39ab0;
+  --syntax-punctuation: #b2becb;
+  --syntax-meta: #ddd27a;
+  --syntax-bracket-1: #ff9290;
+  --syntax-bracket-2: #f5b875;
+  --syntax-bracket-3: #ded174;
+  --syntax-bracket-4: #86d5aa;
+  --syntax-bracket-5: #7bc6ef;
+  --syntax-bracket-6: #c7acf0;
+  --syntax-read-bg: rgba(114, 217, 223, 0.17);
+  --syntax-read-rule: #72d9df;
+  --syntax-write-bg: rgba(239, 201, 111, 0.18);
+  --syntax-write-rule: #efc96f;
   --code-panel-bg: #101a2f;
   --code-panel-border: #4a3f6b;
   --code-panel-head-bg: #1d2d4d;
@@ -5196,6 +5202,7 @@ textarea.editor-text.repl-input,
 .hl-string-invalid {
   color: var(--syntax-invalid);
   text-decoration: underline wavy var(--syntax-invalid);
+  text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
 }
 .hl-character {
@@ -5204,6 +5211,7 @@ textarea.editor-text.repl-input,
 .hl-character-invalid {
   color: var(--syntax-invalid);
   text-decoration: underline wavy var(--syntax-invalid);
+  text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
 }
 .hl-number {
@@ -5211,6 +5219,7 @@ textarea.editor-text.repl-input,
 }
 .hl-bool {
   color: var(--syntax-number);
+  font-weight: 600;
 }
 .hl-constant-builtin {
   color: var(--syntax-number);
@@ -5236,7 +5245,7 @@ textarea.editor-text.repl-input,
   font-weight: 600;
 }
 .hl-keyword-return {
-  color: var(--syntax-number);
+  color: var(--syntax-return);
   font-weight: 600;
 }
 .hl-keyword-debug {
@@ -5251,6 +5260,8 @@ textarea.editor-text.repl-input,
     var(--syntax-builtin) 54%,
     transparent
   );
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 .hl-variable {
   color: var(--syntax-variable);
@@ -5276,7 +5287,7 @@ textarea.editor-text.repl-input,
   outline-offset: 1px;
 }
 .hl-operator {
-  color: var(--syntax-parameter);
+  color: var(--syntax-operator);
 }
 .hl-operator-pipe {
   color: var(--syntax-keyword);
@@ -5284,36 +5295,46 @@ textarea.editor-text.repl-input,
 }
 .hl-punctuation-bracket {
   color: var(--syntax-punctuation);
+  font-weight: 600;
 }
 .hl-punctuation-bracket-1 {
   color: var(--syntax-bracket-1);
+  font-weight: 700;
 }
 .hl-punctuation-bracket-2 {
   color: var(--syntax-bracket-2);
+  font-weight: 500;
 }
 .hl-punctuation-bracket-3 {
   color: var(--syntax-bracket-3);
+  font-weight: 700;
 }
 .hl-punctuation-bracket-4 {
   color: var(--syntax-bracket-4);
+  font-weight: 500;
 }
 .hl-punctuation-bracket-5 {
   color: var(--syntax-bracket-5);
+  font-weight: 700;
 }
 .hl-punctuation-bracket-6 {
   color: var(--syntax-bracket-6);
+  font-weight: 500;
 }
 .hl-punctuation-delimiter {
   color: var(--syntax-punctuation);
 }
 .hl-punctuation-special {
   color: var(--syntax-keyword);
+  font-weight: 600;
 }
 .hl-tag {
   color: var(--syntax-string);
+  font-weight: 600;
 }
 .hl-meta {
-  color: var(--syntax-parameter);
+  color: var(--syntax-meta);
+  font-weight: 600;
 }
 .code-action-btn {
   position: static;

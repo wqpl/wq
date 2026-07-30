@@ -172,37 +172,37 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
     match name {
         HighlightName::Comment => ("\x1b[3;38;5;249m", ANSI_RESET),
         HighlightName::ConstantBuiltin => ("\x1b[1;38;5;220m", ANSI_RESET),
-        HighlightName::FunctionBuiltin => ("\x1b[4;38;5;213m", ANSI_RESET),
-        HighlightName::CasSpecial => ("\x1b[1;38;5;199m", ANSI_RESET),
+        HighlightName::FunctionBuiltin => ("\x1b[4;38;5;75m", ANSI_RESET),
+        HighlightName::CasSpecial => ("\x1b[1;38;5;177m", ANSI_RESET),
         HighlightName::CasConstant => ("\x1b[1;38;5;220m", ANSI_RESET),
-        HighlightName::CasFunction => ("\x1b[38;5;75m", ANSI_RESET),
+        HighlightName::CasFunction => ("\x1b[1;38;5;75m", ANSI_RESET),
         HighlightName::CasVariable => ("\x1b[38;5;117m", ANSI_RESET),
-        HighlightName::Keyword => ("\x1b[38;5;199m", ANSI_RESET),
-        HighlightName::KeywordReturn => ("\x1b[38;5;220m", ANSI_RESET),
-        HighlightName::KeywordDebug => ("\x1b[38;5;210m", ANSI_RESET),
+        HighlightName::Keyword => ("\x1b[1;38;5;177m", ANSI_RESET),
+        HighlightName::KeywordReturn => ("\x1b[1;38;5;220m", ANSI_RESET),
+        HighlightName::KeywordDebug => ("\x1b[1;38;5;211m", ANSI_RESET),
         HighlightName::Number => ("\x1b[38;5;220m", ANSI_RESET),
-        HighlightName::Bool => ("\x1b[38;5;220m", ANSI_RESET),
-        HighlightName::Operator => ("\x1b[38;5;208m", ANSI_RESET),
-        HighlightName::OperatorPipe => ("\x1b[38;5;170m", ANSI_RESET),
-        HighlightName::PunctuationBracket => ("\x1b[38;5;245m", ANSI_RESET),
-        HighlightName::PunctuationBracket1 => ("\x1b[38;5;203m", ANSI_RESET),
+        HighlightName::Bool => ("\x1b[1;38;5;220m", ANSI_RESET),
+        HighlightName::Operator => ("\x1b[38;5;211m", ANSI_RESET),
+        HighlightName::OperatorPipe => ("\x1b[1;38;5;177m", ANSI_RESET),
+        HighlightName::PunctuationBracket => ("\x1b[38;5;248m", ANSI_RESET),
+        HighlightName::PunctuationBracket1 => ("\x1b[1;38;5;210m", ANSI_RESET),
         HighlightName::PunctuationBracket2 => ("\x1b[38;5;215m", ANSI_RESET),
-        HighlightName::PunctuationBracket3 => ("\x1b[38;5;222m", ANSI_RESET),
+        HighlightName::PunctuationBracket3 => ("\x1b[1;38;5;222m", ANSI_RESET),
         HighlightName::PunctuationBracket4 => ("\x1b[38;5;114m", ANSI_RESET),
-        HighlightName::PunctuationBracket5 => ("\x1b[38;5;111m", ANSI_RESET),
+        HighlightName::PunctuationBracket5 => ("\x1b[1;38;5;111m", ANSI_RESET),
         HighlightName::PunctuationBracket6 => ("\x1b[38;5;183m", ANSI_RESET),
-        HighlightName::PunctuationDelimiter => ("\x1b[38;5;243m", ANSI_RESET),
-        HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", ANSI_RESET),
+        HighlightName::PunctuationDelimiter => ("\x1b[38;5;248m", ANSI_RESET),
+        HighlightName::PunctuationSpecial => ("\x1b[1;38;5;177m", ANSI_RESET),
         HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::StringEscape => ("\x1b[1;38;5;81m", ANSI_RESET),
-        HighlightName::InvalidString => ("\x1b[4;38;5;203m", ANSI_RESET),
+        HighlightName::InvalidString => ("\x1b[4;38;5;210m", ANSI_RESET),
         HighlightName::Character => ("\x1b[38;5;81m", ANSI_RESET),
-        HighlightName::InvalidCharacter => ("\x1b[4;38;5;203m", ANSI_RESET),
-        HighlightName::Tag => ("\x1b[38;5;113m", ANSI_RESET),
+        HighlightName::InvalidCharacter => ("\x1b[4;38;5;210m", ANSI_RESET),
+        HighlightName::Tag => ("\x1b[1;38;5;113m", ANSI_RESET),
         HighlightName::Variable => ("\x1b[38;5;117m", ANSI_RESET),
-        HighlightName::VariableRefCapture => ("\x1b[38;5;39m", ANSI_RESET),
-        HighlightName::VariableParameter => ("\x1b[38;5;215m", ANSI_RESET),
-        HighlightName::Meta => ("\x1b[38;5;228m", ANSI_RESET),
+        HighlightName::VariableRefCapture => ("\x1b[1;38;5;39m", ANSI_RESET),
+        HighlightName::VariableParameter => ("\x1b[1;38;5;215m", ANSI_RESET),
+        HighlightName::Meta => ("\x1b[1;38;5;228m", ANSI_RESET),
     }
 }
 
@@ -213,34 +213,34 @@ fn semantic_ansi_style_for_name(name: HighlightName) -> (&'static str, &'static 
         HighlightName::FunctionBuiltin => ("\x1b[4;34m", ANSI_RESET),
         HighlightName::CasSpecial => ("\x1b[1;35m", ANSI_RESET),
         HighlightName::CasConstant => ("\x1b[1;33m", ANSI_RESET),
-        HighlightName::CasFunction => ("\x1b[34m", ANSI_RESET),
+        HighlightName::CasFunction => ("\x1b[1;34m", ANSI_RESET),
         HighlightName::CasVariable => ("\x1b[96m", ANSI_RESET),
-        HighlightName::Keyword => ("\x1b[35m", ANSI_RESET),
-        HighlightName::KeywordReturn => ("\x1b[33m", ANSI_RESET),
-        HighlightName::KeywordDebug => ("\x1b[91m", ANSI_RESET),
+        HighlightName::Keyword => ("\x1b[1;35m", ANSI_RESET),
+        HighlightName::KeywordReturn => ("\x1b[1;33m", ANSI_RESET),
+        HighlightName::KeywordDebug => ("\x1b[1;91m", ANSI_RESET),
         HighlightName::Number => ("\x1b[33m", ANSI_RESET),
-        HighlightName::Bool => ("\x1b[33m", ANSI_RESET),
-        HighlightName::Operator => ("\x1b[93m", ANSI_RESET),
-        HighlightName::OperatorPipe => ("\x1b[35m", ANSI_RESET),
+        HighlightName::Bool => ("\x1b[1;33m", ANSI_RESET),
+        HighlightName::Operator => ("\x1b[91m", ANSI_RESET),
+        HighlightName::OperatorPipe => ("\x1b[1;35m", ANSI_RESET),
         HighlightName::PunctuationBracket => ("\x1b[37m", ANSI_RESET),
-        HighlightName::PunctuationBracket1 => ("\x1b[31m", ANSI_RESET),
+        HighlightName::PunctuationBracket1 => ("\x1b[1;31m", ANSI_RESET),
         HighlightName::PunctuationBracket2 => ("\x1b[93m", ANSI_RESET),
-        HighlightName::PunctuationBracket3 => ("\x1b[97m", ANSI_RESET),
+        HighlightName::PunctuationBracket3 => ("\x1b[1;97m", ANSI_RESET),
         HighlightName::PunctuationBracket4 => ("\x1b[32m", ANSI_RESET),
-        HighlightName::PunctuationBracket5 => ("\x1b[94m", ANSI_RESET),
+        HighlightName::PunctuationBracket5 => ("\x1b[1;94m", ANSI_RESET),
         HighlightName::PunctuationBracket6 => ("\x1b[95m", ANSI_RESET),
         HighlightName::PunctuationDelimiter => ("\x1b[37m", ANSI_RESET),
-        HighlightName::PunctuationSpecial => ("\x1b[35m", ANSI_RESET),
+        HighlightName::PunctuationSpecial => ("\x1b[1;35m", ANSI_RESET),
         HighlightName::String => ("\x1b[32m", ANSI_RESET),
         HighlightName::StringEscape => ("\x1b[1;36m", ANSI_RESET),
         HighlightName::InvalidString => ("\x1b[4;31m", ANSI_RESET),
         HighlightName::Character => ("\x1b[36m", ANSI_RESET),
         HighlightName::InvalidCharacter => ("\x1b[4;31m", ANSI_RESET),
-        HighlightName::Tag => ("\x1b[32m", ANSI_RESET),
+        HighlightName::Tag => ("\x1b[1;32m", ANSI_RESET),
         HighlightName::Variable => ("\x1b[96m", ANSI_RESET),
         HighlightName::VariableRefCapture => ("\x1b[1;96m", ANSI_RESET),
         HighlightName::VariableParameter => ("\x1b[1;93m", ANSI_RESET),
-        HighlightName::Meta => ("\x1b[93m", ANSI_RESET),
+        HighlightName::Meta => ("\x1b[1;93m", ANSI_RESET),
     }
 }
 
@@ -1227,6 +1227,53 @@ mod tests {
         out
     }
 
+    fn extended_fg_index(style: &str) -> u8 {
+        let marker = "38;5;";
+        let start = style
+            .find(marker)
+            .expect("style has an extended foreground")
+            + marker.len();
+        let end = style[start..]
+            .find('m')
+            .map(|offset| start + offset)
+            .expect("extended foreground has a terminator");
+        style[start..end]
+            .parse()
+            .expect("extended foreground index is numeric")
+    }
+
+    fn xterm_rgb(index: u8) -> [u8; 3] {
+        if index >= 232 {
+            let level = 8 + (index - 232) * 10;
+            return [level; 3];
+        }
+        let value = index - 16;
+        let channel = |step: u8| if step == 0 { 0 } else { 55 + step * 40 };
+        [
+            channel(value / 36),
+            channel((value % 36) / 6),
+            channel(value % 6),
+        ]
+    }
+
+    fn relative_luminance(rgb: [u8; 3]) -> f64 {
+        let linear = |channel: u8| {
+            let channel = f64::from(channel) / 255.0;
+            if channel <= 0.04045 {
+                channel / 12.92
+            } else {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
+    }
+
+    fn contrast_ratio(left: [u8; 3], right: [u8; 3]) -> f64 {
+        let left = relative_luminance(left);
+        let right = relative_luminance(right);
+        (left.max(right) + 0.05) / (left.min(right) + 0.05)
+    }
+
     /// Collect contiguous (text, highlight_name) pairs from events.
     fn named_regions(events: &[HighlightEvent], src: &str) -> Vec<(String, Option<HighlightName>)> {
         let bytes = src.as_bytes();
@@ -1575,6 +1622,79 @@ mod tests {
     }
 
     #[test]
+    fn ansi_styles_preserve_semantic_and_structural_cues() {
+        assert_eq!(
+            ansi_style_for_name(HighlightName::FunctionBuiltin).0,
+            "\x1b[4;38;5;75m"
+        );
+        assert_eq!(
+            ansi_style_for_name(HighlightName::Operator).0,
+            "\x1b[38;5;211m"
+        );
+        assert_eq!(
+            ansi_style_for_name(HighlightName::PunctuationDelimiter).0,
+            "\x1b[38;5;248m"
+        );
+        assert_eq!(
+            ansi_style_for_name(HighlightName::PunctuationBracket1).0,
+            "\x1b[1;38;5;210m"
+        );
+        assert_eq!(
+            ansi_style_for_name(HighlightName::PunctuationBracket2).0,
+            "\x1b[38;5;215m"
+        );
+    }
+
+    #[test]
+    fn fixed_ansi_palette_is_readable_on_repl_input_background() {
+        let names = [
+            HighlightName::Comment,
+            HighlightName::ConstantBuiltin,
+            HighlightName::FunctionBuiltin,
+            HighlightName::CasSpecial,
+            HighlightName::CasConstant,
+            HighlightName::CasFunction,
+            HighlightName::CasVariable,
+            HighlightName::Keyword,
+            HighlightName::KeywordReturn,
+            HighlightName::KeywordDebug,
+            HighlightName::Number,
+            HighlightName::Bool,
+            HighlightName::Operator,
+            HighlightName::OperatorPipe,
+            HighlightName::PunctuationBracket,
+            HighlightName::PunctuationBracket1,
+            HighlightName::PunctuationBracket2,
+            HighlightName::PunctuationBracket3,
+            HighlightName::PunctuationBracket4,
+            HighlightName::PunctuationBracket5,
+            HighlightName::PunctuationBracket6,
+            HighlightName::PunctuationDelimiter,
+            HighlightName::PunctuationSpecial,
+            HighlightName::String,
+            HighlightName::StringEscape,
+            HighlightName::InvalidString,
+            HighlightName::Character,
+            HighlightName::InvalidCharacter,
+            HighlightName::Tag,
+            HighlightName::Variable,
+            HighlightName::VariableRefCapture,
+            HighlightName::VariableParameter,
+            HighlightName::Meta,
+        ];
+        let repl_background = [48, 48, 48];
+
+        for name in names {
+            let index = extended_fg_index(ansi_style_for_name(name).0);
+            let contrast = contrast_ratio(xterm_rgb(index), repl_background);
+            assert!(
+                contrast >= 4.5,
+                "{name:?} uses xterm color {index} at only {contrast:.2}:1 contrast"
+            );
+        }
+    }
+
+    #[test]
     fn semantic_ansi_uses_named_terminal_colors() {
         let src = "echo @f\"hello {x + 1}\"";
         let h = Highlighter::new();
@@ -1595,7 +1715,7 @@ mod tests {
         assert!(regions.contains(&("a".to_string(), Some(HighlightName::VariableRefCapture))));
 
         let out = h.highlight_ansi_with_ref_captures_and_reset(src, &[(12, 13)], "");
-        assert!(out.contains("\x1b[38;5;39ma"));
+        assert!(out.contains("\x1b[1;38;5;39ma"));
         assert_eq!(strip_ansi(&out), src);
     }
 
