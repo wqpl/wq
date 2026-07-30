@@ -152,6 +152,14 @@ const SHELL_HTML = html`
               tabindex="-1">
               Midnight
             </button>
+            <span class="theme-toggle-label-window" aria-hidden="true">
+              <span class="theme-toggle-label" style="--theme-label-index: 0"
+                >Light</span
+              >
+              <span class="theme-toggle-label" style="--theme-label-index: 1"
+                >Midnight</span
+              >
+            </span>
           </div>
         </div>
       </div>
@@ -225,14 +233,15 @@ const PLAYGROUND_HTML = html`
           </div>
           <div class="toolbar-center">
             <div
-              class="pills"
+              class="pills runtime-toggle-cluster"
               role="group"
               aria-label="Playground runtime controls">
               <div class="runtime-control" data-runtime-menu>
                 <button
                   id="playgroundBoxBtn"
-                  class="pill inactive"
+                  class="pill inactive runtime-segment"
                   type="button"
+                  aria-pressed="false"
                   aria-expanded="false"
                   aria-controls="playgroundBoxPanel">
                   box
@@ -271,15 +280,17 @@ const PLAYGROUND_HTML = html`
               </div>
               <button
                 id="playgroundTimeBtn"
-                class="pill inactive"
-                type="button">
+                class="pill inactive runtime-segment"
+                type="button"
+                aria-pressed="false">
                 time
               </button>
               <div class="runtime-control debug-controls" data-runtime-menu>
                 <button
                   id="playgroundDebugToggle"
-                  class="pill inactive"
+                  class="pill inactive runtime-segment"
                   type="button"
+                  aria-pressed="false"
                   aria-expanded="false"
                   aria-controls="playgroundDebugPanel">
                   debug
@@ -1038,14 +1049,15 @@ const REPL_HTML = html`
           </div>
           <div class="repl-terminal-actions">
             <div
-              class="repl-runtime-actions"
+              class="repl-runtime-actions runtime-toggle-cluster"
               role="group"
               aria-label="Result and debug controls">
               <div class="runtime-control" data-runtime-menu>
                 <button
                   id="pillBox"
-                  class="pill inactive"
+                  class="pill inactive runtime-segment"
                   type="button"
+                  aria-pressed="false"
                   aria-expanded="false"
                   aria-controls="boxPanel">
                   box
@@ -1084,15 +1096,17 @@ const REPL_HTML = html`
               </div>
               <button
                 id="pillTime"
-                class="pill inactive"
-                type="button">
+                class="pill inactive runtime-segment"
+                type="button"
+                aria-pressed="false">
                 time
               </button>
               <div class="runtime-control debug-controls" data-runtime-menu>
                 <button
                   id="debugToggle"
-                  class="pill inactive"
+                  class="pill inactive runtime-segment"
                   type="button"
+                  aria-pressed="false"
                   aria-expanded="false"
                   aria-controls="debugPanel">
                   debug
@@ -1178,19 +1192,19 @@ const REPL_HTML = html`
               aria-label="REPL views">
               <button
                 id="historyToggleBtn"
-                class="pill inactive"
+                class="pill inactive repl-utility-button"
                 type="button"
                 aria-expanded="false"
                 aria-controls="historySearch">
-                history
+                History
               </button>
               <button
                 id="inspectorToggleBtn"
-                class="pill inactive"
+                class="pill inactive repl-utility-button"
                 type="button"
                 aria-expanded="false"
                 aria-controls="runtimeInspector">
-                <span>inspector</span>
+                <span>Inspector</span>
                 <span id="globalsCount" class="repl-terminal-count">0</span>
               </button>
             </div>
@@ -1207,7 +1221,7 @@ const REPL_HTML = html`
               </button>
               <details id="terminalMenu" class="repl-terminal-menu">
                 <summary
-                  class="pill inactive"
+                  class="pill inactive repl-utility-button"
                   aria-label="Session actions">
                   <span class="repl-terminal-menu-ellipsis" aria-hidden="true"
                     >…</span
@@ -1272,7 +1286,7 @@ const REPL_HTML = html`
             <input
               type="text"
               id="historySearchInput"
-              placeholder="Search commands"
+              placeholder="Search history"
               autocomplete="off" />
             <button id="clearHistoryBtn" class="history-clear" type="button">
               Clear history

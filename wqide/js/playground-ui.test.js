@@ -167,10 +167,7 @@ test("playground inspector is an attached workbench rail", () => {
     activeStructureTabRule,
     /background:\s*transparent;/
   );
-  assert.match(
-    activeStructureTabRule,
-    /color:\s*var\(--inspector-control-active-text\);/
-  );
+  assert.doesNotMatch(activeStructureTabRule, /color:/);
   assert.match(
     appSource,
     /class="structure-tabs segmented-control"[\s\S]*class="segmented-control-thumb"/
@@ -195,17 +192,27 @@ test("playground output empty state is centered and subdued", () => {
   );
 });
 
-test("playground runtime pills sit inside one control capsule", () => {
-  const clusterRule = styleRule(
-    ".playground-workbench-header .toolbar-center > .pills"
+test("playground runtime toggles use flat segments with a clear active fill", () => {
+  assert.match(
+    appSource,
+    /class="pills runtime-toggle-cluster"[\s\S]*id="playgroundBoxBtn"[\s\S]*class="pill inactive runtime-segment"[\s\S]*aria-pressed="false"[\s\S]*id="playgroundTimeBtn"[\s\S]*class="pill inactive runtime-segment"[\s\S]*aria-pressed="false"/
   );
+  const clusterRule = styleRule(".runtime-toggle-cluster");
   assert.match(clusterRule, /padding:\s*4px;/);
   assert.match(
     clusterRule,
     /border:\s*1px solid var\(--control-cluster-border\);/
   );
-  assert.match(clusterRule, /border-radius:\s*var\(--radius-pill\);/);
+  assert.match(clusterRule, /border-radius:\s*var\(--radius-surface\);/);
   assert.match(clusterRule, /background:\s*var\(--control-cluster-bg\);/);
+
+  const segmentRule = styleRule(".runtime-segment");
+  assert.match(segmentRule, /border-color:\s*transparent;/);
+  assert.match(segmentRule, /border-radius:\s*var\(--radius-md\);/);
+
+  const activeRule = styleRule(".runtime-segment.active");
+  assert.match(activeRule, /background:\s*var\(--btn-primary-bg\);/);
+  assert.match(activeRule, /color:\s*var\(--btn-primary-text\);/);
 });
 
 test("playground clear action stays disabled while output is empty", () => {

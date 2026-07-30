@@ -172,7 +172,11 @@ test("viz view toggles sit inside one control capsule", () => {
   );
   assert.match(
     styles,
-    /\.viz-layout-toggle button\.active\s*\{[^}]*background:\s*transparent;/
+    /\.viz-layout-toggle button:hover:not\(\.active\)\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--segment-hover-text\);/s
+  );
+  assert.match(
+    styles,
+    /\.viz-layout-toggle button\.active\s*\{[^}]*background:\s*transparent;[^}]*\}/s
   );
 });
 

@@ -371,8 +371,8 @@ function renderStack(state, actions, open) {
   return node;
 }
 
-function renderInstruction(state) {
-  const node = section("Instruction");
+function renderInstruction(state, open) {
+  const node = section("Instruction", { foldable: true, open });
   if (!state.instruction) {
     node.append(element("p", "wqdb-empty", "Instruction unavailable"));
     return node;
@@ -433,7 +433,16 @@ function renderTracking(state, actions, open) {
     const list = element("ul", "wqdb-trackers");
     for (const tracker of state.trackers) {
       const item = element("li", "wqdb-tracker");
-      item.append(element("span", "", targetLabel(tracker.target)));
+      const target = element("span", "wqdb-tracker-target");
+      if (tracker.target.name) {
+        target.append(
+          `${tracker.target.scope} `,
+          element("span", "wqdb-tracker-symbol", tracker.target.name),
+        );
+      } else {
+        target.textContent = targetLabel(tracker.target);
+      }
+      item.append(target);
       const remove = element("button", "btn", "Remove");
       remove.type = "button";
       remove.disabled = state.status !== "paused";
@@ -597,7 +606,7 @@ export function renderWqdbPanel(
       state.globals,
       sectionOpen(foldState, "Globals"),
     ),
-    renderInstruction(state),
+    renderInstruction(state, sectionOpen(foldState, "Instruction")),
     renderTracking(
       state,
       actions,

@@ -17,7 +17,7 @@ function cssRule(selector) {
 test("theme control exposes two plain segmented choices", () => {
   assert.match(
     appSource,
-    /class="theme-toggle"[\s\S]*role="radiogroup"[\s\S]*class="theme-toggle-thumb"/,
+    /class="theme-toggle"[\s\S]*role="radiogroup"[\s\S]*class="theme-toggle-thumb"[\s\S]*class="theme-toggle-label-window"/,
   );
   assert.match(
     appSource,
@@ -93,6 +93,49 @@ test("theme hover feedback stays on the hovered choice", () => {
   assert.match(cssRule(".theme-toggle-option:hover"), /color:/);
 });
 
+test("workbench segmented controls keep hover inside the tray", () => {
+  for (const selector of [
+    ".inspector-tabs:hover",
+    ".structure-tabs:hover",
+    ".viz-layout-toggle:hover",
+    ".wqdb-granularity-options:hover"
+  ]) {
+    assert.equal(cssRule(selector), "");
+  }
+  assert.match(
+    cssRule(".segmented-control-thumb"),
+    /border:\s*1px solid var\(--segment-active-border\);[\s\S]*background:\s*var\(--segment-active-bg\);/
+  );
+  assert.match(styles, /--segment-active-bg:\s*var\(--btn-primary-bg\);/);
+  assert.match(styles, /--segment-active-text:\s*var\(--btn-primary-text\);/);
+  assert.match(styles, /--segment-active-bg:\s*#563c71;/);
+  assert.match(styles, /--segment-active-text:\s*#f7f3ff;/);
+});
+
+test("sliding labels follow the thumb instead of selection state", () => {
+  assert.equal(cssRule('.theme-toggle-option[aria-checked="true"]'), "");
+  assert.match(
+    cssRule(".theme-toggle-label-window"),
+    /color:\s*var\(--theme-toggle-selected-text\);[\s\S]*translateX\(calc\(var\(--theme-position\) \* 100%\)\)/
+  );
+  assert.match(
+    cssRule(".theme-toggle-label"),
+    /var\(--theme-label-index\) \* 100% - var\(--theme-position\) \* 100%/
+  );
+  assert.match(
+    cssRule(".segmented-control-label-window"),
+    /color:\s*var\(--segment-active-text\);[\s\S]*translateX\(calc\(var\(--segment-position\) \* 100%\)\)/
+  );
+  assert.match(
+    cssRule(".segmented-control-label"),
+    /var\(--segment-index\) \* 100% - var\(--segment-position\) \* 100%/
+  );
+  assert.match(
+    segmentedSource,
+    /className = "segmented-control-label-window"[\s\S]*setAttribute\("aria-hidden", "true"\)[\s\S]*--segment-index/
+  );
+});
+
 test("Midnight restores purple controls on dark blue surfaces", () => {
   assert.match(styles, /--btn-bg:\s*transparent;/);
   assert.match(styles, /--btn-hover-bg:\s*#f3fcf5;/);
@@ -103,6 +146,12 @@ test("Midnight restores purple controls on dark blue surfaces", () => {
     cssRule(':root[data-theme="midnight"] .theme-toggle-thumb'),
     /background:\s*#c2b8e0;/
   );
+});
+
+test("the header theme switch keeps its light floating thumb treatment", () => {
+  assert.match(cssRule(".theme-toggle-thumb"), /background:\s*#f7fcff;/);
+  assert.match(styles, /--theme-toggle-selected-text:\s*#153f59;/);
+  assert.match(styles, /--theme-toggle-selected-text:\s*#0f1e3d;/);
 });
 
 test("Home shows its root path before search and contains no welcome remnants", () => {

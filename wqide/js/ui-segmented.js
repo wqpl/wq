@@ -24,9 +24,36 @@ export function wireSegmentedControl(
     return items.find(isSelected) || items[0];
   }
 
+  function ensureContrastLabels(items) {
+    let labelWindow = control.querySelector(
+      ":scope > .segmented-control-label-window"
+    );
+    if (!labelWindow) {
+      labelWindow = document.createElement("span");
+      labelWindow.className = "segmented-control-label-window";
+      labelWindow.setAttribute("aria-hidden", "true");
+      for (const [index, option] of items.entries()) {
+        const label = document.createElement("span");
+        label.className = "segmented-control-label";
+        label.style.setProperty("--segment-index", String(index));
+        label.textContent = option.textContent.trim();
+        labelWindow.append(label);
+      }
+      control.append(labelWindow);
+      return;
+    }
+    for (const [index, option] of items.entries()) {
+      const label = labelWindow.children[index];
+      if (!label) continue;
+      label.style.setProperty("--segment-index", String(index));
+      label.textContent = option.textContent.trim();
+    }
+  }
+
   function sync(selected = selectedOption()) {
     const items = options();
     const index = Math.max(0, items.indexOf(selected));
+    ensureContrastLabels(items);
     control.style.setProperty(
       "--segment-count",
       String(Math.max(1, items.length))

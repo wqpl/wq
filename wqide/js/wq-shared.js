@@ -132,6 +132,9 @@ export function setActive(el, on) {
   if (!el) return;
   el.classList.toggle("active", !!on);
   el.classList.toggle("inactive", !on);
+  if (el.classList.contains("runtime-segment")) {
+    el.setAttribute("aria-pressed", String(!!on));
+  }
 }
 
 export function wireTabList(tablist, { onSelect } = {}) {

@@ -224,7 +224,7 @@ test("wqdb granularity uses custom buttons instead of a native select", async ()
   assert.match(source, /aria-pressed/);
 });
 
-test("wqdb granularity uses nested pills with distinct active hover styling", async () => {
+test("wqdb granularity uses text-only hover and a shared selected thumb", async () => {
   const styles = await readFile(
     new URL("../styles.css", import.meta.url),
     "utf8",
@@ -235,11 +235,11 @@ test("wqdb granularity uses nested pills with distinct active hover styling", as
   );
   assert.match(
     styles,
-    /\.wqdb-granularity-option:hover:not\(:disabled\):not\(\.active\)/,
+    /\.wqdb-granularity-option:hover:not\(:disabled\):not\(\.active\)\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--segment-hover-text\);/s
   );
   assert.match(
     styles,
-    /\.wqdb-granularity-option\.active:hover:not\(:disabled\)/,
+    /\.wqdb-granularity-option\.active:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--segment-hover-text\);/s
   );
 });
 
@@ -340,9 +340,24 @@ test("potentially long wqdb sections use foldable details", async () => {
   assert.match(source, /element\("summary", "wqdb-section-title"\)/);
   assert.match(source, /classList\.add\("wqdb-section-chevron"\)/);
   assert.match(source, /path\.setAttribute\("d", "m6 9 6 6 6-6"\)/);
-  for (const title of ["Source", "Stack", "Locals", "Globals"]) {
+  for (const title of ["Source", "Stack", "Locals", "Globals", "Instruction"]) {
     assert.match(source, new RegExp(`sectionOpen\\(foldState, "${title}"\\)`));
   }
+});
+
+test("symbol tracking distinguishes the tracked name as code", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("./wqdb.js", import.meta.url), "utf8"),
+    readFile(new URL("../styles.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(
+    source,
+    /element\("span", "wqdb-tracker-symbol", tracker\.target\.name\)/,
+  );
+  assert.match(
+    styles,
+    /\.wqdb-tracker-symbol\s*\{[^}]*font-family:\s*ui-monospace,/s,
+  );
 });
 
 test("foldable wqdb titles show a smooth full-row disclosure affordance", async () => {

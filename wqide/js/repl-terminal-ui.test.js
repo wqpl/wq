@@ -5,6 +5,10 @@ import test from "node:test";
 const appSource = await readFile(new URL("app.js", import.meta.url), "utf8");
 const replSource = await readFile(new URL("repl.js", import.meta.url), "utf8");
 const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+const sharedSource = await readFile(
+  new URL("wq-shared.js", import.meta.url),
+  "utf8"
+);
 
 test("REPL input is an inline terminal prompt", () => {
   assert.match(
@@ -13,11 +17,13 @@ test("REPL input is an inline terminal prompt", () => {
   );
 });
 
-test("terminal chrome keeps established pills and utilities outside the prompt", () => {
+test("terminal chrome separates runtime toggles from utility actions", () => {
   assert.match(appSource, /id="terminalStatus"[\s\S]*id="pillBox"[\s\S]*id="pillTime"[\s\S]*id="debugToggle"/);
   assert.match(appSource, /id="inspectorToggleBtn"[\s\S]*id="terminalMenu"/);
-  assert.match(appSource, /id="pillBox"[\s\S]*class="pill inactive"/);
-  assert.match(appSource, /id="historyToggleBtn"[\s\S]*class="pill inactive"/);
+  assert.match(appSource, /id="pillBox"[\s\S]*class="pill inactive runtime-segment"/);
+  assert.match(appSource, /id="historyToggleBtn"[\s\S]*class="pill inactive repl-utility-button"/);
+  assert.match(appSource, /id="historyToggleBtn"[\s\S]*>\s*History\s*<\/button>/);
+  assert.match(appSource, /id="inspectorToggleBtn"[\s\S]*<span>Inspector<\/span>/);
   assert.match(appSource, /id="scrollLatestBtn"/);
   assert.match(
     appSource,
@@ -60,14 +66,44 @@ test("terminal chrome keeps established pills and utilities outside the prompt",
   );
   assert.match(
     appSource,
-    /class="repl-runtime-actions"[\s\S]*?class="repl-view-actions"[\s\S]*?class="repl-session-actions"/
+    /class="repl-runtime-actions runtime-toggle-cluster"[\s\S]*?class="repl-view-actions"[\s\S]*?class="repl-session-actions"/
   );
   assert.match(
     styles,
-    /\.repl-runtime-actions,\s*\.repl-view-actions,\s*\.repl-session-actions\s*\{[^}]*border:\s*1px solid var\(--control-cluster-border\);[^}]*background:\s*var\(--control-cluster-bg\);/
+    /\.runtime-toggle-cluster\s*\{[^}]*gap:\s*2px;[^}]*border:\s*1px solid var\(--control-cluster-border\);[^}]*border-radius:\s*var\(--radius-surface\);[^}]*background:\s*var\(--control-cluster-bg\);/s
   );
-  assert.doesNotMatch(styles, /\.repl-view-actions \.pill\.inactive/);
-  assert.doesNotMatch(styles, /\.repl-session-actions \.pill\.inactive/);
+  assert.match(
+    styles,
+    /\.runtime-segment\.active\s*\{[^}]*border-color:\s*transparent;[^}]*background:\s*var\(--btn-primary-bg\);[^}]*color:\s*var\(--btn-primary-text\);/s
+  );
+  assert.match(
+    appSource,
+    /id="pillBox"[\s\S]*class="pill inactive runtime-segment"[\s\S]*aria-pressed="false"/
+  );
+  assert.match(
+    sharedSource,
+    /classList\.contains\("runtime-segment"\)[\s\S]*setAttribute\("aria-pressed", String\(!!on\)\)/
+  );
+  assert.match(
+    styles,
+    /\.repl-view-actions,\s*\.repl-session-actions\s*\{[^}]*padding:\s*0;[^}]*border:\s*0;[^}]*background:\s*transparent;/s
+  );
+  assert.match(
+    styles,
+    /\.repl-terminal-bar \.repl-utility-button\s*\{[^}]*border-color:\s*var\(--code-action-border\);[^}]*border-radius:\s*var\(--radius-md\);[^}]*background:\s*transparent;/s
+  );
+  assert.match(
+    styles,
+    /\.repl-terminal-bar \.repl-utility-button\.active,[\s\S]*?\.repl-terminal-menu\[open\] > \.repl-utility-button\s*\{[^}]*border-color:\s*var\(--code-action-border\);[^}]*background:\s*var\(--utility-active-bg\);[^}]*color:\s*var\(--utility-active-text\);/s
+  );
+  assert.match(
+    styles,
+    /\.repl-terminal-count\s*\{[^}]*min-width:\s*18px;[^}]*height:\s*18px;[^}]*border-radius:\s*var\(--radius-pill\);[^}]*background:\s*var\(--workbench-rail-bg\);/s
+  );
+  assert.match(
+    styles,
+    /:root\[data-theme="midnight"\]\s*\{[^}]*--utility-hover-bg:\s*#38284f;[^}]*--utility-active-bg:\s*#493461;[^}]*--utility-active-hover-bg:\s*#563c71;[^}]*--utility-active-text:\s*#eee8fa;/s
+  );
   assert.match(styles, /\.btn\[hidden\]\s*\{[^}]*display:\s*none;/);
 });
 
@@ -89,10 +125,6 @@ test("REPL pills and inspector tabs share smooth hover feedback", () => {
     /\.pill\.active:focus-visible\s*\{[^}]*outline-color:\s*var\(--pill-active-border\);/s
   );
   assert.match(
-    styles,
-    /\.inspector-tabs\s*\{[^}]*background-color 240ms cubic-bezier[^}]*border-color 240ms cubic-bezier/s
-  );
-  assert.match(
     appSource,
     /class="inspector-tabs segmented-control"[\s\S]*class="segmented-control-thumb"/
   );
@@ -100,13 +132,14 @@ test("REPL pills and inspector tabs share smooth hover feedback", () => {
     styles,
     /\.inspector-tabs\s*\{[^}]*border-radius:\s*var\(--radius-pill\);/s
   );
+  assert.doesNotMatch(styles, /\.inspector-tabs:hover\s*\{/);
   assert.match(
     styles,
-    /\.inspector-tabs:hover\s*\{[^}]*border-color:\s*var\(--inspector-control-hover-border\);[^}]*background:\s*var\(--inspector-control-hover-bg\);/s
+    /\.inspector-tab:hover\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--segment-hover-text\);/s
   );
   assert.match(
     styles,
-    /\.inspector-tab:hover\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--inspector-control-active-text\);/s
+    /\.inspector-tab\.active\s*\{[^}]*background:\s*transparent;[^}]*\}/s
   );
 });
 
@@ -226,15 +259,15 @@ test("themed inspector controls use local surface tokens", () => {
   );
   assert.match(
     styles,
-    /\.inspector-tab\.active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--inspector-control-active-text\);/
+    /\.inspector-tab\.active\s*\{[^}]*background:\s*transparent;[^}]*\}/
   );
   assert.match(
     styles,
-    /\.segmented-control-thumb\s*\{[^}]*border:\s*1px solid var\(--inspector-control-active-border\);[^}]*background:\s*var\(--inspector-control-active-bg\);/
+    /\.segmented-control-thumb\s*\{[^}]*border:\s*1px solid var\(--segment-active-border\);[^}]*background:\s*var\(--segment-active-bg\);/
   );
   assert.match(
     styles,
-    /\.wqdb-granularity-option\.active\s*\{[^}]*border-color:\s*transparent;[^}]*background:\s*transparent;/
+    /\.wqdb-granularity-option\.active\s*\{[^}]*border-color:\s*transparent;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/
   );
   assert.match(
     styles,
