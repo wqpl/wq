@@ -1,0 +1,3 @@
+// Packed int-list scalar addition just above the parallel broadcast threshold.
+run:{[n;repetitions]xs:iota n|map{x};N[repetitions;xs+:1];sum xs}
+assert_eq[run[4097;500];10439156;"parallel packed int addition"]

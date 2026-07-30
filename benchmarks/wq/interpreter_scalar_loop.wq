@@ -1,0 +1,3 @@
+// Scalar while-loop dispatch with local loads, arithmetic, stores, and branches.
+run:{[n]total:0;i:0;W[i<n;total+:i%97;i+:1];total}
+assert_eq[run 1000000;47999055;"scalar while loop"]

@@ -1,0 +1,3 @@
+// A map callback supported by the pure callback execution plan.
+run:{[n]#(iota n|map{x+1})}
+assert_eq[run 2000000;2000000;"pure map callback"]

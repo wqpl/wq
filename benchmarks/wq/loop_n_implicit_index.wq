@@ -1,0 +1,3 @@
+// N-loop lowering with reads of the implicit _n index.
+run:{[n]total:0;N[n;total+:_n%97];total}
+assert_eq[run 1000000;47999055;"implicit N-loop index"]

@@ -1,0 +1,3 @@
+// Preallocated packed int-list construction through indexed assignment.
+build:{[n]xs:alloc n;N[n;xs _n:_n];sum xs}
+assert_eq[build 1000000;499999500000;"preallocated int construction"]

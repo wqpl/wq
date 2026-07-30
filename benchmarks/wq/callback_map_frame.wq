@@ -1,0 +1,4 @@
+// A map callback whose local temporary requires ordinary user-call frames.
+step:{value:x+1;value}
+run:{[n]#(iota n|map step)}
+assert_eq[run 400000;400000;"framed map callback"]

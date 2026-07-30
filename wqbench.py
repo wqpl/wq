@@ -158,8 +158,8 @@ else:
 # Configuration
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent
-WQ_TESTS_DIR = PROJECT_ROOT / "hotchoco" / "wq"
-WQ_TESTS_REL_DIR = WQ_TESTS_DIR.relative_to(PROJECT_ROOT).as_posix()
+BENCHMARK_PROGRAMS_DIR = PROJECT_ROOT / "benchmarks" / "wq"
+BENCHMARK_PROGRAMS_REL_DIR = BENCHMARK_PROGRAMS_DIR.relative_to(PROJECT_ROOT).as_posix()
 BENCHMARKS_ROOT = PROJECT_ROOT / ".benchmarks"
 HISTORY_JSONL = BENCHMARKS_ROOT / "history.jsonl"
 BINARY_NAME = "wq"
@@ -257,7 +257,7 @@ def project_display_path(path: Path) -> str:
 
 
 def default_script_path(name: str) -> str:
-    return f"{WQ_TESTS_REL_DIR}/{name}.wq"
+    return f"{BENCHMARK_PROGRAMS_REL_DIR}/{name}.wq"
 
 
 def script_path_from_values(
@@ -384,11 +384,11 @@ def is_excluded(path: Path) -> bool:
 
 
 def collect_benchmarks() -> list[Path]:
-    if not WQ_TESTS_DIR.exists():
-        console.print(f"[red]Directory not found: {WQ_TESTS_DIR}[/red]")
+    if not BENCHMARK_PROGRAMS_DIR.exists():
+        console.print(f"[red]Directory not found: {BENCHMARK_PROGRAMS_DIR}[/red]")
         sys.exit(1)
 
-    files = sorted(p for p in WQ_TESTS_DIR.glob("*.wq") if not is_excluded(p))
+    files = sorted(p for p in BENCHMARK_PROGRAMS_DIR.glob("*.wq") if not is_excluded(p))
     if not files:
         console.print("[yellow]No benchmark files found.[/yellow]")
         sys.exit(0)

@@ -7,6 +7,29 @@ import wqbench
 
 
 class WqbenchHarnessTests(unittest.TestCase):
+    def test_collect_benchmarks_uses_dedicated_programs(self) -> None:
+        files = wqbench.collect_benchmarks()
+
+        self.assertEqual(
+            {path.name for path in files},
+            {
+                "call_user_function.wq",
+                "callback_map_frame.wq",
+                "callback_map_pure.wq",
+                "concat_int_growth.wq",
+                "concat_string_growth.wq",
+                "container_preallocate_int.wq",
+                "interpreter_scalar_loop.wq",
+                "loop_n_implicit_index.wq",
+                "vector_float_add.wq",
+                "vector_int_add_parallel.wq",
+                "vector_int_add_serial.wq",
+            },
+        )
+        self.assertTrue(
+            all(path.parent == wqbench.BENCHMARK_PROGRAMS_DIR for path in files)
+        )
+
     def test_run_hyperfine_skips_nonzero_wq_exit(self) -> None:
         with tempfile.TemporaryDirectory(dir=wqbench.PROJECT_ROOT) as tmp_dir:
             tmp_path = Path(tmp_dir)
