@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::cell::ValueCell;
 use crate::value::func::CallableExpr;
@@ -7,10 +9,9 @@ use crate::wqerror::{WqError, WqErrorType};
 
 #[derive(Clone)]
 pub(crate) struct PureCallback {
-    result: PureExpr,
+    result: Arc<PureExpr>,
 }
 
-#[derive(Clone)]
 enum PureExpr {
     Arg(usize),
     Const(Value),
@@ -20,16 +21,16 @@ enum PureExpr {
     },
     Unary {
         op: UnaryOperator,
-        operand: Box<PureExpr>,
+        operand: Arc<PureExpr>,
     },
     Index {
-        target: Box<PureExpr>,
-        args: Box<[PureExpr]>,
+        target: Arc<PureExpr>,
+        args: Box<[Arc<PureExpr>]>,
     },
     Binary {
         op: BinaryOperator,
-        left: Box<PureExpr>,
-        right: Box<PureExpr>,
+        left: Arc<PureExpr>,
+        right: Arc<PureExpr>,
     },
 }
 
@@ -64,31 +65,46 @@ impl PureCallback {
         }
 
         let captures = shape.captured();
+        let mut locals = vec![None; usize::from(shape.locals)];
+        for (slot, local) in locals.iter_mut().take(arity).enumerate() {
+            *local = Some(Arc::new(PureExpr::Arg(slot)));
+        }
         let mut stack = Vec::new();
         for inst in body {
             match inst {
-                Instruction::LoadConst(v) => stack.push(PureExpr::Const((**v).clone())),
+                Instruction::LoadConst(v) => {
+                    stack.push(Arc::new(PureExpr::Const((**v).clone())));
+                }
                 Instruction::LoadLocal(slot) => {
-                    stack.push(Self::local_expr(*slot, arity)?);
+                    stack.push(Self::local_expr(&locals, *slot)?);
                 }
                 Instruction::LoadCapture(slot) => {
                     stack.push(Self::capture_expr(&captures, *slot)?);
                 }
+                Instruction::StoreLocal(slot) => {
+                    let value = stack.pop()?;
+                    *locals.get_mut(usize::from(*slot))? = Some(value);
+                }
+                Instruction::StoreLocalKeep(slot) => {
+                    let value = Arc::clone(stack.last()?);
+                    *locals.get_mut(usize::from(*slot))? = Some(value);
+                }
                 Instruction::UnaryOp(data) => {
-                    let operand = Self::operand_expr(&mut stack, &data.operand, arity, &captures)?;
-                    stack.push(PureExpr::Unary {
+                    let operand =
+                        Self::operand_expr(&mut stack, &data.operand, &locals, &captures)?;
+                    stack.push(Arc::new(PureExpr::Unary {
                         op: data.op,
-                        operand: Box::new(operand),
-                    });
+                        operand,
+                    }));
                 }
                 Instruction::BinaryOp(data) => {
-                    let right = Self::operand_expr(&mut stack, &data.right, arity, &captures)?;
-                    let left = Self::operand_expr(&mut stack, &data.left, arity, &captures)?;
-                    stack.push(PureExpr::Binary {
+                    let right = Self::operand_expr(&mut stack, &data.right, &locals, &captures)?;
+                    let left = Self::operand_expr(&mut stack, &data.left, &locals, &captures)?;
+                    stack.push(Arc::new(PureExpr::Binary {
                         op: data.op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    });
+                        left,
+                        right,
+                    }));
                 }
                 Instruction::Index => {
                     let index = stack.pop()?;
@@ -102,7 +118,7 @@ impl PureCallback {
                 }
                 Instruction::IndexManyLoadLocal(slot, argc) if *argc > 0 => {
                     let args = Self::index_args(&mut stack, *argc)?;
-                    let target = Self::local_expr(*slot, arity)?;
+                    let target = Self::local_expr(&locals, *slot)?;
                     stack.push(Self::index_expr(target, args));
                 }
                 Instruction::IndexManyLoadCapture(slot, argc) if *argc > 0 => {
@@ -132,44 +148,39 @@ impl PureCallback {
         self.result.eval(args)
     }
 
-    fn local_expr(slot: u16, arity: usize) -> Option<PureExpr> {
-        let slot = usize::from(slot);
-        if slot < arity {
-            Some(PureExpr::Arg(slot))
-        } else {
-            None
-        }
+    fn local_expr(locals: &[Option<Arc<PureExpr>>], slot: u16) -> Option<Arc<PureExpr>> {
+        locals.get(usize::from(slot))?.as_ref().map(Arc::clone)
     }
 
-    fn capture_expr(captures: &[ValueCell], slot: u16) -> Option<PureExpr> {
+    fn capture_expr(captures: &[ValueCell], slot: u16) -> Option<Arc<PureExpr>> {
         let cell = captures.get(usize::from(slot))?;
-        Some(PureExpr::Const(
+        Some(Arc::new(PureExpr::Const(
             cell.lock().expect("poisoned capture").clone(),
-        ))
+        )))
     }
 
-    fn index_expr(target: PureExpr, args: Vec<PureExpr>) -> PureExpr {
-        PureExpr::Index {
-            target: Box::new(target),
+    fn index_expr(target: Arc<PureExpr>, args: Vec<Arc<PureExpr>>) -> Arc<PureExpr> {
+        Arc::new(PureExpr::Index {
+            target,
             args: args.into_boxed_slice(),
-        }
+        })
     }
 
-    fn index_args(stack: &mut Vec<PureExpr>, argc: usize) -> Option<Vec<PureExpr>> {
+    fn index_args(stack: &mut Vec<Arc<PureExpr>>, argc: usize) -> Option<Vec<Arc<PureExpr>>> {
         let base = stack.len().checked_sub(argc)?;
         Some(stack.drain(base..).collect())
     }
 
     fn operand_expr(
-        stack: &mut Vec<PureExpr>,
+        stack: &mut Vec<Arc<PureExpr>>,
         operand: &Operand,
-        arity: usize,
+        locals: &[Option<Arc<PureExpr>>],
         captures: &[ValueCell],
-    ) -> Option<PureExpr> {
+    ) -> Option<Arc<PureExpr>> {
         match operand {
             Operand::Stack => stack.pop(),
-            Operand::Const(v) => Some(PureExpr::Const((**v).clone())),
-            Operand::Local(slot) => Self::local_expr(*slot, arity),
+            Operand::Const(v) => Some(Arc::new(PureExpr::Const((**v).clone()))),
+            Operand::Local(slot) => Self::local_expr(locals, *slot),
             Operand::Capture(slot) => Self::capture_expr(captures, *slot),
             Operand::Var(_) | Operand::Self_ => None,
         }
@@ -177,32 +188,32 @@ impl PureCallback {
 }
 
 impl PureExpr {
-    fn from_cas_callable(value: &Value, arity: usize) -> Option<Self> {
+    fn from_cas_callable(value: &Value, arity: usize) -> Option<Arc<Self>> {
         if arity != 1 || !value.is_cas_expr() {
             return None;
         }
         let var = crate::cas::infer_single_cas_var(value).ok()?;
-        Some(Self::CasCall {
+        Some(Arc::new(Self::CasCall {
             expr: value.clone(),
             var: Value::from_cas_var(var),
-        })
+        }))
     }
 
-    fn from_callable_expr(expr: &CallableExpr, arity: usize) -> Option<Self> {
+    fn from_callable_expr(expr: &CallableExpr, arity: usize) -> Option<Arc<Self>> {
         match expr {
-            CallableExpr::Const(value) => Some(Self::Const(value.clone())),
+            CallableExpr::Const(value) => Some(Arc::new(Self::Const(value.clone()))),
             CallableExpr::Call(value) => {
                 PureCallback::compile(value, arity).map(|callback| callback.result)
             }
-            CallableExpr::Unary { op, operand } => Some(Self::Unary {
+            CallableExpr::Unary { op, operand } => Some(Arc::new(Self::Unary {
                 op: *op,
-                operand: Box::new(Self::from_callable_expr(operand, arity)?),
-            }),
-            CallableExpr::Binary { op, left, right } => Some(Self::Binary {
+                operand: Self::from_callable_expr(operand, arity)?,
+            })),
+            CallableExpr::Binary { op, left, right } => Some(Arc::new(Self::Binary {
                 op: *op,
-                left: Box::new(Self::from_callable_expr(left, arity)?),
-                right: Box::new(Self::from_callable_expr(right, arity)?),
-            }),
+                left: Self::from_callable_expr(left, arity)?,
+                right: Self::from_callable_expr(right, arity)?,
+            })),
         }
     }
 

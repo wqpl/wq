@@ -1066,6 +1066,57 @@ mod tests {
     }
 
     #[test]
+    fn map_pure_fast_path_accepts_straight_line_locals() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let f = make_fn(
+            Some(&["x"]),
+            3,
+            vec![
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(1))),
+                ),
+                Instruction::StoreLocal(1),
+                Instruction::LoadLocal(1),
+                Instruction::StoreLocalKeep(2),
+                Instruction::Return,
+            ],
+        );
+
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f]))
+            .expect("straight-line local callback should use the pure plan");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
+    }
+
+    #[test]
+    fn map_pure_fast_path_deoptimizes_local_expression_errors() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::IntList(Arc::new(vec![1]));
+        let f = make_fn(
+            Some(&["x"]),
+            2,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(0)),
+                Instruction::Index,
+                Instruction::StoreLocal(1),
+                Instruction::LoadLocal(1),
+                Instruction::Return,
+            ],
+        );
+
+        let error = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f]))
+            .expect_err("pure-plan errors should deoptimize to the VM callback");
+
+        assert_eq!(error.err_type, WqErrorType::Recursion);
+    }
+
+    #[test]
     fn map_pure_fast_path_accepts_captured_operands() {
         let mut vm = Vm::new(vec![]);
         vm.max_call_depth = 0;

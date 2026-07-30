@@ -1185,7 +1185,7 @@ impl BuiltinContext for Vm {
     }
 
     fn requires_callback_frames(&self) -> bool {
-        self.debug_state.is_enabled()
+        self.debug_state.is_enabled() || self.hooks.is_some()
     }
 }
 
