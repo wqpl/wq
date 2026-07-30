@@ -15,6 +15,7 @@ pub(crate) struct PureCallback {
 enum PureExpr {
     Arg(usize),
     Const(Value),
+    Capture(ValueCell),
     CasCall {
         expr: Value,
         var: Value,
@@ -154,9 +155,7 @@ impl PureCallback {
 
     fn capture_expr(captures: &[ValueCell], slot: u16) -> Option<Arc<PureExpr>> {
         let cell = captures.get(usize::from(slot))?;
-        Some(Arc::new(PureExpr::Const(
-            cell.lock().expect("poisoned capture").clone(),
-        )))
+        Some(Arc::new(PureExpr::Capture(Arc::clone(cell))))
     }
 
     fn index_expr(target: Arc<PureExpr>, args: Vec<Arc<PureExpr>>) -> Arc<PureExpr> {
@@ -226,6 +225,7 @@ impl PureExpr {
                 Ok(Some((**arg).clone()))
             }
             Self::Const(v) => Ok(Some(v.clone())),
+            Self::Capture(cell) => Ok(Some(cell.lock().expect("poisoned capture").clone())),
             Self::CasCall { expr, var } => {
                 let arg = args.first().ok_or_else(|| {
                     WqError::new(WqErrorType::Vm).msg("pure callback argument missing")
@@ -303,8 +303,12 @@ fn pure_index_err(target: &Value, args: &[Value]) -> WqError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use crate::value::Value;
     use crate::value::cas::CasOp;
+    use crate::value::func::ClosureData;
+    use crate::vm::inst::{Instruction, Operand};
     use crate::vm::pure::PureCallback;
 
     #[test]
@@ -336,5 +340,43 @@ mod tests {
 
         assert!(PureCallback::compile(&expr, 1).is_none());
         assert!(PureCallback::compile(&Value::from_cas_var("x"), 2).is_none());
+    }
+
+    #[test]
+    fn pure_callback_reads_current_capture_values() {
+        let capture = Arc::new(Mutex::new(Value::Int(10)));
+        let closure = Value::Closure(Arc::new(ClosureData {
+            params: Some(Arc::from([String::from("x")])),
+            named_params: None,
+            locals: 1,
+            captured: Arc::from([Arc::clone(&capture)]),
+            instructions: Arc::from([
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Capture(0),
+                ),
+                Instruction::Return,
+            ]),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }));
+        let callback = PureCallback::compile(&closure, 1).expect("closure should plan");
+        let arg = Value::Int(1);
+
+        assert_eq!(
+            callback.eval(&[&arg]).expect("first evaluation"),
+            Some(Value::Int(11))
+        );
+        *capture.lock().expect("capture lock") = Value::Int(20);
+        assert_eq!(
+            callback.eval(&[&arg]).expect("second evaluation"),
+            Some(Value::Int(21))
+        );
     }
 }

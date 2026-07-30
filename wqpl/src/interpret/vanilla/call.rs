@@ -4,8 +4,10 @@ use smallvec::SmallVec;
 
 use super::{Sv4, index_load_err, named_arg_index_err};
 use crate::interpret::InterpreterHook;
+use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
 use crate::vm::call::{CallSpec, ResolvedCallable};
+use crate::vm::pure::PureCallback;
 use crate::vm::{TailFrame, Vm, call_err};
 
 // --- concrete dispatch functions passed by the interpret loop ---
@@ -244,12 +246,20 @@ fn dispatch_user_value_cached<const TAIL: bool>(
         };
     };
 
-    if vm.inline_cache[idx].version == identity
-        && let Some(ref target) = vm.inline_cache[idx].call_target
-    {
-        let spec = CallSpec::from_resolved(target, argc, CallSpec::name_hint(name));
-        dispatch_spec::<TAIL>(vm, idx, spec)?;
+    if vm.inline_cache[idx].version == identity && vm.inline_cache[idx].call_target.is_some() {
         hooks.on_call_user_cache_hit();
+        if try_pure_user_call(vm, idx, argc) {
+            return Ok(false);
+        }
+        let spec = CallSpec::from_resolved(
+            vm.inline_cache[idx]
+                .call_target
+                .as_ref()
+                .expect("checked cached call target"),
+            argc,
+            CallSpec::name_hint(name),
+        );
+        dispatch_spec::<TAIL>(vm, idx, spec)?;
         return Ok(true);
     }
 
@@ -269,12 +279,17 @@ fn dispatch_user_value_cached<const TAIL: bool>(
     } else {
         user_dbg_chunk(func)
     };
+    let pure_call = PureCallback::compile(&cache_value, argc);
     if let Some(target) = ResolvedCallable::from_user_callable(cache_value, dbg_chunk) {
         let spec = CallSpec::from_resolved(&target, argc, CallSpec::name_hint(name));
         vm.inline_cache[idx].version = identity;
         vm.inline_cache[idx].call_target = Some(target);
+        vm.inline_cache[idx].pure_call = pure_call;
         vm.inline_cache[idx].slot = None;
         vm.inline_cache[idx].slot_b = None;
+        if try_pure_user_call(vm, idx, argc) {
+            return Ok(false);
+        }
         dispatch_spec::<TAIL>(vm, idx, spec)
     } else {
         if let Some(name) = name {
@@ -283,6 +298,37 @@ fn dispatch_user_value_cached<const TAIL: bool>(
             dispatch_user_value::<TAIL>(vm, idx, func, argc)
         }
     }
+}
+
+fn try_pure_user_call(vm: &mut Vm, idx: usize, argc: usize) -> bool {
+    if vm.debug_state.is_enabled()
+        || vm.debug_log.enabled(DebugLogFlags::WQDB)
+        || vm.hooks.is_some()
+        || vm.trace_depth > 0
+        || vm.cooperative_execution
+        || vm.pending_named_meta.is_some()
+    {
+        return false;
+    }
+    let Some(callback) = vm.inline_cache[idx].pure_call.clone() else {
+        return false;
+    };
+    let Some(base) = vm.stack.len().checked_sub(argc) else {
+        return false;
+    };
+    let result = {
+        let args = vm.stack[base..].iter().collect::<SmallVec<[&Value; 4]>>();
+        callback.eval(&args)
+    };
+    let Ok(Some(value)) = result else {
+        return false;
+    };
+    if value.is_callable() {
+        return false;
+    }
+    vm.stack.truncate(base);
+    vm.stack.push(value);
+    true
 }
 
 pub(super) fn dispatch_loaded_local_call<const TAIL: bool>(

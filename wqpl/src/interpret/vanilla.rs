@@ -109,7 +109,10 @@ impl VanillaInterpreter {
         work_budget: usize,
     ) -> WqResult<InterpretPoll> {
         let mut control = InterpretControl::sliced(work_budget);
-        self.interpret_with_try_stack(vm, limit, &mut control)
+        let cooperative_execution = std::mem::replace(&mut vm.cooperative_execution, true);
+        let result = self.interpret_with_try_stack(vm, limit, &mut control);
+        vm.cooperative_execution = cooperative_execution;
+        result
     }
 
     pub(crate) fn interpret_until_call_depth(
@@ -2811,6 +2814,67 @@ mod call_safety {
         vm.returned = false;
         let mut interpreter = VanillaInterpreter;
         interpreter.interpret(vm, limit).expect("execute")
+    }
+
+    #[test]
+    fn pure_user_call_avoids_a_physical_frame() {
+        let add_one = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Add,
+                    crate::vm::inst::Operand::Local(0),
+                    crate::vm::inst::Operand::Const(Box::new(Value::Int(1))),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let instructions = vec![
+            Instruction::load_const(add_one),
+            Instruction::load_const(Value::Int(41)),
+            Instruction::CallAnon(1),
+            Instruction::Return,
+        ];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+        vm.max_call_depth = 0;
+
+        let result = VanillaInterpreter
+            .interpret(&mut vm, limit)
+            .expect("pure user call should not enter a physical frame");
+
+        assert_eq!(result, Value::Int(42));
+        assert!(vm.inline_cache[2].pure_call.is_some());
+    }
+
+    #[test]
+    fn pure_user_call_error_deoptimizes_to_a_physical_frame() {
+        let invalid_index = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(0)),
+                Instruction::Index,
+                Instruction::Return,
+            ],
+        );
+        let instructions = vec![
+            Instruction::load_const(invalid_index),
+            Instruction::load_const(Value::Int(41)),
+            Instruction::CallAnon(1),
+            Instruction::Return,
+        ];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+        vm.max_call_depth = 0;
+
+        let error = VanillaInterpreter
+            .interpret(&mut vm, limit)
+            .expect_err("pure-plan errors should use the authoritative framed call");
+
+        assert_eq!(error.err_type, WqErrorType::Recursion);
     }
 
     #[test]

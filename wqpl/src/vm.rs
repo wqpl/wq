@@ -29,6 +29,7 @@ use crate::vm::call::ResolvedCallable;
 use crate::vm::debug::PauseHandler;
 use crate::vm::inst::Instruction;
 use crate::vm::owned_const::extract_owned_consts;
+use crate::vm::pure::PureCallback;
 use crate::vm::trace::TraceRecord;
 use crate::wqdb::DebugPause;
 use crate::wqdb::data::{ChunkId, CodeLoc, CrashSnapshot, DebugInfo};
@@ -239,6 +240,7 @@ pub(crate) struct TryFrame {
 pub(crate) struct InlineCache {
     pub(crate) version: u64,
     pub(crate) call_target: Option<ResolvedCallable>,
+    pub(crate) pure_call: Option<PureCallback>,
     pub(crate) named_layout: Option<Arc<call::NamedArgLayout>>,
     pub(crate) slot: Option<usize>,
     pub(crate) slot_b: Option<usize>,
