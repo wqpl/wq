@@ -91,9 +91,21 @@ test("interactive chrome does not create accidental text selections", () => {
 test("code-fence edge actions use rounded rectangles and contain animated labels", () => {
   assert.match(
     styles,
-    /\.code-action-btn\s*\{[^}]*border-radius:\s*var\(--radius-xs\);/
+    /\.code-action-btn\s*\{[^}]*min-height:\s*40px;[^}]*border-radius:\s*var\(--radius-control\);/
   );
   assert.match(styles, /\.code-action-btn\s*\{[^}]*overflow:\s*hidden;/);
+});
+
+test("action buttons use the prototype hierarchy", () => {
+  assert.match(
+    styles,
+    /\.btn\s*\{[^}]*min-height:\s*42px;[^}]*padding:\s*9px 14px;[^}]*border-radius:\s*var\(--radius-control\);[^}]*background:\s*var\(--btn-bg\);/
+  );
+  assert.match(styles, /--btn-bg:\s*transparent;/);
+  assert.match(
+    styles,
+    /\.btn\.primary\s*\{[^}]*background:\s*var\(--btn-primary-bg\);[^}]*box-shadow:\s*var\(--btn-primary-shadow\);/
+  );
 });
 
 test("block code does not inherit inline-code margins or Midnight fills", () => {

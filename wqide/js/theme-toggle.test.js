@@ -4,6 +4,10 @@ import test from "node:test";
 
 const appSource = await readFile(new URL("app.js", import.meta.url), "utf8");
 const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+const segmentedSource = await readFile(
+  new URL("ui-segmented.js", import.meta.url),
+  "utf8"
+);
 
 function cssRule(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -44,6 +48,24 @@ test("theme thumb follows a continuous drag position before settling", () => {
   );
 });
 
+test("other segmented controls share a continuously draggable thumb", () => {
+  assert.match(
+    cssRule(".segmented-control-thumb"),
+    /translateX\(calc\(var\(--segment-position\) \* 100%\)\)/
+  );
+  assert.match(
+    segmentedSource,
+    /function preview\(clientX\)[\s\S]*--segment-position[\s\S]*addEventListener\("pointermove"[\s\S]*preview\(event\.clientX\)/
+  );
+  for (const className of [
+    "inspector-tabs",
+    "structure-tabs",
+    "viz-layout-toggle"
+  ]) {
+    assert.match(appSource, new RegExp(`class="${className} segmented-control"`));
+  }
+});
+
 test("pointer theme changes preserve an active code editor caret", () => {
   assert.match(
     appSource,
@@ -72,9 +94,10 @@ test("theme hover feedback stays on the hovered choice", () => {
 });
 
 test("Midnight restores purple controls on dark blue surfaces", () => {
-  assert.match(styles, /--btn-bg:\s*#f7fcff;/);
+  assert.match(styles, /--btn-bg:\s*transparent;/);
+  assert.match(styles, /--btn-hover-bg:\s*#f3fcf5;/);
   assert.match(styles, /--btn-primary-bg:\s*#216b55;/);
-  assert.match(styles, /--btn-bg:\s*#2a1a41;/);
+  assert.match(styles, /--btn-hover-bg:\s*#241b38;/);
   assert.match(styles, /--btn-primary-bg:\s*#b19cd9;/);
   assert.match(
     cssRule(':root[data-theme="midnight"] .theme-toggle-thumb'),

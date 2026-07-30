@@ -5,8 +5,10 @@ import init, {
   WasmFrontend,
 } from "wq-wasm";
 import { nextPopupIndex, nextTabIndex } from "./ui-navigation.js";
+import { wireSegmentedControl } from "./ui-segmented.js";
 export { queueEval } from "./eval-lifecycle.js";
 export { nextPopupIndex, nextTabIndex } from "./ui-navigation.js";
+export { wireSegmentedControl } from "./ui-segmented.js";
 
 // ========== WASM Initialization ==========
 
@@ -134,6 +136,7 @@ export function setActive(el, on) {
 
 export function wireTabList(tablist, { onSelect } = {}) {
   if (!tablist) return null;
+  let segmentedControl = null;
 
   function tabs() {
     return Array.from(tablist.querySelectorAll('[role="tab"]'));
@@ -148,6 +151,7 @@ export function wireTabList(tablist, { onSelect } = {}) {
     for (const tab of items) {
       tab.tabIndex = tab === selected ? 0 : -1;
     }
+    segmentedControl?.sync(selected);
   }
 
   function activate(tab, focus = false) {
@@ -157,10 +161,12 @@ export function wireTabList(tablist, { onSelect } = {}) {
     if (focus) tab.focus();
   }
 
-  tablist.addEventListener("click", (event) => {
-    const tab = event.target.closest('[role="tab"]');
-    if (!tab || !tablist.contains(tab)) return;
-    activate(tab);
+  segmentedControl = wireSegmentedControl(tablist, {
+    optionSelector: '[role="tab"]',
+    isSelected: (tab) => tab.getAttribute("aria-selected") === "true",
+    onSelect(tab) {
+      activate(tab);
+    }
   });
 
   tablist.addEventListener("keydown", (event) => {

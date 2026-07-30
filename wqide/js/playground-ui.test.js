@@ -165,11 +165,15 @@ test("playground inspector is an attached workbench rail", () => {
   const activeStructureTabRule = styleRule(".structure-tab.active");
   assert.match(
     activeStructureTabRule,
-    /background:\s*var\(--inspector-control-active-bg\);/
+    /background:\s*transparent;/
   );
   assert.match(
     activeStructureTabRule,
     /color:\s*var\(--inspector-control-active-text\);/
+  );
+  assert.match(
+    appSource,
+    /class="structure-tabs segmented-control"[\s\S]*class="segmented-control-thumb"/
   );
 });
 

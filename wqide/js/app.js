@@ -462,9 +462,10 @@ const PLAYGROUND_HTML = html`
           <div class="structure-panel-head">
             <h2 id="structurePanelHeading">Structure</h2>
             <div
-              class="structure-tabs"
+              class="structure-tabs segmented-control"
               role="tablist"
               aria-label="Structure view">
+              <span class="segmented-control-thumb" aria-hidden="true"></span>
               <button
                 class="structure-tab active"
                 type="button"
@@ -605,9 +606,11 @@ const VIZ_HTML = html`
               <span>Live</span>
             </label>
             <div
-              class="viz-layout-toggle"
+              class="viz-layout-toggle segmented-control"
+              data-viz-layout-control
               role="group"
               aria-label="Control layout">
+              <span class="segmented-control-thumb" aria-hidden="true"></span>
               <button
                 class="active"
                 type="button"
@@ -1037,7 +1040,7 @@ const REPL_HTML = html`
             <div
               class="repl-runtime-actions"
               role="group"
-              aria-label="REPL runtime controls">
+              aria-label="Result and debug controls">
               <div class="runtime-control" data-runtime-menu>
                 <button
                   id="pillBox"
@@ -1169,45 +1172,55 @@ const REPL_HTML = html`
                 </div>
               </div>
             </div>
-            <button
-              id="historyToggleBtn"
-              class="pill inactive"
-              type="button"
-              aria-expanded="false"
-              aria-controls="historySearch">
-              history
-            </button>
-            <button
-              id="inspectorToggleBtn"
-              class="pill inactive"
-              type="button"
-              aria-expanded="false"
-              aria-controls="runtimeInspector">
-              <span>inspector</span>
-              <span id="globalsCount" class="repl-terminal-count">0</span>
-            </button>
-            <button
-              id="stopBtn"
-              class="btn danger repl-terminal-stop"
-              type="button"
-              hidden>
-              Stop
-            </button>
-            <details id="terminalMenu" class="repl-terminal-menu">
-              <summary
+            <div
+              class="repl-view-actions"
+              role="group"
+              aria-label="REPL views">
+              <button
+                id="historyToggleBtn"
                 class="pill inactive"
-                aria-label="Session actions">
-                <span class="repl-terminal-menu-ellipsis" aria-hidden="true"
-                  >…</span
-                >
-              </summary>
-              <div class="repl-terminal-menu-panel">
-                <button id="copyFlowBtn" type="button">Copy session</button>
-                <button id="copyOutputBtn" type="button">Copy output</button>
-                <button id="clearBtn" type="button">Clear screen</button>
-                <button id="resetBtn" type="button">Reset session</button>
-              </div>
-            </details>
+                type="button"
+                aria-expanded="false"
+                aria-controls="historySearch">
+                history
+              </button>
+              <button
+                id="inspectorToggleBtn"
+                class="pill inactive"
+                type="button"
+                aria-expanded="false"
+                aria-controls="runtimeInspector">
+                <span>inspector</span>
+                <span id="globalsCount" class="repl-terminal-count">0</span>
+              </button>
+            </div>
+            <div
+              class="repl-session-actions"
+              role="group"
+              aria-label="Session controls">
+              <button
+                id="stopBtn"
+                class="btn danger repl-terminal-stop"
+                type="button"
+                hidden>
+                Stop
+              </button>
+              <details id="terminalMenu" class="repl-terminal-menu">
+                <summary
+                  class="pill inactive"
+                  aria-label="Session actions">
+                  <span class="repl-terminal-menu-ellipsis" aria-hidden="true"
+                    >…</span
+                  >
+                </summary>
+                <div class="repl-terminal-menu-panel">
+                  <button id="copyFlowBtn" type="button">Copy session</button>
+                  <button id="copyOutputBtn" type="button">Copy output</button>
+                  <button id="clearBtn" type="button">Clear screen</button>
+                  <button id="resetBtn" type="button">Reset session</button>
+                </div>
+              </details>
+            </div>
           </div>
         </header>
 
@@ -1274,7 +1287,11 @@ const REPL_HTML = html`
         aria-label="Runtime inspector"
         hidden>
         <div class="globals-panel-head">
-          <div class="inspector-tabs" role="tablist" aria-label="Runtime data">
+          <div
+            class="inspector-tabs segmented-control"
+            role="tablist"
+            aria-label="Runtime data">
+            <span class="segmented-control-thumb" aria-hidden="true"></span>
             <button
               id="globalsTab"
               class="inspector-tab active"

@@ -1,4 +1,5 @@
 import { highlightedSourceLineFragments } from "./syntax-highlight.js";
+import { wireSegmentedControl } from "./ui-segmented.js";
 
 const RESUME_ACTIONS = new Set([
   "continue",
@@ -162,10 +163,14 @@ export function createWqdbController(onChange = () => {}) {
       refresh({ selectedFrame: frameIndex });
     },
 
-    setGranularity(granularity) {
+    setGranularity(granularity, { render = true } = {}) {
       const active = requirePause();
-      active.stop.setGranularity(granularity);
-      refresh();
+      const selected = active.stop.setGranularity(granularity);
+      const nextGranularity =
+        typeof selected === "string" ? selected : active.stop.granularity();
+      state = { ...state, granularity: nextGranularity };
+      if (render) onChange(state);
+      return nextGranularity;
     },
 
     toggleBreakpoint(line) {
@@ -220,7 +225,25 @@ function section(title, { foldable = false, open = true } = {}) {
     const node = element("details", "wqdb-section wqdb-foldable");
     node.dataset.wqdbSection = title;
     node.open = open;
-    node.append(element("summary", "wqdb-section-title", title));
+    const summary = element("summary", "wqdb-section-title");
+    const chevron = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    );
+    chevron.classList.add("wqdb-section-chevron");
+    chevron.setAttribute("viewBox", "0 0 24 24");
+    chevron.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path"
+    );
+    path.setAttribute("d", "m6 9 6 6 6-6");
+    chevron.append(path);
+    summary.append(
+      chevron,
+      element("span", "wqdb-section-title-label", title)
+    );
+    node.append(summary);
     return node;
   }
   const node = element("section", "wqdb-section");
@@ -287,8 +310,7 @@ function renderSource(state, actions, frontend, open) {
     );
     const breakpoint = element(
       "button",
-      `wqdb-breakpoint${breakpointLines.has(lineNumber) ? " active" : ""}`,
-      breakpointLines.has(lineNumber) ? "●" : "○",
+      `wqdb-breakpoint${breakpointLines.has(lineNumber) ? " active" : ""}`
     );
     breakpoint.type = "button";
     breakpoint.disabled = state.status !== "paused";
@@ -505,9 +527,15 @@ export function renderWqdbPanel(
   }
   const granularity = element("div", "wqdb-granularity");
   granularity.append(element("span", "", "Step by"));
-  const granularityOptions = element("div", "wqdb-granularity-options");
+  const granularityOptions = element(
+    "div",
+    "wqdb-granularity-options segmented-control"
+  );
   granularityOptions.setAttribute("role", "group");
   granularityOptions.setAttribute("aria-label", "Step granularity");
+  const granularityThumb = element("span", "segmented-control-thumb");
+  granularityThumb.setAttribute("aria-hidden", "true");
+  granularityOptions.append(granularityThumb);
   for (const [value, label] of [
     ["line", "Line"],
     ["expr", "Expression"],
@@ -520,13 +548,30 @@ export function renderWqdbPanel(
     );
     option.type = "button";
     option.disabled = state.status !== "paused";
+    option.dataset.wqdbGranularity = value;
     option.setAttribute(
       "aria-pressed",
       String(state.granularity === value),
     );
-    option.addEventListener("click", () => actions.setGranularity(value));
     granularityOptions.append(option);
   }
+  wireSegmentedControl(granularityOptions, {
+    optionSelector: "[data-wqdb-granularity]",
+    isSelected: (option) => option.classList.contains("active"),
+    onSelect(option) {
+      const selected = actions.setGranularity(
+        option.dataset.wqdbGranularity,
+        { render: false }
+      );
+      for (const button of granularityOptions.querySelectorAll(
+        "[data-wqdb-granularity]"
+      )) {
+        const active = button.dataset.wqdbGranularity === selected;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      }
+    }
+  });
   granularity.append(granularityOptions);
   controls.append(granularity);
 

@@ -90,7 +90,19 @@ test("viz code disclosure uses a quiet conventional affordance", () => {
   );
   assert.match(
     styleRule(".viz-code-panel summary"),
-    /background:\s*var\(--workbench-output-bg\);/
+    /border-bottom:\s*1px solid transparent;[\s\S]*background:\s*var\(--workbench-output-bg\);[\s\S]*background-color 260ms cubic-bezier/
+  );
+  assert.match(
+    styleRule(".viz-code-chevron"),
+    /color 240ms ease,[\s\S]*transform 240ms cubic-bezier/
+  );
+  assert.match(
+    styleRule(".viz-code-panel summary:hover"),
+    /background:\s*var\(--workbench-rail-bg\);/
+  );
+  assert.match(
+    styleRule(".viz-code-panel[open] summary"),
+    /border-bottom-color:\s*var\(--workbench-rule\);/
   );
   assert.doesNotMatch(styles, /viz-code-summary-hint|Generated code|Collapse/);
 });
@@ -119,12 +131,12 @@ test("viz controls use the shared blue and green control palette", () => {
     /background:\s*var\(--pill-active-bg\);[\s\S]*color:\s*var\(--pill-active-text\);/
   );
   assert.match(
-    styleRule(".viz-live-switch input"),
-    /accent-color:\s*var\(--terminal-success\);/
+    styles,
+    /\.viz-live-switch input\[type="checkbox"\],[\s\S]*?\.poster-field-inline input\[type="checkbox"\]\s*\{[^}]*background:\s*var\(--surface-bg-field\);[^}]*appearance:\s*none;/s
   );
   assert.match(
     styleRule(".viz-code-copy"),
-    /border-radius:\s*var\(--radius-xs\);/
+    /min-height:\s*40px;[\s\S]*border-radius:\s*var\(--radius-control\);/
   );
 });
 
@@ -145,7 +157,7 @@ test("viz output follows the active surface theme", () => {
 test("viz view toggles sit inside one control capsule", () => {
   assert.match(
     appSource,
-    /class="viz-view-controls"[\s\S]*class="viz-live-switch"[\s\S]*class="viz-layout-toggle"/
+    /class="viz-view-controls"[\s\S]*class="viz-live-switch"[\s\S]*class="viz-layout-toggle segmented-control"/
   );
   const clusterRule = styleRule(".viz-view-controls");
   assert.match(clusterRule, /padding:\s*4px;/);
@@ -154,6 +166,29 @@ test("viz view toggles sit inside one control capsule", () => {
     /border:\s*1px solid var\(--control-cluster-border\);/
   );
   assert.match(clusterRule, /background:\s*var\(--control-cluster-bg\);/);
+  assert.match(
+    appSource,
+    /class="viz-layout-toggle segmented-control"[\s\S]*class="segmented-control-thumb"/
+  );
+  assert.match(
+    styles,
+    /\.viz-layout-toggle button\.active\s*\{[^}]*background:\s*transparent;/
+  );
+});
+
+test("viz status uses the same minimal state dot as the REPL", () => {
+  assert.match(
+    styleRule(".viz-status::before"),
+    /width:\s*7px;[\s\S]*height:\s*7px;[\s\S]*border-radius:\s*50%;[\s\S]*background:\s*var\(--terminal-success\);/
+  );
+  assert.match(
+    styles,
+    /\.viz-status\[data-tone="running"\]::before\s*\{[^}]*background:\s*var\(--terminal-blue\);/
+  );
+  assert.match(
+    styles,
+    /\.viz-status\[data-tone="error"\]::before\s*\{[^}]*background:\s*var\(--terminal-error\);/
+  );
 });
 
 test("viz dropdowns use stroked chevrons and center the Presets popover", () => {

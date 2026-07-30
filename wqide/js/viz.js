@@ -10,7 +10,8 @@ import {
   getWqFrontend,
   formatWqError,
   queueEval,
-  wirePopupSelection
+  wirePopupSelection,
+  wireSegmentedControl
 } from "./wq-shared.js";
 import {
   createEvaluationController,
@@ -417,11 +418,14 @@ function setToggleValue(instance, key, value) {
 function setLayoutValue(instance, value) {
   instance.state.layout = value === "side" ? "side" : "below";
   instance.root.dataset.vizLayout = instance.state.layout;
+  let selectedButton = null;
   instance.layoutButtons.forEach((button) => {
     const active = button.dataset.vizLayoutOption === instance.state.layout;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
+    if (active) selectedButton = button;
   });
+  instance.layoutControlController?.sync(selectedButton);
 }
 
 function setInputValue(instance, key, value) {
@@ -723,10 +727,10 @@ async function copyCode(instance) {
 function scheduleRun(instance, delay = 160) {
   clearTimeout(instance.autoTimer);
   if (!instance.state.autoRun) {
-    setStatus(instance, "Ready");
+    setStatus(instance, "Ready", "idle");
     return;
   }
-  setStatus(instance, "Queued");
+  setStatus(instance, "Queued", "running");
   instance.autoTimer = setTimeout(() => {
     runViz(instance);
   }, delay);
@@ -739,7 +743,7 @@ function updateView(instance, options = {}) {
   refreshAutoWidth(instance);
   renderCode(instance);
   if (options.run === false) {
-    setStatus(instance, "Ready");
+    setStatus(instance, "Ready", "idle");
   } else {
     scheduleRun(instance, options.delay);
   }
@@ -749,7 +753,7 @@ async function runViz(instance) {
   clearTimeout(instance.autoTimer);
   if (instance.isRunning || instance.evaluationController.active) {
     instance.pendingRun = true;
-    setStatus(instance, "Queued");
+    setStatus(instance, "Queued", "running");
     if (instance.evaluationController.active) {
       instance.evaluationController.stop("superseded by newer viz state");
     }
@@ -760,7 +764,7 @@ async function runViz(instance) {
   instance.pendingRun = false;
   instance.output.innerHTML = "";
   instance.inputHost.innerHTML = "";
-  setStatus(instance, "Running");
+  setStatus(instance, "Running", "running");
   const renderer = createOutputRenderer(instance.output);
   try {
     await ensureWasm();
@@ -799,7 +803,7 @@ async function runViz(instance) {
     if (isAbortError(err)) {
       if (!instance.pendingRun) {
         renderer.appendText("Interrupted\n");
-        setStatus(instance, "Interrupted");
+        setStatus(instance, "Interrupted", "warning");
       }
     } else {
       const bar = document.createElement("span");
@@ -887,6 +891,8 @@ export async function mountViz(root) {
     presetMenuPanel: root.querySelector("[data-viz-preset-panel]"),
     presetButtons: Array.from(root.querySelectorAll("[data-viz-preset]")),
     presetPopup: null,
+    layoutControl: root.querySelector("[data-viz-layout-control]"),
+    layoutControlController: null,
     layoutButtons: Array.from(
       root.querySelectorAll("[data-viz-layout-option]"),
     ),
@@ -982,11 +988,16 @@ export async function mountViz(root) {
       updateView(instance);
     });
   });
-  instance.layoutButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      setLayoutValue(instance, button.dataset.vizLayoutOption);
-    });
-  });
+  instance.layoutControlController = wireSegmentedControl(
+    instance.layoutControl,
+    {
+      optionSelector: "[data-viz-layout-option]",
+      isSelected: (button) => button.classList.contains("active"),
+      onSelect(button) {
+        setLayoutValue(instance, button.dataset.vizLayoutOption);
+      }
+    }
+  );
   instance.addSeriesBtn?.addEventListener("click", () => {
     instance.state.series.push({
       expr: "",

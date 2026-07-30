@@ -193,10 +193,34 @@ test("wqdb controller keeps top-level pauses usable without captured locals", as
   assert.equal(await resume, "continue");
 });
 
+test("wqdb granularity can update without rebuilding the panel", async () => {
+  const states = [];
+  const controller = createWqdbController((state) => states.push(state));
+  const resume = controller.pause(fakeStop(), {
+    source: "answer:42",
+    sourcePath: "<repl:1>"
+  });
+  const renderCount = states.length;
+
+  assert.equal(
+    controller.setGranularity("inst", { render: false }),
+    "inst"
+  );
+  assert.equal(controller.state.granularity, "inst");
+  assert.equal(states.length, renderCount);
+
+  controller.resume("continue");
+  assert.equal(await resume, "continue");
+});
+
 test("wqdb granularity uses custom buttons instead of a native select", async () => {
   const source = await readFile(new URL("./wqdb.js", import.meta.url), "utf8");
   assert.equal(source.includes('element("select"'), false);
   assert.match(source, /wqdb-granularity-option/);
+  assert.match(source, /wqdb-granularity-options segmented-control/);
+  assert.match(source, /element\("span", "segmented-control-thumb"\)/);
+  assert.match(source, /wireSegmentedControl\(granularityOptions/);
+  assert.match(source, /\{ render: false \}/);
   assert.match(source, /aria-pressed/);
 });
 
@@ -232,6 +256,25 @@ test("wqdb controls share a clear disabled treatment", async () => {
     styles,
     /\.wqdb-panel-body \.btn:disabled,[\s\S]*?\.wqdb-track-input:disabled\s*\{[^}]*background:\s*var\(--surface-bg-muted\);[^}]*box-shadow:\s*none/s,
   );
+  assert.match(
+    styles,
+    /\.wqdb-granularity-option:disabled\s*\{[^}]*border-color:\s*transparent;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/s
+  );
+});
+
+test("wqdb Continue uses local emphasis without a floating shadow", async () => {
+  const styles = await readFile(
+    new URL("../styles.css", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    styles,
+    /\.wqdb-controls \.btn\.primary\s*\{[^}]*background:\s*var\(--inspector-control-active-bg\);[^}]*color:\s*var\(--inspector-control-active-text\);[^}]*box-shadow:\s*none;/s
+  );
+  assert.match(
+    styles,
+    /\.wqdb-controls \.btn\.primary:hover:not\(:disabled\)\s*\{[^}]*box-shadow:\s*none;/s
+  );
 });
 
 test("wqdb centers its ready placeholder", async () => {
@@ -262,7 +305,15 @@ test("wqdb source uses structured highlighting with a background-only current li
   assert.match(source, /highlightedLines/);
   assert.match(
     styles,
-    /\.wqdb-source-code\s*\{[^}]*background:\s*var\(--surface-bg-field\);[^}]*color:\s*var\(--surface-text\)/s,
+    /\.wqdb-source-line\s*\{[^}]*grid-template-columns:\s*28px 36px minmax\(max-content, 1fr\);[^}]*background:\s*var\(--workbench-rail-bg\)/s
+  );
+  assert.match(
+    styles,
+    /\.wqdb-line-number\s*\{[^}]*border-right:\s*1px solid var\(--workbench-rule\)/s
+  );
+  assert.match(
+    styles,
+    /\.wqdb-source-code\s*\{[^}]*background:\s*var\(--workbench-body-bg\);[^}]*color:\s*var\(--surface-text\)/s
   );
   assert.match(
     styles,
@@ -286,8 +337,41 @@ test("wqdb renders pretty-printer instruction parts with class styling", async (
 test("potentially long wqdb sections use foldable details", async () => {
   const source = await readFile(new URL("./wqdb.js", import.meta.url), "utf8");
   assert.match(source, /element\("details", "wqdb-section wqdb-foldable"\)/);
-  assert.match(source, /element\("summary", "wqdb-section-title", title\)/);
+  assert.match(source, /element\("summary", "wqdb-section-title"\)/);
+  assert.match(source, /classList\.add\("wqdb-section-chevron"\)/);
+  assert.match(source, /path\.setAttribute\("d", "m6 9 6 6 6-6"\)/);
   for (const title of ["Source", "Stack", "Locals", "Globals"]) {
     assert.match(source, new RegExp(`sectionOpen\\(foldState, "${title}"\\)`));
   }
+});
+
+test("foldable wqdb titles show a smooth full-row disclosure affordance", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("./wqdb.js", import.meta.url), "utf8"),
+    readFile(new URL("../styles.css", import.meta.url), "utf8")
+  ]);
+  assert.match(
+    styles,
+    /\.wqdb-foldable > \.wqdb-section-title:hover\s*\{[^}]*background:\s*var\(--inspector-control-hover-bg\);/s
+  );
+  assert.match(
+    styles,
+    /\.wqdb-foldable > \.wqdb-section-title\s*\{[^}]*background-color 260ms cubic-bezier/s
+  );
+  assert.match(
+    styles,
+    /\.wqdb-section-chevron\s*\{[^}]*width:\s*16px;[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*transform:\s*rotate\(0deg\);[^}]*transform 240ms cubic-bezier/s
+  );
+  assert.match(
+    styles,
+    /\.wqdb-foldable:not\(\[open\]\) > \.wqdb-section-title\s*\{[^}]*border-bottom-color:\s*transparent;/s
+  );
+  assert.match(
+    styles,
+    /\.wqdb-foldable:not\(\[open\]\) \.wqdb-section-chevron\s*\{[^}]*transform:\s*rotate\(-90deg\);/s
+  );
+  assert.match(
+    source,
+    /summary\.append\(\s*chevron,\s*element\("span", "wqdb-section-title-label", title\)/
+  );
 });

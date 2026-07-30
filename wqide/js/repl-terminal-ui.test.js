@@ -59,8 +59,54 @@ test("terminal chrome keeps established pills and utilities outside the prompt",
     /\.repl-terminal-bar \.runtime-panel-head \.mini\s*\{[^}]*color:\s*var\(--terminal-text\);/,
   );
   assert.match(
+    appSource,
+    /class="repl-runtime-actions"[\s\S]*?class="repl-view-actions"[\s\S]*?class="repl-session-actions"/
+  );
+  assert.match(
     styles,
-    /\.repl-terminal-actions\s*\{[^}]*padding:\s*4px;[^}]*border:\s*1px solid var\(--control-cluster-border\);[^}]*background:\s*var\(--control-cluster-bg\);/
+    /\.repl-runtime-actions,\s*\.repl-view-actions,\s*\.repl-session-actions\s*\{[^}]*border:\s*1px solid var\(--control-cluster-border\);[^}]*background:\s*var\(--control-cluster-bg\);/
+  );
+  assert.doesNotMatch(styles, /\.repl-view-actions \.pill\.inactive/);
+  assert.doesNotMatch(styles, /\.repl-session-actions \.pill\.inactive/);
+  assert.match(styles, /\.btn\[hidden\]\s*\{[^}]*display:\s*none;/);
+});
+
+test("REPL pills and inspector tabs share smooth hover feedback", () => {
+  assert.match(
+    styles,
+    /\.pill\s*\{[^}]*background-color 140ms ease,[^}]*box-shadow 140ms ease;/s
+  );
+  assert.match(
+    styles,
+    /\.pill\.inactive:hover\s*\{[^}]*background:\s*var\(--btn-hover-bg\);[^}]*border-color:\s*var\(--pill-hover-border\);/s
+  );
+  assert.match(
+    styles,
+    /\.pill\.active:hover\s*\{[^}]*border-color:\s*var\(--pill-active-border\);/s
+  );
+  assert.match(
+    styles,
+    /\.pill\.active:focus-visible\s*\{[^}]*outline-color:\s*var\(--pill-active-border\);/s
+  );
+  assert.match(
+    styles,
+    /\.inspector-tabs\s*\{[^}]*background-color 240ms cubic-bezier[^}]*border-color 240ms cubic-bezier/s
+  );
+  assert.match(
+    appSource,
+    /class="inspector-tabs segmented-control"[\s\S]*class="segmented-control-thumb"/
+  );
+  assert.match(
+    styles,
+    /\.inspector-tabs\s*\{[^}]*border-radius:\s*var\(--radius-pill\);/s
+  );
+  assert.match(
+    styles,
+    /\.inspector-tabs:hover\s*\{[^}]*border-color:\s*var\(--inspector-control-hover-border\);[^}]*background:\s*var\(--inspector-control-hover-bg\);/s
+  );
+  assert.match(
+    styles,
+    /\.inspector-tab:hover\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--inspector-control-active-text\);/s
   );
 });
 
@@ -111,6 +157,68 @@ test("desktop inspector keeps the same minimum height as the REPL", () => {
   );
 });
 
+test("inspector header stays fixed and debugger status uses a state dot", () => {
+  assert.match(
+    styles,
+    /--repl-titlebar-height:\s*66px;/
+  );
+  assert.match(
+    styles,
+    /\.globals-panel-head\s*\{[^}]*flex:\s*0 0 var\(--repl-titlebar-height\);[^}]*height:\s*var\(--repl-titlebar-height\);[^}]*min-height:\s*var\(--repl-titlebar-height\);[^}]*box-sizing:\s*border-box;/
+  );
+  assert.match(
+    styles,
+    /\.globals-panel-head\s*\{[^}]*border-bottom:\s*1px solid var\(--workbench-border\);/
+  );
+  assert.match(
+    styles,
+    /\.repl-terminal-bar\s*\{[^}]*flex:\s*0 0 var\(--repl-titlebar-height\);[^}]*height:\s*var\(--repl-titlebar-height\);[^}]*min-height:\s*var\(--repl-titlebar-height\);[^}]*box-sizing:\s*border-box;/
+  );
+  assert.match(
+    styles,
+    /\.globals-panel \.btn\s*\{[^}]*min-height:\s*34px;/
+  );
+  assert.match(
+    styles,
+    /\.wqdb-panel-status\s*\{[^}]*display:\s*inline-flex;[^}]*gap:\s*7px;[^}]*margin-right:\s*var\(--space-1\);/
+  );
+  assert.match(
+    styles,
+    /\.wqdb-panel-status::before\s*\{[^}]*width:\s*7px;[^}]*height:\s*7px;[^}]*border-radius:\s*50%;/
+  );
+  assert.match(
+    styles,
+    /\.globals-panel\[data-debugger-state="paused"\] \.wqdb-panel-status::before\s*\{[^}]*background:\s*var\(--terminal-warning\);/
+  );
+});
+
+test("history search uses current workbench surfaces and focus treatment", () => {
+  assert.match(
+    styles,
+    /--history-focus-ring:\s*#4f88a7;[\s\S]*--history-focus-ring:\s*#a0c1d1;/
+  );
+  assert.match(
+    styles,
+    /\.history-search\s*\{[^}]*border:\s*1px solid var\(--workbench-border\);[^}]*border-radius:\s*var\(--radius-control\);[^}]*background:\s*var\(--workbench-output-bg\);/
+  );
+  assert.match(
+    styles,
+    /\.history-search input\s*\{[^}]*min-height:\s*42px;[^}]*border-radius:\s*var\(--radius-control\);[^}]*background:\s*var\(--workbench-body-bg\);/
+  );
+  assert.match(
+    styles,
+    /\.history-search input:focus-visible\s*\{[^}]*border-color:\s*var\(--history-focus-ring\);[^}]*outline:\s*2px solid var\(--history-focus-ring\);[^}]*box-shadow:\s*none;/
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.history-search input:focus-visible\s*\{[^}]*(?:terminal-accent|focus-ring-soft)/
+  );
+  assert.match(
+    styles,
+    /\.history-search-results button\s*\{[^}]*flex:\s*0 0 auto;[^}]*line-height:\s*1\.5;/
+  );
+});
+
 test("themed inspector controls use local surface tokens", () => {
   assert.match(
     styles,
@@ -118,11 +226,15 @@ test("themed inspector controls use local surface tokens", () => {
   );
   assert.match(
     styles,
-    /\.inspector-tab\.active\s*\{[^}]*background:\s*var\(--inspector-control-active-bg\);[^}]*color:\s*var\(--inspector-control-active-text\);/
+    /\.inspector-tab\.active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--inspector-control-active-text\);/
   );
   assert.match(
     styles,
-    /\.wqdb-granularity-option\.active\s*\{[^}]*border-color:\s*var\(--inspector-control-active-border\);[^}]*background:\s*var\(--inspector-control-active-bg\);/
+    /\.segmented-control-thumb\s*\{[^}]*border:\s*1px solid var\(--inspector-control-active-border\);[^}]*background:\s*var\(--inspector-control-active-bg\);/
+  );
+  assert.match(
+    styles,
+    /\.wqdb-granularity-option\.active\s*\{[^}]*border-color:\s*transparent;[^}]*background:\s*transparent;/
   );
   assert.match(
     styles,
