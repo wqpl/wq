@@ -257,7 +257,7 @@ pub(crate) fn intlist_map<F>(items: &[i64], f: F) -> Option<Vec<i64>>
 where
     F: Fn(i64) -> Option<i64> + Sync + Send,
 {
-    if items.len() > PAR_BC_THRESHOLD {
+    if items.len() >= PAR_BC_THRESHOLD {
         items.par_iter().map(|&x| f(x)).collect()
     } else {
         items.iter().map(|&x| f(x)).collect()
@@ -271,7 +271,7 @@ where
     if a.len() != b.len() {
         return None;
     }
-    if a.len() > PAR_BC_THRESHOLD {
+    if a.len() >= PAR_BC_THRESHOLD {
         a.par_iter()
             .zip(b.par_iter())
             .map(|(&x, &y)| f(x, y))

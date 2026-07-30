@@ -20,7 +20,7 @@ fn invalid_unicode(v: &Value) -> WqError {
 fn chr_intlist(v: &Value) -> Option<Value> {
     match v {
         Value::IntList(a) => {
-            if a.len() > PAR_BC_THRESHOLD {
+            if a.len() >= PAR_BC_THRESHOLD {
                 let chars: Option<Vec<char>> = a
                     .par_iter()
                     .map(|&x| u32::try_from(x).ok().and_then(char::from_u32))

@@ -7,9 +7,9 @@ use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::value::convert::IntoWqValue;
 use crate::value::{Value, WqResult, expected_bool1, expected_bool2};
 
-/// Minimum length for intlist fast-path operations to switch to parallel
-/// iteration.
-pub(crate) const PAR_BC_THRESHOLD: usize = 4096;
+/// Minimum length for packed elementwise operations to switch to parallel
+/// iteration. Smaller batches do not recover Rayon's coordination cost.
+pub(crate) const PAR_BC_THRESHOLD: usize = 1_048_576;
 
 #[inline]
 pub(crate) fn eval_unary(op: &UnaryOperator, val: &Value) -> WqResult<Value> {
