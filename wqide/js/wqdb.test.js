@@ -356,7 +356,7 @@ test("symbol tracking distinguishes the tracked name as code", async () => {
   );
   assert.match(
     styles,
-    /\.wqdb-tracker-symbol\s*\{[^}]*font-family:\s*ui-monospace,/s,
+    /\.wqdb-tracker-symbol\s*\{[^}]*font-family:\s*var\(--font-mono\);/s,
   );
 });
 

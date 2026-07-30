@@ -108,6 +108,31 @@ test("action buttons use the prototype hierarchy", () => {
   );
 });
 
+test("code surfaces share the IBM Plex Mono type system", () => {
+  assert.match(
+    styles,
+    /family=IBM\+Plex\+Mono:wght@400;500;600;700/
+  );
+  assert.match(
+    styles,
+    /--font-mono:\s*"IBM Plex Mono", "SF Mono", SFMono-Regular/
+  );
+  for (const selector of [
+    ".wqdb-source",
+    ".repl-line-body",
+    ".structure-panel-body",
+    ".viz-output",
+    ".article code"
+  ]) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(
+      styles,
+      new RegExp(`${escaped}\\s*\\{[^}]*font-family:\\s*var\\(--font-mono\\);`, "s")
+    );
+  }
+  assert.doesNotMatch(styles, /font(?:-family)?:[^;]*ui-monospace/);
+});
+
 test("block code does not inherit inline-code margins or Midnight fills", () => {
   assert.match(
     styles,
