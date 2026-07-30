@@ -202,6 +202,7 @@ impl VanillaInterpreter {
         };
         let mut instructions = Arc::clone(&vm.instructions);
         let mut limit = limit;
+        let debugger_checks_enabled = vm.debugger_checks_enabled();
         'exec: loop {
             if !Arc::ptr_eq(&instructions, &vm.instructions) {
                 instructions = Arc::clone(&vm.instructions);
@@ -244,15 +245,17 @@ impl VanillaInterpreter {
                     record_trace_probe(vm, prev);
                 }
                 let explicit_pause = matches!(instructions.get(vm.pc), Some(Instruction::Pause));
-                match vm.debugger_pause_before_instruction(explicit_pause) {
-                    DebugBoundary::Continue => {}
-                    DebugBoundary::Suspended(pause) => {
-                        return Ok(InterpretPoll::Paused(pause));
+                if debugger_checks_enabled || explicit_pause {
+                    match vm.debugger_pause_before_instruction(explicit_pause) {
+                        DebugBoundary::Continue => {}
+                        DebugBoundary::Suspended(pause) => {
+                            return Ok(InterpretPoll::Paused(pause));
+                        }
                     }
-                }
-                vm.poll_interrupt();
-                if vm.is_halted() {
-                    break;
+                    vm.poll_interrupt();
+                    if vm.is_halted() {
+                        break;
+                    }
                 }
                 let idx = vm.pc;
                 vm.pc += 1;

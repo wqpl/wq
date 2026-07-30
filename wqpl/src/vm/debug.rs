@@ -85,6 +85,13 @@ impl Vm {
         }
     }
 
+    #[inline]
+    pub(crate) fn debugger_checks_enabled(&self) -> bool {
+        self.debug_state.is_enabled()
+            || self.pending_debug_pause.is_some()
+            || self.skip_debug_pause_once.is_some()
+    }
+
     pub(crate) fn debugger_pause_before_instruction(
         &mut self,
         explicit_pause: bool,

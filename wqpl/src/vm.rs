@@ -572,7 +572,9 @@ impl Vm {
 
     #[inline]
     pub(crate) fn poll_interrupt(&mut self) {
-        if self.interrupt_requested.swap(false, Ordering::AcqRel) {
+        if self.interrupt_requested.load(Ordering::Relaxed)
+            && self.interrupt_requested.swap(false, Ordering::AcqRel)
+        {
             self.halt_reason.get_or_insert(HaltReason::Interrupted);
         }
     }
