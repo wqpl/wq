@@ -1,13 +1,14 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
-use crate::builtins::Builtins;
+use crate::builtins::{BuiltinEnum, Builtins, PurePlanOutcome};
 use crate::interpret::vanilla::{InterpretPoll, VanillaInterpreter};
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::session::dbglog::DebugLog;
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
-use crate::value::{Value, WqResult};
+use crate::value::{Value, ValueKind, WqResult};
 use crate::vm::Vm;
 use crate::vm::inst::Instruction;
 
@@ -17,15 +18,22 @@ const RATIO_BAR_WIDTH: usize = 18;
 
 #[derive(Default)]
 struct ProfileStats {
-    op_counts: HashMap<String, usize>,
-    inst_counts: HashMap<String, usize>,
-    sequence_outputs: HashMap<String, SequenceOutputStats>,
+    instruction_sets: Vec<InstructionSetStats>,
+    instruction_set_indices: HashMap<usize, usize>,
+    last_instruction_set: Option<(usize, usize)>,
+    sequence_outputs: Vec<SequenceOutputEntry>,
+    sequence_output_indices: HashMap<SequenceOutputKey, usize>,
+    last_sequence_output: Option<(SequenceOutputKey, usize)>,
     total_ops: usize,
     load_var_cache_hits: usize,
     load_var_const_cache_hits: usize,
     load_var_cache_misses: usize,
     call_user_cache_hits: usize,
     call_user_cache_misses: usize,
+    pure_user_calls: PurePlanStats,
+    pure_builtin_callbacks: Vec<PureBuiltinStats>,
+    pure_builtin_indices: HashMap<PureBuiltinKey, usize>,
+    last_pure_builtin: Option<(PureBuiltinKey, usize)>,
     cat_alloc_events: usize,
     cat_alloc_items: usize,
     cat_alloc_lens: BTreeMap<usize, usize>,
@@ -46,11 +54,53 @@ struct ProfileStats {
     final_stack_len: usize,
 }
 
+struct InstructionSetStats {
+    instructions: Arc<[Instruction]>,
+    counts: Box<[usize]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum SequenceProducer {
+    Binary(BinaryOperator),
+    LazyBool(BoolOperator),
+    Unary(UnaryOperator),
+    Builtin { name: &'static str, argc: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct SequenceOutputKey {
+    producer: SequenceProducer,
+    kind: ValueKind,
+}
+
 #[derive(Default)]
 struct SequenceOutputStats {
     events: usize,
     items: usize,
     lens: BTreeMap<usize, usize>,
+}
+
+struct SequenceOutputEntry {
+    key: SequenceOutputKey,
+    stats: SequenceOutputStats,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct PureBuiltinKey {
+    builtin: BuiltinEnum,
+    arity: usize,
+}
+
+#[derive(Default)]
+struct PurePlanStats {
+    executed: usize,
+    fallbacks: usize,
+    unavailable: usize,
+}
+
+struct PureBuiltinStats {
+    key: PureBuiltinKey,
+    stats: PurePlanStats,
 }
 
 pub(crate) struct ProfilerInterpreter {
@@ -73,13 +123,14 @@ impl ProfilerInterpreter {
         if stats.total_ops == 0 {
             return;
         }
+        let (op_counts, inst_counts) = stats.instruction_counts();
 
         debug_log.emit_line(format_profile_title_with_color_mode(
             "\nPROFILE",
             color_mode,
         ));
         debug_log.emit_line(format!(
-            "{}: inst={} | max-stack={} | final-stack={} | call-depth={}",
+            "{}: vm-inst={} | max-stack={} | final-stack={} | physical-call-depth={}",
             format_profile_header_with_color_mode("Run", color_mode),
             stats.total_ops,
             stats.max_stack_len,
@@ -87,16 +138,16 @@ impl ProfilerInterpreter {
             stats.max_call_depth
         ));
         emit_count_table(
-            "Top Inst Variants",
-            &stats.op_counts,
+            "Executed VM Instruction Variants",
+            &op_counts,
             stats.total_ops,
             12,
             color_mode,
             debug_log,
         );
         emit_count_table(
-            "Top Inst Forms",
-            &stats.inst_counts,
+            "Executed VM Instruction Forms",
+            &inst_counts,
             stats.total_ops,
             16,
             color_mode,
@@ -143,6 +194,12 @@ impl ProfilerInterpreter {
                 )
             ));
         }
+        emit_pure_plan_stats(
+            &stats.pure_user_calls,
+            &stats.pure_builtin_callbacks,
+            color_mode,
+            debug_log,
+        );
 
         let total_alloc_events = stats.list_alloc_events
             + stats.dict_alloc_events
@@ -241,16 +298,17 @@ impl Interpreter for ProfilerInterpreter {
 }
 
 impl InterpreterHook for ProfilerInterpreter {
+    fn requires_materialized_frames(&self) -> bool {
+        false
+    }
+
     fn before_instruction(&self, vm: &Vm, idx: usize, op: &Instruction) {
         let call_depth = vm.locals.len();
-        let op_name = instruction_kind(op);
-        let inst_key = instruction_profile_key(op);
         let mut stats = self.stats.borrow_mut();
-        *stats.op_counts.entry(op_name.to_string()).or_insert(0) += 1;
-        *stats.inst_counts.entry(inst_key).or_insert(0) += 1;
-        stats.total_ops += 1;
+        stats.record_instruction(vm, idx);
         stats.max_stack_len = stats.max_stack_len.max(vm.stack.len());
         stats.max_call_depth = stats.max_call_depth.max(call_depth);
+        drop(stats);
 
         fn colorize_number(n: usize, width: usize, color_mode: ColorMode) -> String {
             let s = format!("{n:0width$}");
@@ -298,32 +356,43 @@ impl InterpreterHook for ProfilerInterpreter {
         self.stats.borrow_mut().call_user_cache_misses += 1;
     }
 
-    fn on_binary_result(&self, op: &BinaryOperator, result: &Value) {
-        let label = format!("binary {op:?}");
+    fn on_pure_user_call(&self, outcome: PurePlanOutcome) {
+        self.stats.borrow_mut().pure_user_calls.record(outcome);
+    }
+
+    fn on_pure_builtin_callback(
+        &self,
+        builtin: BuiltinEnum,
+        arity: usize,
+        outcome: PurePlanOutcome,
+    ) {
         self.stats
             .borrow_mut()
-            .record_sequence_output(label, result);
+            .record_pure_builtin(PureBuiltinKey { builtin, arity }, outcome);
+    }
+
+    fn on_binary_result(&self, op: &BinaryOperator, result: &Value) {
+        self.stats
+            .borrow_mut()
+            .record_sequence_output(SequenceProducer::Binary(*op), result);
     }
 
     fn on_lazy_bool_result(&self, op: BoolOperator, result: &Value) {
-        let label = format!("lazy bool {op:?}");
         self.stats
             .borrow_mut()
-            .record_sequence_output(label, result);
+            .record_sequence_output(SequenceProducer::LazyBool(op), result);
     }
 
     fn on_unary_result(&self, op: &UnaryOperator, result: &Value) {
-        let label = format!("unary {op:?}");
         self.stats
             .borrow_mut()
-            .record_sequence_output(label, result);
+            .record_sequence_output(SequenceProducer::Unary(*op), result);
     }
 
-    fn on_builtin_result(&self, name: &str, argc: usize, result: &Value) {
-        let label = format!("builtin-function {name}/{argc}");
+    fn on_builtin_result(&self, name: &'static str, argc: usize, result: &Value) {
         self.stats
             .borrow_mut()
-            .record_sequence_output(label, result);
+            .record_sequence_output(SequenceProducer::Builtin { name, argc }, result);
     }
 
     fn on_cat_alloc(&self, len: &dyn Fn() -> usize) {
@@ -372,16 +441,148 @@ impl InterpreterHook for ProfilerInterpreter {
 }
 
 impl ProfileStats {
-    fn record_sequence_output(&mut self, producer: String, value: &Value) {
+    fn record_instruction(&mut self, vm: &Vm, idx: usize) {
+        let identity = vm.instructions.as_ptr() as usize;
+        let set_index = match self.last_instruction_set {
+            Some((last_identity, index)) if last_identity == identity => index,
+            _ => {
+                let index = match self.instruction_set_indices.get(&identity).copied() {
+                    Some(index) => index,
+                    None => {
+                        let index = self.instruction_sets.len();
+                        self.instruction_sets.push(InstructionSetStats {
+                            instructions: Arc::clone(&vm.instructions),
+                            counts: vec![0; vm.instructions.len()].into_boxed_slice(),
+                        });
+                        self.instruction_set_indices.insert(identity, index);
+                        index
+                    }
+                };
+                self.last_instruction_set = Some((identity, index));
+                index
+            }
+        };
+        self.instruction_sets[set_index].counts[idx] += 1;
+        self.total_ops += 1;
+    }
+
+    fn instruction_counts(&self) -> (HashMap<String, usize>, HashMap<String, usize>) {
+        let mut variants = HashMap::new();
+        let mut forms = HashMap::new();
+        for instruction_set in &self.instruction_sets {
+            for (instruction, count) in instruction_set
+                .instructions
+                .iter()
+                .zip(instruction_set.counts.iter().copied())
+            {
+                if count == 0 {
+                    continue;
+                }
+                *variants
+                    .entry(instruction_kind(instruction).to_string())
+                    .or_insert(0) += count;
+                *forms
+                    .entry(instruction_profile_key(instruction))
+                    .or_insert(0) += count;
+            }
+        }
+        (variants, forms)
+    }
+
+    #[cfg(test)]
+    fn instruction_variant_count(&self, variant: &str) -> usize {
+        self.instruction_counts()
+            .0
+            .get(variant)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    fn instruction_form_count(&self, form: &str) -> usize {
+        self.instruction_counts().1.get(form).copied().unwrap_or(0)
+    }
+
+    fn record_sequence_output(&mut self, producer: SequenceProducer, value: &Value) {
         let Some(kind) = sequence_kind(value) else {
             return;
         };
         let len = value.len();
-        let key = format!("{producer} -> {kind}");
-        let stats = self.sequence_outputs.entry(key).or_default();
+        let key = SequenceOutputKey { producer, kind };
+        let index = match self.last_sequence_output {
+            Some((last_key, index)) if last_key == key => index,
+            _ => {
+                let index = match self.sequence_output_indices.get(&key).copied() {
+                    Some(index) => index,
+                    None => {
+                        let index = self.sequence_outputs.len();
+                        self.sequence_outputs.push(SequenceOutputEntry {
+                            key,
+                            stats: SequenceOutputStats::default(),
+                        });
+                        self.sequence_output_indices.insert(key, index);
+                        index
+                    }
+                };
+                self.last_sequence_output = Some((key, index));
+                index
+            }
+        };
+        let stats = &mut self.sequence_outputs[index].stats;
         stats.events += 1;
         stats.items += len;
         *stats.lens.entry(len).or_insert(0) += 1;
+    }
+
+    fn record_pure_builtin(&mut self, key: PureBuiltinKey, outcome: PurePlanOutcome) {
+        let index = match self.last_pure_builtin {
+            Some((last_key, index)) if last_key == key => index,
+            _ => {
+                let index = match self.pure_builtin_indices.get(&key).copied() {
+                    Some(index) => index,
+                    None => {
+                        let index = self.pure_builtin_callbacks.len();
+                        self.pure_builtin_callbacks.push(PureBuiltinStats {
+                            key,
+                            stats: PurePlanStats::default(),
+                        });
+                        self.pure_builtin_indices.insert(key, index);
+                        index
+                    }
+                };
+                self.last_pure_builtin = Some((key, index));
+                index
+            }
+        };
+        self.pure_builtin_callbacks[index].stats.record(outcome);
+    }
+}
+
+impl SequenceOutputKey {
+    fn label(self) -> String {
+        let producer = match self.producer {
+            SequenceProducer::Binary(op) => format!("binary {op:?}"),
+            SequenceProducer::LazyBool(op) => format!("lazy bool {op:?}"),
+            SequenceProducer::Unary(op) => format!("unary {op:?}"),
+            SequenceProducer::Builtin { name, argc } => {
+                format!("builtin-function {name}/{argc}")
+            }
+        };
+        format!("{producer} -> {}", self.kind)
+    }
+}
+
+impl PurePlanStats {
+    fn record(&mut self, outcome: PurePlanOutcome) {
+        match outcome {
+            PurePlanOutcome::Executed => self.executed += 1,
+            PurePlanOutcome::Fallback => self.fallbacks += 1,
+            PurePlanOutcome::Unavailable => self.unavailable += 1,
+        }
+    }
+
+    fn total(&self) -> usize {
+        self.executed + self.fallbacks + self.unavailable
     }
 }
 
@@ -422,6 +623,57 @@ fn emit_count_table(
     }
 }
 
+fn emit_pure_plan_stats(
+    user_calls: &PurePlanStats,
+    builtin_callbacks: &[PureBuiltinStats],
+    color_mode: ColorMode,
+    debug_log: &DebugLog,
+) {
+    if user_calls.total() == 0
+        && builtin_callbacks
+            .iter()
+            .all(|entry| entry.stats.total() == 0)
+    {
+        return;
+    }
+    debug_log.emit_line(format_profile_header_with_color_mode(
+        "Optimized execution",
+        color_mode,
+    ));
+    if user_calls.total() > 0 {
+        emit_pure_plan_line("pure user calls", user_calls, debug_log);
+    }
+    let mut sorted: Vec<_> = builtin_callbacks
+        .iter()
+        .filter(|entry| entry.stats.total() > 0)
+        .collect();
+    sorted.sort_by(|a, b| {
+        a.key
+            .builtin
+            .name()
+            .cmp(b.key.builtin.name())
+            .then_with(|| a.key.arity.cmp(&b.key.arity))
+    });
+    for entry in sorted {
+        emit_pure_plan_line(
+            &format!(
+                "{} pure callbacks/{}",
+                entry.key.builtin.name(),
+                entry.key.arity
+            ),
+            &entry.stats,
+            debug_log,
+        );
+    }
+}
+
+fn emit_pure_plan_line(label: &str, stats: &PurePlanStats, debug_log: &DebugLog) {
+    debug_log.emit_line(format!(
+        "  {label:<24} {:>8} executed | {:>8} fallbacks | {:>8} unavailable",
+        stats.executed, stats.fallbacks, stats.unavailable,
+    ));
+}
+
 fn emit_alloc_line(
     label: &str,
     events: usize,
@@ -444,14 +696,17 @@ fn emit_alloc_line(
 }
 
 fn emit_sequence_outputs(
-    outputs: &HashMap<String, SequenceOutputStats>,
+    outputs: &[SequenceOutputEntry],
     color_mode: ColorMode,
     debug_log: &DebugLog,
 ) {
     if outputs.is_empty() {
         return;
     }
-    let mut sorted: Vec<_> = outputs.iter().collect();
+    let mut sorted: Vec<_> = outputs
+        .iter()
+        .map(|entry| (entry.key.label(), &entry.stats))
+        .collect();
     sorted.sort_by(|(a_name, a), (b_name, b)| {
         b.items
             .cmp(&a.items)
@@ -569,8 +824,8 @@ fn colorize_heat(text: &str, value: usize, max: usize, color_mode: ColorMode) ->
     }
 }
 
-fn sequence_kind(value: &Value) -> Option<&'static str> {
-    value.is_container().then_some(value.debug_kind().as_str())
+fn sequence_kind(value: &Value) -> Option<ValueKind> {
+    value.is_container().then_some(value.debug_kind())
 }
 
 fn instruction_kind(inst: &Instruction) -> &'static str {
@@ -835,6 +1090,7 @@ mod tests {
     fn profiler_defaults_to_summary_mode() {
         let profiler = ProfilerInterpreter::default();
         assert!(!profiler.trace);
+        assert!(!profiler.requires_materialized_frames());
     }
 
     #[test]
@@ -878,84 +1134,82 @@ mod tests {
     }
 
     #[test]
-    fn profiles_instructions_inside_user_functions() {
+    fn records_optimized_user_calls_without_materializing_frames() {
         let (value, profiler) = run_profiled("f:{x+1};f[41]");
 
         assert_eq!(value, Value::Int(42));
-        assert!(
-            profiler
-                .stats
-                .borrow()
-                .op_counts
-                .get("BinaryOp")
-                .copied()
-                .unwrap_or(0)
-                >= 1,
-            "profile was missing function body ops: {:?}",
-            profiler.stats.borrow().op_counts
-        );
-
-        profiler.stats.borrow_mut().total_ops = 0;
+        let stats = profiler.stats.borrow();
+        assert_eq!(stats.pure_user_calls.executed, 1);
+        assert_eq!(stats.pure_user_calls.fallbacks, 0);
+        assert_eq!(stats.pure_user_calls.unavailable, 0);
+        assert_eq!(stats.instruction_variant_count("BinaryOp"), 0);
+        assert_eq!(stats.instruction_variant_count("Return"), 1);
     }
 
     #[test]
-    fn profiles_instructions_inside_closures() {
-        let (value, profiler) = run_profiled("f:{a:4;g:{'a};g};f[][]");
+    fn profiles_materialized_instructions_inside_closures() {
+        let (value, profiler) = run_profiled("f:{a:4;g:{('a;0)0};g};f[][]");
 
         assert_eq!(value, Value::Int(4));
-        assert!(
-            profiler
-                .stats
-                .borrow()
-                .op_counts
-                .get("LoadCapture")
-                .copied()
-                .unwrap_or(0)
-                >= 1,
-            "profile was missing closure capture loads: {:?}",
-            profiler.stats.borrow().op_counts
-        );
-        profiler.stats.borrow_mut().total_ops = 0;
+        let stats = profiler.stats.borrow();
+        assert!(stats.instruction_variant_count("LoadCapture") >= 1);
+        assert!(stats.instruction_variant_count("MakeList") >= 1);
+        assert!(stats.pure_user_calls.unavailable >= 1);
     }
 
     #[test]
     fn profiler_kind_reuses_outer_collector_for_nested_calls() {
-        let (value, profiler) = run_profiled_with_kind("f:{x+1};f[41]", InterpreterKind::Profiler);
+        let (value, profiler) =
+            run_profiled_with_kind("f:{a:(x;0);x+1};f[41]", InterpreterKind::Profiler);
 
         assert_eq!(value, Value::Int(42));
-        assert!(
-            profiler
-                .stats
-                .borrow()
-                .op_counts
-                .get("BinaryOp")
-                .copied()
-                .unwrap_or(0)
-                >= 1,
-            "profile was missing function body ops: {:?}",
-            profiler.stats.borrow().op_counts
-        );
-        profiler.stats.borrow_mut().total_ops = 0;
+        let stats = profiler.stats.borrow();
+        assert!(stats.instruction_variant_count("BinaryOp") >= 1);
+        assert!(stats.instruction_variant_count("MakeList") >= 1);
     }
 
     #[test]
-    fn profiles_closures_invoked_from_builtins() {
-        let (value, profiler) = run_profiled("map[1..4;{y:1;x+y}]");
+    fn records_optimized_builtin_callbacks_without_materializing_frames() {
+        let (value, profiler) = run_profiled("map[1..4;{x+1}]");
 
         assert_eq!(value, Value::IntList(Arc::new(vec![2, 3, 4])));
-        assert!(
-            profiler
-                .stats
-                .borrow()
-                .op_counts
-                .get("BinaryOp")
-                .copied()
-                .unwrap_or(0)
-                >= 3,
-            "profile was missing builtin callback body ops: {:?}",
-            profiler.stats.borrow().op_counts
+        let stats = profiler.stats.borrow();
+        let pure_callbacks = stats
+            .pure_builtin_callbacks
+            .iter()
+            .find(|entry| entry.key.builtin == BuiltinEnum::Map && entry.key.arity == 1)
+            .map(|entry| &entry.stats)
+            .expect("map callback stats");
+        assert_eq!(pure_callbacks.executed, 3);
+        assert_eq!(pure_callbacks.fallbacks, 0);
+        assert_eq!(pure_callbacks.unavailable, 0);
+        assert_eq!(stats.instruction_variant_count("BinaryOp"), 0);
+        assert_eq!(stats.instruction_variant_count("Return"), 1);
+    }
+
+    #[test]
+    fn records_unavailable_builtin_plans_and_materialized_callback_instructions() {
+        let (value, profiler) = run_profiled("map[1..4;{(x;2)}]");
+
+        assert_eq!(
+            value,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![1, 2])),
+                Value::IntList(Arc::new(vec![2, 2])),
+                Value::IntList(Arc::new(vec![3, 2])),
+            ]))
         );
-        profiler.stats.borrow_mut().total_ops = 0;
+        let stats = profiler.stats.borrow();
+        let pure_callbacks = stats
+            .pure_builtin_callbacks
+            .iter()
+            .find(|entry| entry.key.builtin == BuiltinEnum::Map && entry.key.arity == 1)
+            .map(|entry| &entry.stats)
+            .expect("map callback stats");
+        assert_eq!(pure_callbacks.executed, 0);
+        assert_eq!(pure_callbacks.fallbacks, 0);
+        assert_eq!(pure_callbacks.unavailable, 3);
+        assert_eq!(stats.instruction_variant_count("MakeList"), 3);
     }
 
     #[test]
@@ -971,11 +1225,8 @@ mod tests {
             profiler
                 .stats
                 .borrow()
-                .inst_counts
-                .get("MakeList(3)")
-                .copied(),
-            Some(1)
+                .instruction_form_count("MakeList(3)"),
+            1
         );
-        profiler.stats.borrow_mut().total_ops = 0;
     }
 }

@@ -372,6 +372,22 @@ pub trait BuiltinContext {
     fn requires_callback_frames(&self) -> bool {
         false
     }
+    #[doc(hidden)]
+    fn record_pure_callback(
+        &self,
+        _builtin: BuiltinEnum,
+        _arity: usize,
+        _outcome: PurePlanOutcome,
+    ) {
+    }
+}
+
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PurePlanOutcome {
+    Executed,
+    Fallback,
+    Unavailable,
 }
 
 pub type BuiltinPlainFn = fn(BuiltinFnArgs) -> WqResult<Value>;

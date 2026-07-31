@@ -108,6 +108,10 @@ impl SampleInterpreter {
 }
 
 impl InterpreterHook for SampleInterpreter {
+    fn requires_materialized_frames(&self) -> bool {
+        true
+    }
+
     fn before_instruction(&self, vm: &Vm, idx: usize, op: &Instruction) {
         if self.io_error.borrow().is_none()
             && let Err(error) = self.art.borrow_mut().observe(vm, idx, op)

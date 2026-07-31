@@ -3,6 +3,7 @@ use std::sync::Arc;
 use smallvec::SmallVec;
 
 use super::{Sv4, index_load_err, named_arg_index_err};
+use crate::builtins::PurePlanOutcome;
 use crate::interpret::InterpreterHook;
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
@@ -303,17 +304,20 @@ fn dispatch_user_value_cached<const TAIL: bool>(
 fn try_pure_user_call(vm: &mut Vm, idx: usize, argc: usize) -> bool {
     if vm.debug_state.is_enabled()
         || vm.debug_log.enabled(DebugLogFlags::WQDB)
-        || vm.hooks.is_some()
+        || vm.hooks_require_materialized_frames()
         || vm.trace_depth > 0
         || vm.cooperative_execution
         || vm.pending_named_meta.is_some()
     {
+        vm.record_pure_user_call(PurePlanOutcome::Unavailable);
         return false;
     }
     let Some(callback) = vm.inline_cache[idx].pure_call.clone() else {
+        vm.record_pure_user_call(PurePlanOutcome::Unavailable);
         return false;
     };
     let Some(base) = vm.stack.len().checked_sub(argc) else {
+        vm.record_pure_user_call(PurePlanOutcome::Fallback);
         return false;
     };
     let result = {
@@ -321,13 +325,16 @@ fn try_pure_user_call(vm: &mut Vm, idx: usize, argc: usize) -> bool {
         callback.eval(&args)
     };
     let Ok(Some(value)) = result else {
+        vm.record_pure_user_call(PurePlanOutcome::Fallback);
         return false;
     };
     if value.is_callable() {
+        vm.record_pure_user_call(PurePlanOutcome::Fallback);
         return false;
     }
     vm.stack.truncate(base);
     vm.stack.push(value);
+    vm.record_pure_user_call(PurePlanOutcome::Executed);
     true
 }
 

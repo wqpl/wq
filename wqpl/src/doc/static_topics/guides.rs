@@ -104,7 +104,7 @@ pub(super) const INTERPRETERS: StaticDoc = StaticDoc {
     summary: "Choose how VM instructions are executed and observed.",
     details: "wq currently has three instruction interpreters.
 `vanilla` (`v`) is the default interpreter and is the normal choice for scripts, `exec`, the REPL, wqdb, and tests.
-`profiler` (`p`) runs with the same user-visible evaluation result as `vanilla`, but installs profiling hooks and prints a profile summary to stderr when the run finishes; it reports instruction counts, stack and call depth, cache activity, and allocation summaries.
+`profiler` (`p`) runs the optimized vanilla execution path with passive profiling hooks and prints a profile summary to stderr when the run finishes. It reports executed VM instructions, pure-plan execution and fallback counts, physical stack and call depth, cache activity, and allocation summaries.
 `sample` (`s`) also delegates to vanilla execution, but samples instructions into terminal art on stderr; `WQ_SAMPLE_ART=off`, `static` or `final`, and `on` or `animate` control whether it is quiet, final-only, or animated.
 Select an interpreter with `-i <name>` or `--interpreter <name>` on the CLI, or with `\\interpreter <name>` / `\\i <name>` in the REPL.
 `\\interpreter` with no name shows the current interpreter and the available names.",

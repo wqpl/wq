@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use ahash::AHashMap;
 
-use crate::builtins::{BuiltinPreset, Builtins};
+use crate::builtins::{BuiltinEnum, BuiltinPreset, Builtins, PurePlanOutcome};
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::module::ModuleResolver;
 use crate::session::dbglog::{DebugLog, DebugLogFlags};
@@ -742,6 +742,31 @@ impl Vm {
     #[inline]
     pub(crate) fn set_hooks(&mut self, hooks: Option<&dyn InterpreterHook>) {
         self.hooks = hooks.map(NonNull::from);
+    }
+
+    #[inline]
+    pub(crate) fn hooks_require_materialized_frames(&self) -> bool {
+        self.hooks
+            .is_some_and(|hooks| unsafe { hooks.as_ref() }.requires_materialized_frames())
+    }
+
+    #[inline]
+    pub(crate) fn record_pure_user_call(&self, outcome: PurePlanOutcome) {
+        if let Some(hooks) = self.hooks {
+            unsafe { hooks.as_ref() }.on_pure_user_call(outcome);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn record_pure_builtin_callback(
+        &self,
+        builtin: BuiltinEnum,
+        arity: usize,
+        outcome: PurePlanOutcome,
+    ) {
+        if let Some(hooks) = self.hooks {
+            unsafe { hooks.as_ref() }.on_pure_builtin_callback(builtin, arity, outcome);
+        }
     }
 }
 

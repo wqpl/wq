@@ -4,7 +4,7 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use smallvec::SmallVec;
 
-use crate::builtins::{BuiltinContext, BuiltinEnum, BuiltinFnArgs, Builtins};
+use crate::builtins::{BuiltinContext, BuiltinEnum, BuiltinFnArgs, Builtins, PurePlanOutcome};
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cell::ValueCell;
@@ -1185,7 +1185,11 @@ impl BuiltinContext for Vm {
     }
 
     fn requires_callback_frames(&self) -> bool {
-        self.debug_state.is_enabled() || self.hooks.is_some()
+        self.debug_state.is_enabled() || self.hooks_require_materialized_frames()
+    }
+
+    fn record_pure_callback(&self, builtin: BuiltinEnum, arity: usize, outcome: PurePlanOutcome) {
+        self.record_pure_builtin_callback(builtin, arity, outcome);
     }
 }
 

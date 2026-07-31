@@ -722,7 +722,7 @@ fn profiler_reports_through_the_session_stderr() {
 
     let report = stderr.lock().expect("stderr lock").clone();
     assert!(report.contains("PROFILE"));
-    assert!(report.contains("Top Inst Variants"));
+    assert!(report.contains("Executed VM Instruction Variants"));
 }
 
 #[test]

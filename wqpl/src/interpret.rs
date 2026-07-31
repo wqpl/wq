@@ -3,6 +3,7 @@ pub(crate) mod sample;
 pub(crate) mod vanilla;
 
 use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
+use crate::builtins::{BuiltinEnum, PurePlanOutcome};
 use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::vm::inst::Instruction;
@@ -51,15 +52,26 @@ impl InterpreterKind {
 }
 
 pub(crate) trait InterpreterHook: 'static {
+    fn requires_materialized_frames(&self) -> bool {
+        false
+    }
     fn before_instruction(&self, _vm: &Vm, _idx: usize, _op: &Instruction) {}
     fn on_load_var_cache_hit(&self, _slot_cached: &dyn Fn() -> bool) {}
     fn on_load_var_cache_miss(&self) {}
     fn on_call_user_cache_hit(&self) {}
     fn on_call_user_cache_miss(&self) {}
+    fn on_pure_user_call(&self, _outcome: PurePlanOutcome) {}
+    fn on_pure_builtin_callback(
+        &self,
+        _builtin: BuiltinEnum,
+        _arity: usize,
+        _outcome: PurePlanOutcome,
+    ) {
+    }
     fn on_binary_result(&self, _op: &BinaryOperator, _result: &Value) {}
     fn on_lazy_bool_result(&self, _op: BoolOperator, _result: &Value) {}
     fn on_unary_result(&self, _op: &UnaryOperator, _result: &Value) {}
-    fn on_builtin_result(&self, _name: &str, _argc: usize, _result: &Value) {}
+    fn on_builtin_result(&self, _name: &'static str, _argc: usize, _result: &Value) {}
     fn on_cat_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_list_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_dict_alloc(&self, _len: &dyn Fn() -> usize) {}

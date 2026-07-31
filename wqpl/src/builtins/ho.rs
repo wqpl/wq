@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::builtins::list::parse_non_negative_int_or_inf;
 use crate::builtins::{
-    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_registered_args,
-    depth_requirement, type_mismatch,
+    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, PurePlanOutcome, check_arity,
+    check_registered_args, depth_requirement, type_mismatch,
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
 use crate::value::seq::ValueSeq;
@@ -22,14 +22,19 @@ fn pure_callback(vm: &dyn BuiltinContext, func: &Value, arity: usize) -> Option<
 #[inline]
 fn call_pure_or_vm1(
     vm: &mut dyn BuiltinContext,
+    builtin: BE,
     func: &Value,
     pure: Option<&PureCallback>,
     arg: &Value,
 ) -> WqResult<Value> {
-    if let Some(pure) = pure
-        && let Ok(Some(value)) = pure.eval(&[arg])
-    {
-        return Ok(value);
+    if let Some(pure) = pure {
+        if let Ok(Some(value)) = pure.eval(&[arg]) {
+            vm.record_pure_callback(builtin, 1, PurePlanOutcome::Executed);
+            return Ok(value);
+        }
+        vm.record_pure_callback(builtin, 1, PurePlanOutcome::Fallback);
+    } else {
+        vm.record_pure_callback(builtin, 1, PurePlanOutcome::Unavailable);
     }
     // A pure-plan miss or failure deoptimizes to the framed VM call. This keeps
     // the successful hot path cheap while making VM execution authoritative for
@@ -40,15 +45,20 @@ fn call_pure_or_vm1(
 #[inline]
 fn call_pure_or_vm2(
     vm: &mut dyn BuiltinContext,
+    builtin: BE,
     func: &Value,
     pure: Option<&PureCallback>,
     left: &Value,
     right: &Value,
 ) -> WqResult<Value> {
-    if let Some(pure) = pure
-        && let Ok(Some(value)) = pure.eval(&[left, right])
-    {
-        return Ok(value);
+    if let Some(pure) = pure {
+        if let Ok(Some(value)) = pure.eval(&[left, right]) {
+            vm.record_pure_callback(builtin, 2, PurePlanOutcome::Executed);
+            return Ok(value);
+        }
+        vm.record_pure_callback(builtin, 2, PurePlanOutcome::Fallback);
+    } else {
+        vm.record_pure_callback(builtin, 2, PurePlanOutcome::Unavailable);
     }
     let mut ca = BuiltinFnArgs::new();
     ca.push(left.clone());
@@ -62,7 +72,10 @@ fn filter_predicate(
     pure: Option<&PureCallback>,
     value: &Value,
 ) -> WqResult<bool> {
-    predicate_result(BE::Filter, call_pure_or_vm1(vm, func, pure, value)?)
+    predicate_result(
+        BE::Filter,
+        call_pure_or_vm1(vm, BE::Filter, func, pure, value)?,
+    )
 }
 
 fn call_fold_func(
@@ -191,7 +204,7 @@ pub(crate) fn findw_parameters(args: &BuiltinFnArgs, builtin: BE) -> WqResult<(i
 fn map_impl(vm: &mut dyn BuiltinContext, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
     let stop = map_stop(xs, d)?;
     let pure = pure_callback(vm, f, 1);
-    let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
+    let op1 = |v: &Value| call_pure_or_vm1(vm, BE::Map, f, pure.as_ref(), v);
     xs.bc1_until(stop, op1)
         .map_err(|e| e.into_wqerror().src(BE::Map))
 }
@@ -204,7 +217,7 @@ fn map_discard_impl(
 ) -> WqResult<Value> {
     let stop = map_stop(xs, d)?;
     let pure = pure_callback(vm, f, 1);
-    let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
+    let op1 = |v: &Value| call_pure_or_vm1(vm, BE::Map, f, pure.as_ref(), v);
     xs.bc1_for_each_until(stop, op1)
         .map_err(|e| e.into_wqerror().src(BE::Map))?;
     Ok(Value::empty_list())
@@ -593,7 +606,7 @@ pub(super) fn zipw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         // atoms are always leaves; stop after traversing L layers from the root
         let stop = Bc2Stop::BothAtomOrDepth(el);
         let pure = pure_callback(vm, f, 2);
-        let op2 = |a: &Value, b: &Value| call_pure_or_vm2(vm, f, pure.as_ref(), a, b);
+        let op2 = |a: &Value, b: &Value| call_pure_or_vm2(vm, BE::ZipW, f, pure.as_ref(), a, b);
         xs.bc2_until(ys, stop, op2)
             .map_err(|e| e.into_wqerror().src(BE::ZipW))
     }
