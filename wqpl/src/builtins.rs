@@ -1082,7 +1082,6 @@ declare_builtins! {
     (CLIARGS, Cliargs, "cliargs", "cliargs[spec]", sig!(arity!(1)), with_context(cli::cliargs), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
 
     (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named named_args!(("sep", "separator", "separator between values"))), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
-    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named named_args!(("sep", "separator", "separator between values")), alias Echo), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)), // alias of echo
     (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), with_context(core::print), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), with_context(core::input), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     #[cfg(not(target_arch = "wasm32"))]
@@ -1136,7 +1135,6 @@ declare_builtins! {
     (MAX, Max, "max", "max[xs], max[xs;ys+]", sig!(arity!(1..)), plain(list::max), builtin_metadata!(List, PURE)),
     (FLATTEN, Flatten, "flatten", "flatten[xs]", sig!(arity!(1)), plain(list::flatten), builtin_metadata!(List, PURE)),
     (REVERSE, Reverse, "reverse", "reverse[xs]", sig!(arity!(1)), plain(list::reverse), builtin_metadata!(List, PURE)),
-    (V, V, "V", "V[xs]", sig!(arity!(1), alias Reverse), plain(list::reverse), builtin_metadata!(List, PURE)), // alias of reverse
     (SORT, Sort, "sort", "sort[xs;`by]", sig!(arity!(1), named named_args!(("by", "key", "dict sort key"))), plain(list::sort), builtin_metadata!(List, PURE)),
     (SPLIT, Split, "split", "split[xs], split[xs;delim], split[xs;`max:n], split[xs;delim;`max:n]", sig!(arity!(1, 2), named named_args!(("max", "n", "maximum number of splits"))), plain(list::split), builtin_metadata!(List, PURE)),
     (FIND, Find, "find", "find[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::find), builtin_metadata!(List, PURE), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
@@ -1156,7 +1154,6 @@ declare_builtins! {
 
     (REPEAT, Repeat, "repeat", "repeat[xs;n]", sig!(arity!(2)), plain(listgen::repeat), builtin_metadata!(ListGen, PURE)),
     (WHERE, Where, "where", "where[xs]", sig!(arity!(1)), plain(listgen::wq_where), builtin_metadata!(ListGen, PURE)),
-    (Z, Z, "Z", "Z[xs]", sig!(arity!(1), alias Where), plain(listgen::wq_where), builtin_metadata!(ListGen, PURE)), // alias of where
 
     // Higher-order =========================================================
     (APPLY, Apply, "apply", "apply[fs;x]", sig!(arity!(2)), with_context(ho::apply), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
@@ -1785,241 +1782,6 @@ mod tests {
     }
 
     #[test]
-    fn builtin_signature_displays_match_legacy_arity_strings() {
-        let expected = [
-            (BuiltinEnum::Builtin, "0"),
-            (BuiltinEnum::Chr, "1"),
-            (BuiltinEnum::Ord, "1"),
-            (BuiltinEnum::Int, "1 2"),
-            (BuiltinEnum::Float, "1"),
-            (BuiltinEnum::Bin, "1 2"),
-            (BuiltinEnum::Oct, "1 2"),
-            (BuiltinEnum::Hex, "1 2"),
-            (BuiltinEnum::Hash, "1"),
-            (BuiltinEnum::Assert, "1 2"),
-            (BuiltinEnum::AssertEq, "2 3"),
-            (BuiltinEnum::Raise, "0 1"),
-            (BuiltinEnum::Argv, "0"),
-            (BuiltinEnum::MainQ, "0"),
-            (BuiltinEnum::Argparse, "2"),
-            (BuiltinEnum::Cliargs, "1"),
-            (BuiltinEnum::Echo, "0.."),
-            (BuiltinEnum::E, "0.."),
-            (BuiltinEnum::Print, "0.."),
-            (BuiltinEnum::Input, "0 1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Exec, "1.."),
-            (BuiltinEnum::Decode, "2"),
-            (BuiltinEnum::Encode, "2"),
-            (BuiltinEnum::ValidBytes, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Open, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::PathExistsQ, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Mkdir, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::FileSize, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Write, "2"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Read, "1 2"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Seek, "2 3"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Tell, "1"),
-            #[cfg(not(target_arch = "wasm32"))]
-            (BuiltinEnum::Close, "1"),
-            (BuiltinEnum::Len, "1"),
-            (BuiltinEnum::Shape, "1"),
-            (BuiltinEnum::Depth, "1"),
-            (BuiltinEnum::UniformQ, "1"),
-            (BuiltinEnum::Sum, "0.."),
-            (BuiltinEnum::Product, "0.."),
-            (BuiltinEnum::Min, "1.."),
-            (BuiltinEnum::Max, "1.."),
-            (BuiltinEnum::Flatten, "1"),
-            (BuiltinEnum::Reverse, "1"),
-            (BuiltinEnum::V, "1"),
-            (BuiltinEnum::Sort, "1"),
-            (BuiltinEnum::Split, "1 2"),
-            (BuiltinEnum::Find, "2 3 4"),
-            (BuiltinEnum::RFind, "2 3 4"),
-            (BuiltinEnum::Zip, "2 3"),
-            (BuiltinEnum::Alloc, "1 2"),
-            (BuiltinEnum::Til, "1"),
-            (BuiltinEnum::Iota, "1"),
-            (BuiltinEnum::Range, "2 3"),
-            (BuiltinEnum::Reshape, "2"),
-            (BuiltinEnum::R, "2"),
-            (BuiltinEnum::Transpose, "1 2"),
-            (BuiltinEnum::TP, "1 2"),
-            (BuiltinEnum::Repeat, "2"),
-            (BuiltinEnum::Where, "1"),
-            (BuiltinEnum::Z, "1"),
-            (BuiltinEnum::Apply, "2"),
-            (BuiltinEnum::Map, "2 3"),
-            (BuiltinEnum::M, "2 3"),
-            (BuiltinEnum::Fold, "2 3"),
-            (BuiltinEnum::Reduce, "2 3"),
-            (BuiltinEnum::Scan, "2 3"),
-            (BuiltinEnum::RScan, "2 3"),
-            (BuiltinEnum::Any, "2 3"),
-            (BuiltinEnum::All, "2 3"),
-            (BuiltinEnum::Filter, "2"),
-            (BuiltinEnum::ZipW, "3 4"),
-            (BuiltinEnum::SplitW, "2"),
-            (BuiltinEnum::FindW, "2 3 4"),
-            (BuiltinEnum::RFindW, "2 3 4"),
-            (BuiltinEnum::Keys, "1"),
-            (BuiltinEnum::Values, "1"),
-            (BuiltinEnum::IdxToKey, "2"),
-            (BuiltinEnum::KeyToIdx, "2"),
-            (BuiltinEnum::Unique, "1"),
-            (BuiltinEnum::Counts, "1"),
-            (BuiltinEnum::Union, "2"),
-            (BuiltinEnum::Intersect, "2"),
-            (BuiltinEnum::Without, "2"),
-            (BuiltinEnum::Symdiff, "2"),
-            (BuiltinEnum::SubQ, "2"),
-            (BuiltinEnum::SuperQ, "2"),
-            (BuiltinEnum::PSubQ, "2"),
-            (BuiltinEnum::PSuperQ, "2"),
-            (BuiltinEnum::MemberQ, "2"),
-            (BuiltinEnum::Cart, "2"),
-            (BuiltinEnum::InQ, "2 3"),
-            (BuiltinEnum::HasQ, "2 3"),
-            (BuiltinEnum::DisjointQ, "2"),
-            (BuiltinEnum::Multiplicity, "2"),
-            (BuiltinEnum::Not, "1"),
-            (BuiltinEnum::Bxor, "2.."),
-            (BuiltinEnum::Band, "2.."),
-            (BuiltinEnum::Bor, "2.."),
-            (BuiltinEnum::Shl, "2.."),
-            (BuiltinEnum::Shr, "2.."),
-            (BuiltinEnum::Neg, "1"),
-            (BuiltinEnum::Abs, "1"),
-            (BuiltinEnum::Sgn, "1"),
-            (BuiltinEnum::Sqrt, "1"),
-            (BuiltinEnum::Exp, "1"),
-            (BuiltinEnum::Ln, "1"),
-            (BuiltinEnum::Log2, "1"),
-            (BuiltinEnum::Log10, "1"),
-            (BuiltinEnum::Floor, "1 2"),
-            (BuiltinEnum::Ceil, "1 2"),
-            (BuiltinEnum::Round, "1 2"),
-            (BuiltinEnum::Sin, "1"),
-            (BuiltinEnum::Cos, "1"),
-            (BuiltinEnum::Tan, "1"),
-            (BuiltinEnum::Sec, "1"),
-            (BuiltinEnum::Csc, "1"),
-            (BuiltinEnum::Cot, "1"),
-            (BuiltinEnum::Arcsin, "1"),
-            (BuiltinEnum::Arccos, "1"),
-            (BuiltinEnum::Arctan, "1"),
-            (BuiltinEnum::Sinh, "1"),
-            (BuiltinEnum::Cosh, "1"),
-            (BuiltinEnum::Tanh, "1"),
-            (BuiltinEnum::Arcsinh, "1"),
-            (BuiltinEnum::Arccosh, "1"),
-            (BuiltinEnum::Arctanh, "1"),
-            (BuiltinEnum::Log, "2"),
-            (BuiltinEnum::Arctan2, "2"),
-            (BuiltinEnum::Erf, "1"),
-            (BuiltinEnum::Erfc, "1"),
-            (BuiltinEnum::Gamma, "1"),
-            (BuiltinEnum::Lngamma, "1"),
-            (BuiltinEnum::Si, "1"),
-            (BuiltinEnum::Ci, "1"),
-            (BuiltinEnum::Ei, "1"),
-            (BuiltinEnum::En, "2"),
-            (BuiltinEnum::Ellpk, "1"),
-            (BuiltinEnum::Ellpe, "1"),
-            (BuiltinEnum::Ellik, "2"),
-            (BuiltinEnum::Ellie, "2"),
-            (BuiltinEnum::Heaviside, "1"),
-            (BuiltinEnum::Delta, "1"),
-            (BuiltinEnum::Rand, "0 1 2"),
-            (BuiltinEnum::Rng, "1"),
-            (BuiltinEnum::Complex, "2"),
-            (BuiltinEnum::Re, "1"),
-            (BuiltinEnum::Im, "1"),
-            (BuiltinEnum::Conj, "1"),
-            (BuiltinEnum::Fraction, "1 2"),
-            (BuiltinEnum::Fractionl, "1"),
-            (BuiltinEnum::Eq, "2"),
-            (BuiltinEnum::Simplify, "1"),
-            (BuiltinEnum::Rewrite, "1"),
-            (BuiltinEnum::Numeric, "1"),
-            (BuiltinEnum::Diff, "1 2"),
-            (BuiltinEnum::D, "1 2"),
-            (BuiltinEnum::Substitute, "1 2 3"),
-            (BuiltinEnum::Expand, "1"),
-            (BuiltinEnum::FactorCommon, "1"),
-            (BuiltinEnum::Factor, "1 2 3"),
-            (BuiltinEnum::Integrate, "1 2 4"),
-            (BuiltinEnum::I, "1 2 4"),
-            (BuiltinEnum::Limit, "2.."),
-            (BuiltinEnum::Solve, "1 2"),
-            (BuiltinEnum::SolveSystem, "1 2"),
-            (BuiltinEnum::Brent, "3 4 5"),
-            (BuiltinEnum::Newton, "2 3 4"),
-            (BuiltinEnum::Str, "1"),
-            (BuiltinEnum::Unicode, "0 2"),
-            (BuiltinEnum::Normalize, "1 2"),
-            (BuiltinEnum::Case, "2"),
-            (BuiltinEnum::Graphemes, "1"),
-            (BuiltinEnum::WhitespaceQ, "1"),
-            (BuiltinEnum::Trim, "1"),
-            (BuiltinEnum::LTrim, "1"),
-            (BuiltinEnum::RTrim, "1"),
-            (BuiltinEnum::Termwidth, "1"),
-            (BuiltinEnum::Type, "1"),
-            (BuiltinEnum::Tag, "1"),
-            (BuiltinEnum::Bool, "1"),
-            (BuiltinEnum::Char, "1"),
-            (BuiltinEnum::AtomQ, "1"),
-            (BuiltinEnum::List, "1"),
-            (BuiltinEnum::Dict, "1"),
-            (BuiltinEnum::Showtable, "1"),
-            (BuiltinEnum::Asciiplot, "1.."),
-            (BuiltinEnum::Fmt, "1.."),
-            (BuiltinEnum::OpAdd, "2.."),
-            (BuiltinEnum::OpSub, "1.."),
-            (BuiltinEnum::OpMul, "2.."),
-            (BuiltinEnum::OpDiv, "2.."),
-            (BuiltinEnum::OpDivDot, "2.."),
-            (BuiltinEnum::OpMod, "2.."),
-            (BuiltinEnum::OpFloorDiv, "2.."),
-            (BuiltinEnum::OpPower, "2.."),
-            (BuiltinEnum::OpPowerDot, "2.."),
-            (BuiltinEnum::OpMatmul, "2.."),
-            (BuiltinEnum::OpEqual, "2.."),
-            (BuiltinEnum::OpEqualDot, "2.."),
-            (BuiltinEnum::OpTilde, "1.."),
-            (BuiltinEnum::OpTildeDot, "2.."),
-            (BuiltinEnum::OpLt, "2.."),
-            (BuiltinEnum::OpLte, "2.."),
-            (BuiltinEnum::OpGt, "2.."),
-            (BuiltinEnum::OpGte, "2.."),
-            (BuiltinEnum::OpCat, "2.."),
-            (BuiltinEnum::OpSharp, "1"),
-        ];
-
-        assert_eq!(expected.len(), Builtins::ENUMS.len());
-        for (builtin, expected_text) in expected {
-            assert_eq!(builtin.arity().to_string(), expected_text, "{builtin}");
-            assert_eq!(
-                Builtins::arity_from_id(builtin.id())
-                    .expect("builtin arity from id")
-                    .to_string(),
-                expected_text,
-                "{builtin}",
-            );
-        }
-    }
-
-    #[test]
     fn runtime_call_checks_preserve_implementation_arities() {
         let builtins = Builtins::new();
 
@@ -2166,11 +1928,6 @@ mod tests {
         let builtins = Builtins::new();
 
         let err = builtins
-            .validate_runtime_call_args(Builtins::V, &BuiltinFnArgs::new())
-            .expect_err("V with zero args should fail runtime validation");
-        assert_eq!(err.src.as_deref(), Some("builtin-function 'reverse'"));
-
-        let err = builtins
             .validate_runtime_call_args(Builtins::M, &BuiltinFnArgs::new())
             .expect_err("M with zero args should fail runtime validation");
         assert_eq!(err.src.as_deref(), Some("builtin-function 'map'"));
@@ -2179,39 +1936,6 @@ mod tests {
     #[test]
     fn runtime_call_checks_validate_simple_named_args() {
         let builtins = Builtins::new();
-        let args = BuiltinFnArgs::with_named(
-            SmallVec::new(),
-            vec![(Arc::<str>::from("sep"), into_wq_string(","))],
-        );
-
-        assert!(
-            builtins
-                .validate_runtime_call_args(Builtins::E, &args)
-                .expect("E named runtime validation should succeed")
-        );
-
-        let bad_args = BuiltinFnArgs::with_named(
-            SmallVec::new(),
-            vec![(Arc::<str>::from("bad"), Value::Int(1))],
-        );
-        let err = builtins
-            .validate_runtime_call_args(Builtins::E, &bad_args)
-            .expect_err("unknown named arg should fail runtime validation");
-        assert_eq!(err.src.as_deref(), Some("builtin-function 'echo'"));
-        assert_eq!(err.msg.as_deref(), Some("unknown named argument 'bad'"));
-
-        let duplicate_args = BuiltinFnArgs::with_named(
-            SmallVec::new(),
-            vec![
-                (Arc::<str>::from("sep"), into_wq_string(",")),
-                (Arc::<str>::from("sep"), into_wq_string(";")),
-            ],
-        );
-        let err = builtins
-            .validate_runtime_call_args(Builtins::E, &duplicate_args)
-            .expect_err("duplicate named args should fail runtime validation");
-        assert_eq!(err.err_type, WqErrorType::Arity);
-        assert_eq!(err.msg.as_deref(), Some("duplicate named argument 'sep'"));
 
         let print_bad_args = BuiltinFnArgs::with_named(
             SmallVec::new(),
