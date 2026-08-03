@@ -65,7 +65,7 @@ pub(super) const BUILTINS: StaticDoc = StaticDoc {
 Individual builtin pages always render their signature and arity from `builtins.rs` metadata.
 The `builtin[]` builtin returns a sorted list of builtin names enabled in the current preset, which lets wq code inspect its own runtime surface.
 The standard CLI and REPL expose four preset names: `all`, `pure`, `minimal`, and `constrained`; short names `a`, `p`, `m`, and `c` are accepted where a preset is parsed.
-`all` enables every builtin. `minimal` keeps operators, `fmt`, `len`, and `builtin`.
+`all` enables every builtin. `minimal` keeps operators, `fmt`, `len`, `builtin`, `argv`, and `main?`.
 `pure` keeps side-effect-free builtins, and `constrained` additionally permits standard I/O, random generation, and visualization while excluding process execution and file I/O.
 At the command line, `--builtins <preset>` selects the initial preset.
 In the interactive REPL, `\\builtin` or `\\` shows the current preset and enabled builtin table, while `\\builtin pure`, `\\builtin minimal`, and similar commands switch the live session preset.",

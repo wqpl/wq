@@ -107,6 +107,12 @@ const ARGV_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::NoRun("depends on the host invocation"),
 }];
 
+const MAIN_Q_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Check whether code belongs to the entry script",
+    code: "main?[]",
+    expectation: ExampleExpectation::ResultContains("T"),
+}];
+
 const ARGPARSE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Parse a flag and positional argument",
     code: r#"spec:(`name:"demo";`args:((`name:`quiet;`kind:`flag;`short:"q");(`name:`file;`kind:`positional;`required:T)));argparse[spec;("-q";"input.wq")][`kind]"#,
@@ -274,6 +280,14 @@ pub(super) const ARGV: BuiltinDoc = BuiltinDoc {
     details: "`argv[]` returns a list of strings containing only the arguments forwarded by the host. The native CLI requires an explicit separator, as in `wq script.wq -- one --flag`. It excludes the `wq` executable and script path. Loaded scripts share the same arguments. New embedded and interactive sessions default to an empty list, and embedders can set arguments through the session API.",
     examples: ARGV_EXAMPLES,
     related: &["argparse", "cliargs"],
+};
+
+pub(super) const MAIN_Q: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::MainQ,
+    summary: "Return true for code defined by the entry script.",
+    details: "`main?[]` returns `T` in the entry script and in functions defined there. It returns `F` while evaluating an `@i` module and in functions defined by that module, including exported functions called after the import finishes. Use it to keep direct-execution behavior out of reusable modules.",
+    examples: MAIN_Q_EXAMPLES,
+    related: &["@i", "modules", "argv"],
 };
 
 pub(super) const ARGPARSE: BuiltinDoc = BuiltinDoc {

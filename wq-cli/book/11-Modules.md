@@ -36,6 +36,21 @@ In the CLI, save that second block as `main.wq` beside `counter.wq`, then run
 Only the exported dict reaches the importing code. The top-level `count`
 binding remains private.
 
+## Entry-Only Behavior
+
+`main?[]` returns `T` in the entry script and `F` in an imported module. Use it
+to run a command-line entry point only when a reusable file is executed
+directly:
+
+```wq
+run:{[]echo "running directly"}
+$.[main?[];run[]]
+run
+```
+
+Functions retain the status of the file that defined them, so an exported
+module function still observes `F` after the import has finished.
+
 ## Literal Paths
 
 Import paths must be ordinary or raw string literals. These are syntax
@@ -108,4 +123,5 @@ modules reject legacy loader directives.
 - Export a function or dict instead of exposing private bindings.
 - Successful imports are cached per session workspace.
 - Relative paths resolve from the source file containing the import.
+- `main?[]` distinguishes entry-script code from imported module code.
 - Continue to **A Prime Sieve** to combine the core language in one program.

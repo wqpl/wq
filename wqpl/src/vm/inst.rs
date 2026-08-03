@@ -22,6 +22,7 @@ pub struct ClosurePayload {
     pub(crate) params: Option<Arc<[String]>>,
     pub(crate) named_params: Option<Arc<[Arc<str>]>>,
     pub(crate) locals: u16,
+    pub(crate) isolated_module: bool,
     pub(crate) captures: Vec<Capture>,
     pub(crate) instructions: Arc<[Instruction]>,
     /// Debug chunk id registered for this closure payload's code.

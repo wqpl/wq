@@ -35,6 +35,7 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     core::ASSERT_EQ,
     core::RAISE,
     core::ARGV,
+    core::MAIN_Q,
     core::ARGPARSE,
     core::CLIARGS,
     core::ECHO,

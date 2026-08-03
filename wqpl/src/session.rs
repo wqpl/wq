@@ -1584,6 +1584,23 @@ mod tests {
     }
 
     #[test]
+    fn main_q_tracks_the_defining_source() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([(
+            "module",
+            "marker:0;(main?[];'{marker;main?[]})",
+        )]));
+
+        let value = session
+            .eval_string(
+                "entry:{main?[]};module:@i\"module\";(main?[];entry[];module 0;(module 1)[])",
+            )
+            .expect("main? should distinguish entry and module code");
+
+        assert_eq!(value.to_string(), "(T;T;F;F)");
+    }
+
+    #[test]
     fn imported_function_captures_private_module_bindings() {
         let mut session = Session::new();
         session.set_module_resolver(TestModuleResolver::new([("adder", "base:40;{base+x}")]));

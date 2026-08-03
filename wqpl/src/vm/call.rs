@@ -1126,6 +1126,13 @@ impl BuiltinContext for Vm {
         Vm::call(self, func, args)
     }
 
+    fn is_main(&self) -> bool {
+        self.current_closure_stack
+            .last()
+            .and_then(Value::as_user_function)
+            .is_none_or(|function| !function.isolated_module)
+    }
+
     fn poll_interrupt(&mut self) -> bool {
         Vm::poll_interrupt(self);
         matches!(self.halt_reason, Some(crate::vm::HaltReason::Interrupted))
@@ -1589,6 +1596,7 @@ mod tests {
             )),
             named_params: None,
             locals: u16::try_from(params.len()).expect("test function params fit in u16"),
+            isolated_module: false,
             instructions: instructions.into(),
             dbg_chunk: None,
             dbg_stmt_spans: None,
@@ -1703,6 +1711,7 @@ mod tests {
             params: Some(Arc::from([])),
             named_params: Some(Arc::from([Arc::<str>::from("x")])),
             locals: 2,
+            isolated_module: false,
             instructions: Arc::from([Instruction::LoadLocal(0), Instruction::Return]),
             dbg_chunk: None,
             dbg_stmt_spans: None,

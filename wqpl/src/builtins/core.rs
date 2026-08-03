@@ -114,6 +114,11 @@ pub(super) fn builtin(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqRes
     Ok(Value::List(Arc::new(funcstr)))
 }
 
+pub(super) fn main_q(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BuiltinEnum::MainQ, [0], &args)?;
+    Ok(Value::Bool(vm.is_main()))
+}
+
 pub(super) fn chr(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Chr, [1], &args)?;
     args[0].chr().map_err(|e| e.src(BuiltinEnum::Chr))

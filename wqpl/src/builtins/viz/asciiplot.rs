@@ -2470,6 +2470,7 @@ mod tests {
             }),
             named_params: None,
             locals,
+            isolated_module: false,
             instructions: instructions.into(),
             dbg_chunk: None,
             dbg_stmt_spans: None,

@@ -488,6 +488,7 @@ mod tests {
             params: None,
             named_params: None,
             locals: 0,
+            isolated_module: false,
             captures: Vec::new(),
             instructions: vec![Instruction::Return].into(),
             dbg_chunk: None,

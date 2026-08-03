@@ -349,6 +349,7 @@ mod tests {
             params: Some(Arc::from([String::from("x")])),
             named_params: None,
             locals: 1,
+            isolated_module: false,
             captured: Arc::from([Arc::clone(&capture)]),
             instructions: Arc::from([
                 Instruction::binary_op(

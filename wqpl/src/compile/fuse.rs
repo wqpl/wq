@@ -148,6 +148,7 @@ fn fuse_once(
                             params: f.params.clone(),
                             named_params: f.named_params.clone(),
                             locals: f.locals,
+                            isolated_module: f.isolated_module,
                             instructions: std::sync::Arc::<[Instruction]>::from(nested),
                             dbg_chunk: f.dbg_chunk,
                             dbg_stmt_spans: f.dbg_stmt_spans.clone(),

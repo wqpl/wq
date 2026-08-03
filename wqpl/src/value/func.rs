@@ -11,6 +11,7 @@ pub struct FunctionData {
     pub(crate) params: Option<Arc<[String]>>,
     pub(crate) named_params: Option<Arc<[Arc<str>]>>,
     pub(crate) locals: u16,
+    pub(crate) isolated_module: bool,
     /// Shared immutable instruction array
     pub(crate) instructions: Arc<[Instruction]>,
     /// Debug chunk id for this function's code
@@ -34,6 +35,7 @@ pub struct ClosureData {
     pub(crate) params: Option<Arc<[String]>>,
     pub(crate) named_params: Option<Arc<[Arc<str>]>>,
     pub(crate) locals: u16,
+    pub(crate) isolated_module: bool,
     pub(crate) captured: Arc<[ValueCell]>,
     /// Shared immutable instruction array
     pub(crate) instructions: Arc<[Instruction]>,
@@ -142,6 +144,7 @@ pub(crate) struct UserFunctionShape<'a> {
     pub(crate) params: &'a Option<Arc<[String]>>,
     pub(crate) named_params: &'a Option<Arc<[Arc<str>]>>,
     pub(crate) locals: u16,
+    pub(crate) isolated_module: bool,
     captured: Option<&'a Arc<[ValueCell]>>,
     pub(crate) instructions: &'a Arc<[Instruction]>,
     pub(crate) dbg_chunk: Option<ChunkId>,
@@ -182,6 +185,7 @@ impl Value {
                 params: &f.params,
                 named_params: &f.named_params,
                 locals: f.locals,
+                isolated_module: f.isolated_module,
                 captured: None,
                 instructions: &f.instructions,
                 dbg_chunk: f.dbg_chunk,
@@ -195,6 +199,7 @@ impl Value {
                 params: &c.params,
                 named_params: &c.named_params,
                 locals: c.locals,
+                isolated_module: c.isolated_module,
                 captured: Some(&c.captured),
                 instructions: &c.instructions,
                 dbg_chunk: c.dbg_chunk,

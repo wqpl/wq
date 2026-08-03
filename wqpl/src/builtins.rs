@@ -345,6 +345,11 @@ impl From<Vec<Value>> for BuiltinFnArgs {
 
 pub trait BuiltinContext {
     fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value>;
+    /// Return whether the currently executing source belongs to the entry
+    /// script.
+    fn is_main(&self) -> bool {
+        true
+    }
     /// Observe a host interruption request at an algorithm safe point.
     ///
     /// Returning `true` means the builtin must stop after restoring or
@@ -1072,6 +1077,7 @@ declare_builtins! {
     (ASSERT_EQ, AssertEq, "assert_eq", "assert_eq[actual;expected;message?;`context]", sig!(arity!(2, 3), named named_args!(("context", "value", "structured assertion context"))), plain(core::assert_equal), builtin_metadata!(Core, PURE)),
     (RAISE, Raise, "raise", "raise[]; raise[msg]", sig!(arity!(0, 1)), plain(core::raise), builtin_metadata!(Core, PURE)),
     (ARGV, Argv, "argv", "argv[]", sig!(arity!(0)), with_context(cli::argv), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
+    (MAIN_Q, MainQ, "main?", "main?[]", sig!(arity!(0)), with_context(core::main_q), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
     (ARGPARSE, Argparse, "argparse", "argparse[spec;args]", sig!(arity!(2)), with_context(cli::argparse), builtin_metadata!(Core, PURE_CONTEXTUAL)),
     (CLIARGS, Cliargs, "cliargs", "cliargs[spec]", sig!(arity!(1)), with_context(cli::cliargs), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
 
@@ -1773,7 +1779,7 @@ mod tests {
             names,
             [
                 "#", "%", "*", "**", "+", ",", "-", "/", "/%", "/.", "<", "<=", "=", "=.", ">",
-                ">=", "^", "^.", "argv", "builtin", "fmt", "len", "~", "~.",
+                ">=", "^", "^.", "argv", "builtin", "fmt", "len", "main?", "~", "~.",
             ]
         );
     }
@@ -1794,6 +1800,7 @@ mod tests {
             (BuiltinEnum::AssertEq, "2 3"),
             (BuiltinEnum::Raise, "0 1"),
             (BuiltinEnum::Argv, "0"),
+            (BuiltinEnum::MainQ, "0"),
             (BuiltinEnum::Argparse, "2"),
             (BuiltinEnum::Cliargs, "1"),
             (BuiltinEnum::Echo, "0.."),
