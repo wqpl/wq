@@ -1,5 +1,5 @@
 use super::{all_topics, builtin_topic, render_markdown, resolve};
-use crate::builtins::Builtins;
+use crate::builtins::{BuiltinEnum, Builtins};
 use crate::doc::{DocExample, DocRenderTarget, DocTopic, ExampleExpectation};
 use crate::session::Session;
 
@@ -17,6 +17,47 @@ fn every_builtin_has_a_doc_topic() {
             render_markdown(&topic, DocRenderTarget::Cli).contains(&builtin.arity().to_string()),
             "rendered doc for {} should use builtin arity metadata",
             builtin.name()
+        );
+    }
+}
+
+#[test]
+fn builtin_help_only_advertises_current_aliases() {
+    for (alias, canonical) in [
+        (BuiltinEnum::R, BuiltinEnum::Reshape),
+        (BuiltinEnum::TP, BuiltinEnum::Transpose),
+        (BuiltinEnum::M, BuiltinEnum::Map),
+        (BuiltinEnum::Reduce, BuiltinEnum::Fold),
+        (BuiltinEnum::D, BuiltinEnum::Diff),
+        (BuiltinEnum::I, BuiltinEnum::Integrate),
+        (BuiltinEnum::Not, BuiltinEnum::OpTilde),
+    ] {
+        let topic = builtin_topic(alias);
+        assert_eq!(topic.canonical_builtin, Some(canonical));
+        assert!(
+            render_markdown(&topic, DocRenderTarget::Cli)
+                .contains(&format!("Alias of `{}`.", canonical.name())),
+            "help for '{}' should advertise its canonical builtin '{}'",
+            alias.name(),
+            canonical.name()
+        );
+    }
+
+    let builtins = Builtins::new();
+    for (removed_alias, canonical) in [
+        ("E", BuiltinEnum::Echo),
+        ("V", BuiltinEnum::Reverse),
+        ("Z", BuiltinEnum::Where),
+    ] {
+        assert!(
+            builtins.doc_for_name(removed_alias).is_none(),
+            "removed alias '{removed_alias}' should not have builtin help"
+        );
+        assert!(
+            !render_markdown(&builtin_topic(canonical), DocRenderTarget::Cli)
+                .contains(&format!("`{removed_alias}`")),
+            "help for '{}' should not advertise removed alias '{removed_alias}'",
+            canonical.name()
         );
     }
 }

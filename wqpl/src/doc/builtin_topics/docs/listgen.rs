@@ -115,7 +115,7 @@ pub(super) const REPEAT: BuiltinDoc = BuiltinDoc {
 pub(super) const WHERE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Where,
     summary: "Return positions of non-zero int leaves and T bool leaves.",
-    details: "`where[xs]` accepts lists whose leaves are ints or bools. In a flat vector it returns indices where an int leaf is non-zero or a bool leaf is `T`; in nested input it returns coordinate vectors for those leaves. `Z` is an alias.",
+    details: "`where[xs]` accepts lists whose leaves are ints or bools. In a flat vector it returns indices where an int leaf is non-zero or a bool leaf is `T`; in nested input it returns coordinate vectors for those leaves.",
     examples: WHERE_EXAMPLES,
     related: &["til", "iota", "find"],
 };
