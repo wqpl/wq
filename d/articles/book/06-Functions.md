@@ -1,6 +1,6 @@
 # Functions
 
-A function is a value that can do work later.
+A function is a callable value.
 
 ```wq
 sq:{x*x}
@@ -20,7 +20,8 @@ area:{[w;h]w*h}
 area[6;7]
 ```
 
-Square brackets call a function with multiple arguments. Semicolons separate the arguments.
+Square brackets call a function with multiple arguments. Semicolons separate
+the arguments.
 
 ## Defaults And Named Arguments
 
@@ -37,16 +38,16 @@ scale 10
 scale[10;`by:3]
 ```
 
-Named arguments can arrive out of order, which is useful for functions with options.
+Named argument order follows tags instead of parameter position.
 
 ```wq
 box:{[`w:4;`h:2]w*h}
 box[`h:5;`w:3]
 ```
 
-## Functions In Lists
+## Higher-Order Functions
 
-Functions are values, so they can travel into other functions.
+Builtins can receive functions as values.
 
 <!-- wq-example {"id":"function-map-list","cellGroup":"higher-order-functions"} -->
 ```wq
@@ -66,11 +67,9 @@ Functions are values, so they can travel into other functions.
 `map` and `filter` call their function with `x`. `fold` calls its function with
 the accumulated value as `x` and the next item as `y`.
 
-That is often more direct than writing a loop.
-
 ## Capturing Nearby Names
 
-A function can use names from around it.
+A function can capture nearby values.
 
 ```wq
 make_adder:{[n]{x+n}}
@@ -78,7 +77,7 @@ add10:make_adder 10
 add10 5
 ```
 
-The inner function remembers `n`.
+The inner function captures `n`.
 
 Ordinary closures capture nearby values. Prefix a function literal with `'`
 when the function must update a captured binding by reference:
@@ -92,12 +91,12 @@ counter:make_counter[]
 The expected output is `(1;2)`. Modules use this form for exported functions
 that retain private mutable state.
 
-## Keep
+## Summary
 
 - `{x*x}` creates a function that uses implicit parameter `x`.
-- An implicit function can use `x`, `y`, and `z` for its first three arguments.
+- An implicit function can use `x`, `y` and `z` for its first three arguments.
 - `{[a;b]a+b}` names parameters.
 - `fn[arg1;arg2]` passes multiple arguments.
-- Higher-order builtins like `map`, `filter`, and `fold` apply functions to
+- Higher-order builtins such as `map`, `filter` and `fold` apply functions to
   lists.
 - `'{...}` captures referenced bindings so the function can update them.

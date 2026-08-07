@@ -1,7 +1,7 @@
 # Values and Display
 
-wq programs move values through operators and functions. Values are either
-atoms, such as an int or bool, or containers, such as a list or dict.
+wq programs move values through operators and functions. Non-container values
+are atoms. Lists and dicts are containers.
 
 ## Common Categories
 
@@ -44,9 +44,8 @@ Use leading comma for a one-character string:
 
 The char displays as `"a"`. The one-character string displays as `,"a"`.
 
-`""` is an empty string in source. It displays as `()`, the same compact
-display as an empty list. Use `type` or the surrounding operation when the
-distinction matters.
+`""` is an empty string in source. Both an empty string and an empty list
+display as `()`. Use `type` or the surrounding operation to distinguish them.
 
 ## Bools Are Exact
 
@@ -56,7 +55,7 @@ Comparisons produce `T` or `F`:
 (2<3;2=3)
 ```
 
-wq has no truthy or falsey values. Branches and loops require a bool condition.
+Branches and loops accept bool conditions only.
 
 <!-- wq-example {"id":"bool-condition","expect":{"error":"domain"}} -->
 ```wq
@@ -67,17 +66,17 @@ The expected diagnostic says `expected bool` and identifies `1` as an int.
 
 ## Tags
 
-Tags begin with a backtick and usually name dict keys or named arguments:
+Tags begin with a backtick. They commonly name dict keys and named arguments:
 
 ```wq
 (`ready;`name;`x2)
 ```
 
-Tags are values. They are not strings and they do not look up bindings.
+Tags are symbolic values. Identifier expressions perform binding lookup.
 
-## Keep
+## Summary
 
-- Atoms are non-container values; lists and dicts are containers.
-- A one-scalar quoted literal is a char; longer quoted literals are strings.
-- `T` and `F` are bools, and control flow accepts only bool conditions.
+- Atoms are non-container values. Lists and dicts are containers.
+- A one-scalar quoted literal is a char. Longer quoted literals are strings.
+- `T` and `F` are bools. Control flow accepts bool conditions only.
 - `type[value]` reports the public category.

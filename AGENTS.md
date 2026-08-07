@@ -106,7 +106,7 @@
 - If you changed `wqpl/viz`, also update `wqide/viz`.
 - If you added/changed syntax feature or builtin, also update:
   - `wqpl/doc`
-  - `d/articles/wqpl` if it is mentioned there
+  - `d/articles/book` if it is mentioned there
 - No em dashes in comments/docs/code. Adjust wording to avoid em dashes.
 - Use these newer Rust features when they make code cleaner:
 

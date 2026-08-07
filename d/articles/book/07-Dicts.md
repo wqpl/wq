@@ -1,15 +1,11 @@
 # Dicts
 
-A dict stores named pieces of data. Dict keys are tags, written with a leading
-backtick.
+A dict is an ordered container with tag keys.
 
 ```wq
 cat:(`name:"Ada";`age:3)
 cat
 ```
-
-The shape is still familiar: parentheses, semicolons, values. The tags make the
-values addressable by name.
 
 ## Tag Names
 
@@ -17,8 +13,8 @@ Bare tag names follow the same identifier character rules as bindings.
 `` `ready? ``, `` `λ2 `` and `` `猫 `` are valid tags. wq normalizes tag names
 to Unicode NFC.
 
-`tag[string]` converts a valid string to a tag. Tags are values, so wq syntax
-and builtin names such as `` `T `` and `` `echo `` are valid tags.
+`tag[string]` converts a valid string to a tag. Tags can use names that are wq
+syntax or builtins, such as `` `T `` and `` `echo ``.
 
 ## Reading Fields
 
@@ -53,7 +49,7 @@ cat:(`name:"Ada";`age:3)
 (name;years)
 ```
 
-When a key name is unavailable as a binding, choose another target name, as in
+Map a key to another binding name when needed, as in
 ``(`T:truth):record``.
 
 List and dict unpacking evaluate the source once and validate every requested
@@ -84,15 +80,13 @@ the same entries stored in different orders.
 
 ## Updating Fields
 
-Dict fields can be updated like list indexes.
+Dict fields support index assignment.
 
 ```wq
 cat:(`name:"Ada";`age:3)
 cat`age+:1
 cat
 ```
-
-That makes dicts a comfortable home for small records.
 
 ```wq
 rgb:(`r:80;`g:120;`b:200)
@@ -143,7 +137,7 @@ filter[rgb;{x>=100}]
 sort[rgb;`by:`key]
 ```
 
-Set algebra does not guess whether a dict means its keys or values. Project it first.
+Project a dict with `keys` or `values` before applying set algebra.
 
 <!-- wq-example {"id":"dict-unique-keys","cellGroup":"dict-set-projections"} -->
 ```wq
@@ -173,13 +167,13 @@ scale 10
 
 Here `by` is a named parameter with a default.
 
-## Keep
+## Summary
 
 - Dicts look like ``(`key:value;`other:value)``.
-- Read with ``d`key`` or ``d[`key]``.
+- Read a field with ``d`key`` or ``d[`key]``.
 - Read by position with `d 0` or `d[-1]`.
 - Update with forms like ``d`key+:1``.
 - Unpack selected fields with a tag-shaped assignment target.
 - Use `keys` and `values` to project stored entries explicitly.
-- Tags also name arguments inside bracketed call argument lists.
+- Tags name arguments inside bracketed calls.
 - Continue to **Pipes** to transform values from left to right.

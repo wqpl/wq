@@ -7,14 +7,14 @@
       "slug": "start",
       "title": "Start Here",
       "file": "00-Start-Here.md",
-      "description": "Run your first expression and learn how the book, results, and reference fit together.",
+      "description": "Run an expression and learn how examples, results, and reference docs work.",
       "code": "1+1"
     },
     {
       "slug": "values",
       "title": "Values and Display",
       "file": "01-Values.md",
-      "description": "Recognize atoms, containers, bools, chars, strings, tags, and displayed results.",
+      "description": "Recognize atoms, containers, bools, chars, strings, tags, and result display.",
       "code": "(type[\"a\"];type[,\"a\"])"
     },
     {
@@ -35,21 +35,21 @@
       "slug": "calls",
       "title": "Calls, Indexing, and Postfix",
       "file": "04-Calls.md",
-      "description": "Apply functions and containers without falling into postfix precedence traps.",
+      "description": "Call functions, index containers, and apply postfix syntax.",
       "code": "add:{x+y};add[2;3]"
     },
     {
       "slug": "lists",
       "title": "Lists",
       "file": "05-Lists.md",
-      "description": "Create, index, slice, and deliberately mutate ordered containers.",
+      "description": "Create, index, slice, unpack, and mutate lists.",
       "code": "(1;2;3)*4"
     },
     {
       "slug": "functions",
       "title": "Functions",
       "file": "06-Functions.md",
-      "description": "Package transformations, name parameters, and capture nearby bindings.",
+      "description": "Create functions, name parameters, and capture nearby bindings.",
       "code": "twice:{x*2};twice 4"
     },
     {
@@ -63,7 +63,7 @@
       "slug": "pipes",
       "title": "Pipes",
       "file": "08-Pipes.md",
-      "description": "Move values left to right through transformations and checkpoints.",
+      "description": "Pass values through transformations, taps, and checkpoints.",
       "code": "1..=5|map{x*x}|sum"
     },
     {
@@ -77,28 +77,28 @@
       "slug": "errors",
       "title": "Errors",
       "file": "10-Errors.md",
-      "description": "Read diagnostics, raise errors, assert outcomes, and inspect failures with `@t`.",
+      "description": "Read diagnostics, raise errors, assert outcomes, and inspect `@t` results.",
       "code": "@t 1/0"
     },
     {
       "slug": "modules",
       "title": "Modules",
       "file": "11-Modules.md",
-      "description": "Export one value from an isolated file and import it through a cached module workspace.",
+      "description": "Export a value from an isolated file and import it through a cached workspace.",
       "code": "answer:@i\"answer.wq\""
     },
     {
       "slug": "primes",
       "title": "A Prime Sieve",
       "file": "12-Primes.md",
-      "description": "Combine lists, mutation, pipes, control flow, and functions in one complete program.",
+      "description": "Combine lists, mutation, pipes, control flow, and functions in a prime sieve.",
       "code": "x:30;p:x+1|iota|>1;where p"
     },
     {
       "slug": "cas",
       "title": "Symbolic Math with CAS",
       "file": "13-CAS.md",
-      "description": "Optional: quote symbolic expressions, transform them, and cross into numeric evaluation.",
+      "description": "Create and transform symbolic expressions, then evaluate them numerically.",
       "code": "factor[@s x^2-1]",
       "optional": true
     }

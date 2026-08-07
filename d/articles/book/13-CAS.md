@@ -1,21 +1,21 @@
 # Symbolic Math with CAS
 
-This optional chapter introduces wq's computer algebra system (CAS). It is not
-required for the rest of the introductory path.
+This optional chapter introduces wq's computer algebra system (CAS). The core
+introductory path ends before it.
 
-wq can carry symbolic math as data. CAS values start with `@s`.
+`@s` creates symbolic math as a CAS value.
 
 ```wq
 expr:@s x^2+2*x+1
 expr
 ```
 
-This is different from ordinary evaluation.
-A bare `x^2+2*x+1` tries to use a bound value named `x`; `@s` quotes the expression for symbolic work.
+Ordinary evaluation resolves `x` as a binding. `@s` quotes the expression for
+symbolic work.
 
-## Transform The Expression
+## Transforming an Expression
 
-Once you have a symbolic value, apply CAS functions to that value.
+Apply CAS functions to the symbolic value.
 
 <!-- wq-example {"id":"cas-differentiate","cellGroup":"cas-transforms"} -->
 ```wq
@@ -48,11 +48,11 @@ expr[`x:2]
 expr[2]
 ```
 
-`@s` quotes the symbolic expression, then the value can move through normal pipes.
-Named arguments on CAS calls, and on CAS values themselves, bind symbolic variables.
-A single-variable CAS expression can also be called with one positional argument.
+The symbolic value moves through ordinary pipes. Named arguments bind symbolic
+variables in CAS functions and CAS values. A single-variable CAS expression
+also accepts one positional argument.
 
-## Factor And Solve
+## Factoring and Solving
 
 <!-- wq-example {"id":"cas-factor","cellGroup":"cas-solving"} -->
 ```wq
@@ -84,8 +84,6 @@ solve_system[@s(2*x+y=5;x-y=1)]
 solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]
 ```
 
-The bracket calls keep the symbolic expression inside the argument list.
-
 | Call shape | Result |
 | --- | --- |
 | `solve[expression]` | Roots for one inferred variable |
@@ -93,12 +91,11 @@ The bracket calls keep the symbolic expression inside the argument list.
 | `solve_system[equations]` | A dict keyed by inferred variable names |
 | `solve_system[equations;variables]` | A dict in the requested variable order |
 
-Other symbols can remain as parameters in supported linear and quadratic
-solves.
+Supported linear and quadratic solves retain other symbols as parameters.
 
-When a symbolic coefficient can change a polynomial's degree or a system's rank, the solver returns explicit cases.
-Each case has a `when` list of conditions and a branch result.
-You can narrow those cases with assumptions:
+When a symbolic coefficient can change a polynomial's degree or a system's
+rank, the solver returns cases. Each case has a `when` list and a branch result.
+Assumptions narrow those cases:
 
 ```wq
 solve_system[
@@ -113,7 +110,8 @@ condition. The condition constructs `zero`, `nonzero`, `positive`, `negative`,
 remain available for ordinary wq bindings. A list passed to the named argument
 `assuming` means all its conditions must hold.
 
-The CAS derives basic consequences such as positive values being nonzero and integers being real. Contradictory assumptions are rejected.
+The CAS derives consequences such as positive values being nonzero and ints
+being real. Contradictory assumptions produce an error.
 
 Read solver results as follows:
 
@@ -121,14 +119,13 @@ Read solver results as follows:
   value is a solution, and an empty list means there is no solution.
 - The default domain is the `` `complex `` tag. Pass the named argument
   `domain` with the `` `real `` tag to exclude non-real roots.
-- A parameterized real-domain solve also needs `real` assumptions for its
-  symbolic coefficients. The solver does not silently assume that a parameter
-  is real.
+- A parameterized real-domain solve requires `real` assumptions for its
+  symbolic coefficients.
 - For `solve_system`, a unique solution is a variable dict, the `` `none `` tag
   means no solution, and dependent systems return a `` `solution `` dict with a
   `parameters` list of fresh symbols.
 
-## Numeric And Symbolic Can Meet
+## Numeric Evaluation
 
 CAS output can be moved through normal wq code.
 
@@ -144,16 +141,17 @@ f:@s sin[x]+y
 f|numeric[`x:0;`y:2]
 ```
 
-The roots are values now, so list arithmetic works.
-The expression `f` is a value too; `numeric` can bind `x` and `y` before evaluating it.
-Exact quoted function calls remain symbolic unless an exact identity applies. `numeric` is the explicit boundary that turns exact constants and functions into approximations.
+The roots support list arithmetic. `numeric` binds `x` and `y` before evaluating
+`f`. It is the explicit boundary from exact symbolic constants and functions to
+approximations.
 
-## Keep
+## Summary
 
 - `@s expr` creates a symbolic expression.
 - After `@s`, pass the symbolic value to CAS functions.
-- Pipes stay outside the symbolic quote, so `@s x^2|diff` works as ordinary value flow.
-- Ordinary arithmetic and CAS arithmetic are related, but not the same mode.
+- Pipes remain outside the symbolic quote, so `@s x^2|diff` uses ordinary value
+  flow.
+- `numeric` crosses from symbolic values into approximation.
 
 You have reached the end of the introductory book. Return to
 [Start Here](00-Start-Here.md) for the reading path or use the reference

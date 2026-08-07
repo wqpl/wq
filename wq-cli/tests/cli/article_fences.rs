@@ -63,8 +63,7 @@ fn article_wq_fences_follow_the_portable_example_contract() -> TestResult {
     let workspace = manifest_dir
         .parent()
         .expect("wq-cli has a workspace parent");
-    let mut fences = collect_wq_fences(&workspace.join("d/articles"))?;
-    fences.extend(collect_wq_fences(&manifest_dir.join("book"))?);
+    let fences = collect_wq_fences(&workspace.join("d/articles"))?;
 
     let mut failures = Vec::new();
     let mut example_ids = HashSet::new();

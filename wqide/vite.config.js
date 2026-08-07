@@ -9,12 +9,10 @@ const wqWasmPkgDir = resolve(rootDir, "../wq-wasm/pkg");
 const wqWasmGeneratedEntry = resolve(wqWasmPkgDir, "wq_wasm.js");
 const wqWasmEntry = resolve(rootDir, "../wq-wasm/browser.js");
 const docsArticlesDir = resolve(rootDir, "../d/articles");
-const bookDir = resolve(rootDir, "../wq-cli/book");
 const fsAllowList = [
   searchForWorkspaceRoot(rootDir),
   wqWasmPkgDir,
   docsArticlesDir,
-  bookDir,
 ];
 
 if (!existsSync(wqWasmGeneratedEntry)) {
@@ -51,11 +49,15 @@ export default defineConfig({
   plugins: [
     viteStaticCopy({
       targets: [
-        { src: "../d/articles/**/*", dest: ".", rename: { stripBase: 1 } },
         {
-          src: "../wq-cli/book/**/*",
+          src: ["../d/articles/**/*", "!../d/articles/book/**/*"],
           dest: ".",
           rename: { stripBase: 1 },
+        },
+        {
+          src: "../d/articles/book/**/*",
+          dest: ".",
+          rename: { stripBase: 2 },
         },
         { src: "manifest.json", dest: "." },
         { src: "favicon.png", dest: "." },

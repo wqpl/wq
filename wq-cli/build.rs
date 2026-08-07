@@ -46,7 +46,16 @@ fn generate_embedded_book() {
     let manifest_dir = PathBuf::from(
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be available"),
     );
-    let catalog_path = manifest_dir.join("book/catalog.json");
+    let workspace_book_dir = manifest_dir
+        .parent()
+        .expect("wq-cli must have a workspace parent")
+        .join("d/articles/book");
+    let book_dir = if workspace_book_dir.is_dir() {
+        workspace_book_dir
+    } else {
+        manifest_dir.join("book")
+    };
+    let catalog_path = book_dir.join("catalog.json");
     println!("cargo:rerun-if-changed={}", catalog_path.display());
 
     let catalog_source = fs::read_to_string(&catalog_path).expect("book catalog must be readable");
@@ -90,7 +99,7 @@ fn generate_embedded_book() {
             .as_str()
             .expect("every book chapter must have a description");
         let optional = chapter["optional"].as_bool().unwrap_or(false);
-        let chapter_path = manifest_dir.join("book").join(file);
+        let chapter_path = book_dir.join(file);
         println!("cargo:rerun-if-changed={}", chapter_path.display());
         let chapter_path = chapter_path
             .to_str()

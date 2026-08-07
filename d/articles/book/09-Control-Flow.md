@@ -1,10 +1,7 @@
 # Control Flow
 
-Control flow in wq is expression-shaped. Branches and loops produce values,
-and blocks can appear inside other expressions.
-
-Conditions must be bools. wq does not treat ints, strings, lists or other
-values as truthy or falsey.
+Control-flow forms are expressions. Branches and loops produce values, and
+their conditions accept bools only.
 
 ## Choose One
 
@@ -15,18 +12,17 @@ n:7
 $[n%2=0;"even";"odd"]
 ```
 
-The condition is first, then the true branch, then the false branch.
+Arguments appear in condition, true branch and false branch order.
 
-The false branch accepts more than one expression:
-`$[condition;true;else1;else2...]`. Those expressions run only when the
-condition is false, and the last one is the result.
+`$[condition;true;else1;else2...]` gives the false branch multiple
+expressions. Its final expression becomes the result.
 
 ```wq
 n:7
 $[n%2=0;"even";label:"odd";label]
 ```
 
-With no false branch, a false condition yields an empty list.
+An omitted false branch defaults to an empty list.
 
 ```wq
 $[F;"not reached"]
@@ -34,8 +30,8 @@ $[F;"not reached"]
 
 ## Run When True
 
-`$.[condition;body1;body2...]` runs its body only when the condition is true.
-If the condition is false, the body is skipped and the result is an empty list.
+`$.[condition;body1;body2...]` runs its body for a true condition. A false
+condition returns an empty list.
 
 ```wq
 x:0
@@ -62,11 +58,11 @@ grade:82
 $$[grade>=90;"A";grade>=80;"B";grade>=70;"C";"D"]
 ```
 
-That reads as `if grade>=90 then "A", else if grade>=80 then "B", else if
-grade>=70 then "C", else "D"`.
+Conditions are checked from left to right. The first matching action supplies
+the result.
 
-The default is optional. If no condition matches and no default is present, the
-result is an empty list.
+The optional default is the final unpaired expression. Without a match or
+default, the result is an empty list.
 
 ```wq
 $$[F;"no";F;"also no"]
@@ -82,8 +78,6 @@ N[5;out,:_n]
 out
 ```
 
-This is often handy for building a list step by step.
-
 `N` returns the last body result. A non-running `W` loop returns `()`.
 
 ## Repeat While True
@@ -96,7 +90,7 @@ W[i<3;i+:1]
 i
 ```
 
-Use it when the stopping point is discovered while the program runs.
+The condition is checked before each iteration.
 
 ## Return Early
 
@@ -113,10 +107,10 @@ sign 0
 sign[-5]
 ```
 
-The second call uses brackets because an ungrouped leading minus after a name
-would parse as subtraction.
+The second call brackets its negative argument because postfix form would parse
+the leading minus as subtraction.
 
-## Keep
+## Summary
 
 - `$[c;t;f]` chooses between two values.
 - `$[c;t;f1;f2...]` runs a multi-expression false branch.

@@ -1,6 +1,6 @@
 # Lists
 
-Lists are the main shape of wq data. They are small to write and pleasant to push through functions.
+Lists are ordered containers written with parentheses and semicolons.
 
 <!-- wq-example {"id":"list-intro-ints","cellGroup":"list-intro"} -->
 ```wq
@@ -12,11 +12,11 @@ Lists are the main shape of wq data. They are small to write and pleasant to pus
 ("red";"green";"blue")
 ```
 
-Semicolons separate items. Spaces do not.
+Semicolons separate items.
 
-## One Thing, Or A List?
+## Atoms and Singleton Lists
 
-`(1)` is just `1`. Use leading comma when you want a one-item list.
+`(1)` groups the atom `1`. A leading comma creates a one-item list.
 
 <!-- wq-example {"id":"list-grouped-atom","cellGroup":"one-or-list"} -->
 ```wq
@@ -35,7 +35,7 @@ empty:()
 #empty
 ```
 
-`#value` returns its length, so the expected output is `0`.
+`#value` returns its length. This block returns `0`.
 
 ## Indexing
 
@@ -114,13 +114,12 @@ Patterns can nest. `...` skips the middle when only the ends matter:
 (name;r;g;b;head;tail)
 ```
 
-The source runs once. wq validates every requested position before writing any
-target, so an invalid pattern does not leave partial assignments behind.
+The source runs once. wq validates every requested position before writing the
+targets, so assignment is atomic.
 
 ## Mutating Lists
 
-List indexes can be assigned. The path must start from a binding such as `xs`;
-a temporary result cannot be an assignment target.
+List indexes can be assigned. The path starts from a binding such as `xs`.
 
 ```wq
 xs:(10;20;30)
@@ -128,9 +127,8 @@ xs[1]:99
 xs
 ```
 
-`[!]` pops from the end. `[!i]` removes at an index, and `[!i]:v` inserts
-there. Bang indexing acts directly on a binding, and insertion uses plain `:`
-rather than an operator-colon form.
+`[!]` pops from the end. `[!i]` removes at an index. `[!i]:v` inserts there.
+Bang indexing acts directly on a binding, and insertion uses plain `:`.
 
 <!-- wq-example {"id":"list-pop-value","cellGroup":"list-pop"} -->
 ```wq
@@ -151,11 +149,11 @@ xs[!1]:20
 xs
 ```
 
-## Keep
+## Summary
 
 - `(a;b;c)` is a list.
-- `(a)` is just `a`; `,a` enlists one item.
-- `xs[i]` indexes; `xs[a..b]` slices.
+- `(a)` groups `a`. `,a` enlists one item.
+- `xs[i]` indexes. `xs[a..b]` slices.
 - `(a;b):value` unpacks a list by position.
-- Lists are mutable when you choose to mutate them.
+- Index assignment and bang indexing mutate a bound list.
 - Continue to **Functions** to transform lists without manual loops.

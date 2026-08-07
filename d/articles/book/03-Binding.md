@@ -1,13 +1,13 @@
 # Binding
 
-Binding is how a value gets a name.
+Binding gives a value a name.
 
 ```wq
 steps:40+2
 steps
 ```
 
-Read `steps:40+2` as "bind `40+2` to `steps`". A single `=` is equality; a colon is assignment.
+`steps:40+2` binds the result to `steps`. `=` tests equality. `:` assigns.
 
 ## Names
 
@@ -32,9 +32,9 @@ Some identifier-shaped spellings are already wq syntax:
 Those spellings cannot be binding names. A builtin-function name available in
 the current builtin set cannot be rebound either.
 
-## Names Are Reusable
+## Rebinding
 
-Once a name is bound, it can appear anywhere an expression can appear.
+A bound name can appear in any expression.
 
 ```wq
 radius:5
@@ -42,7 +42,7 @@ area:3.14159*radius^2
 area
 ```
 
-You can rebind a name when the story changes:
+A later assignment replaces its value:
 
 <!-- wq-example {"id":"binding-first-mood","cellGroup":"rebind-mood"} -->
 ```wq
@@ -88,9 +88,9 @@ total:sum(1;2;3)
 total
 ```
 
-This can be handy in tiny examples, but use it gently. Code is allowed to breathe.
+The assigned value is also the result of the assignment expression.
 
-## Keep
+## Summary
 
 - `name:value` binds.
 - `name+:value` and friends update.

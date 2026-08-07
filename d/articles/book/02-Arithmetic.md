@@ -1,11 +1,10 @@
 # Arithmetic
 
-Arithmetic is the easiest place to feel wq's personality: small expressions,
-no ceremony, and lists that do math with you.
+Arithmetic uses familiar operators and broadcasts across compatible lists.
 
 ## Calculator Mode
 
-The familiar operators are here. `^` means power.
+`^` means power.
 
 <!-- wq-example {"id":"calculator-precedence","cellGroup":"calculator-mode","expect":{"value":"7"}} -->
 ```wq
@@ -22,9 +21,8 @@ The familiar operators are here. `^` means power.
 2^8
 ```
 
-Multiplication binds more tightly than addition. Parentheses make grouping
-explicit. Postfix calls have their own tighter precedence, which the Calls
-chapter covers before you need it.
+Multiplication binds more tightly than addition. Parentheses set explicit
+grouping. The Calls chapter covers the tighter precedence of postfix calls.
 
 Power groups from the right:
 
@@ -38,7 +36,7 @@ Power groups from the right:
 (2^3)^2
 ```
 
-So the first line is `2^(3^2)`, not `(2^3)^2`.
+The first line groups as `2^(3^2)`. Parentheses produce `(2^3)^2`.
 
 ## Division Has Flavors
 
@@ -71,8 +69,7 @@ Division operators differ in the result they preserve:
 7/.2
 ```
 
-Divide by zero and wq stops at the failing expression. Expect a `zero-div`
-error saying `cannot divide by zero`.
+Division by zero stops at the failing expression with a `zero-div` error.
 
 <!-- wq-example {"id":"divide-by-zero","expect":{"error":"zero-div"}} -->
 ```wq
@@ -81,7 +78,9 @@ error saying `cannot divide by zero`.
 
 ## Power Has Flavors Too
 
-`^` is the everyday runtime power operator. Positive integer powers stay exact when they can, but negative or fractional numeric powers use classic floating-point arithmetic.
+`^` uses runtime numeric arithmetic. Positive int powers stay exact when
+possible. Negative and fractional numeric powers can produce floats or complex
+values.
 
 <!-- wq-example {"id":"classic-power-int","cellGroup":"classic-power","expect":{"value":"256"}} -->
 ```wq
@@ -98,7 +97,8 @@ error saying `cannot divide by zero`.
 (8/.27)^(1/.3)
 ```
 
-`^.` asks for exact exponentiation. Pair it with exact operands such as `/.` when the exponent is fractional:
+`^.` performs exact exponentiation. Use exact operands such as `/.` for an
+exact fractional exponent:
 
 <!-- wq-example {"id":"exact-power-negative","cellGroup":"exact-power","expect":{"value":"1/8"}} -->
 ```wq
@@ -110,15 +110,9 @@ error saying `cannot divide by zero`.
 (8/.27)^.(1/.3)
 ```
 
-## Lists Join In
+## Broadcasting
 
-A list is written with parentheses and semicolons:
-
-```wq
-(1;2;3)
-```
-
-The fun part is that arithmetic works through the shape of a value.
+Arithmetic follows the shape of list operands.
 
 <!-- wq-example {"id":"broadcast-atom","cellGroup":"broadcasting","expect":{"value":"(11;12;13)"}} -->
 ```wq
@@ -135,17 +129,17 @@ The fun part is that arithmetic works through the shape of a value.
 ((1;2);(3;4))+(10;20)
 ```
 
-That is broadcasting: an atom can flow across a list, and matching lists combine item by item.
+An atom broadcasts across a list. Matching lists combine item by item.
 
-Mismatched shapes are not guessed at. Expect a `length` error that reports
-both list lengths.
+List operands require compatible shapes. A mismatch produces a `length` error
+that reports both lengths.
 
 <!-- wq-example {"id":"broadcast-length","expect":{"error":"length"}} -->
 ```wq
 (1;2;3)+(10;20)
 ```
 
-## Plus Is Not Glue
+## Addition and Concatenation
 
 `+` adds. The comma `,` concatenates.
 
@@ -159,23 +153,11 @@ both list lengths.
 (1;2)+(3;4)
 ```
 
-That distinction matters early. Once you trust it, list code becomes easier to read: math looks like math, joining looks like joining.
-
-## Tiny Curves
-
-Because arithmetic broadcasts, a list can stand in for a little row of inputs.
-
-```wq
-(0;1;2;3;4;5)^2
-```
-
-You can pipe the result into a builtin too. Here `sum` adds the squared values:
+Broadcasting also applies before a pipe:
 
 ```wq
 (1;2;3;4;5)^2|sum
 ```
-
-It is a small thing, but this is the shape of a lot of wq: make a value, transform it, pass it along.
 
 ## Number Questions
 
@@ -204,10 +186,10 @@ Plain `=` compares whole values. Dotted `=.` compares through matching leaves:
 (1;2;3)=.(1;9;3)
 ```
 
-## Keep
+## Summary
 
 - `+ - * / % ^` are the everyday arithmetic operators.
-- `/%` is floor division; `/.` is exact division; `^.` is exact power.
+- `/%` is floor division. `/.` is exact division. `^.` is exact power.
 - Arithmetic broadcasts over compatible list shapes.
-- `,` concatenates; `+` never means concatenate.
+- `+` adds. `,` concatenates.
 - Continue to **Binding** to name and update values.

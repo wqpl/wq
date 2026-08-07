@@ -1,7 +1,7 @@
 # Errors
 
-wq errors identify what failed, where it failed and which value violated the
-operation's requirement.
+wq errors identify the failed operation, source location and value that
+violated a requirement.
 
 This example produces a `zero-div` error saying `cannot divide by zero`.
 
@@ -9,9 +9,6 @@ This example produces a `zero-div` error saying `cannot divide by zero`.
 ```wq
 1/0
 ```
-
-If the error kind or highlighted expression differs, check that you ran only
-this block in a current wq session.
 
 ## Raise Your Own
 
@@ -24,7 +21,7 @@ The expected error kind is `raise`, and its message is `nope`.
 raise "nope"
 ```
 
-Small functions often use this for guard rails.
+Use `raise` to enforce a function-specific requirement.
 
 <!-- wq-example {"id":"error-empty-head","expect":{"error":"raise"}} -->
 ```wq
@@ -41,8 +38,8 @@ assert[2<3]
 "still here"
 ```
 
-If the assertion is false, execution stops with an `assert` error. Add a message
-and named context when the failure needs more detail.
+A false assertion stops execution with an `assert` error. A message and named
+context add detail.
 
 The expected error kind is `assert`.
 
@@ -61,12 +58,11 @@ assert_eq[(1;2);(1;2)]
 The expected output is `(1;2)`.
 
 On failure, the error's `data` dict stores the check type, actual value,
-expected value, and optional context. This keeps complete values available to
-code while terminal notes show short excerpts.
+expected value and optional context. Terminal notes display short excerpts.
 
 ## Try
 
-`@t expr` preserves either the successful value or the error as a tagged pair.
+`@t expr` returns the value or error as a tagged pair.
 
 <!-- wq-example {"id":"try-success","cellGroup":"try-results"} -->
 ```wq
@@ -84,7 +80,7 @@ code while terminal notes show short excerpts.
 ```
 
 Success has the shape ``(`ok;value)``. Failure has the shape
-``(`error;error_dict)``. Check the first item before reading the payload.
+``(`error;error_dict)``. The first item identifies the payload.
 
 ```wq
 result:@t 1+1
@@ -104,7 +100,7 @@ The error dict has stable fields:
 
 Branch on the `kind` tag instead of parsing message strings.
 
-## Keep
+## Summary
 
 - Errors stop the current run.
 - `raise` creates an error intentionally.

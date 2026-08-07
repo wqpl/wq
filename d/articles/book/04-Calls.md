@@ -1,7 +1,7 @@
 # Calls, Indexing, and Postfix
 
-Functions and containers share one application shape. The value on the left
-decides whether brackets mean a call or an index.
+Functions and containers share one application shape. The left value determines
+whether brackets call or index.
 
 ## Bracket Form
 
@@ -45,25 +45,25 @@ xs:(10;20;30)
 xs 1
 ```
 
-Use brackets for zero arguments, named arguments or more than one argument.
-`fn arg1 arg2` does not mean a two-argument call.
+Use brackets for zero arguments, named arguments and multiple arguments.
+Postfix form supplies exactly one argument.
 
 ## Group Negative Arguments
 
-A leading minus after a name parses as subtraction, not as a negative postfix
-argument.
+A leading minus after a name parses as subtraction. Group or bracket a negative
+postfix argument.
 
 ```wq
 sign:{[x]$[x<0;"negative";"non-negative"]}
 (sign[-5];sign (-5))
 ```
 
-Both calls return `"negative"`. Do not write `sign -5`.
+Both calls return `"negative"`.
 
 ## Postfix Binds Tightly
 
-`echo 1+2` parses as `(echo 1)+2`, so it prints `1` instead of `3`. Group an
-expression before passing it:
+Postfix binds more tightly than `+`, so `echo 1+2` parses as `(echo 1)+2` and
+prints `1`. Group the argument expression:
 
 ```wq
 echo (1+2)
@@ -83,7 +83,7 @@ xs:((1;2);(3;4))
 
 Both paths return `3`.
 
-## Keep
+## Summary
 
 - `target[...]` calls a callable or indexes a container.
 - Bracket entries are separated with semicolons.
