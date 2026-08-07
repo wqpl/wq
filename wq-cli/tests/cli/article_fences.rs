@@ -7,6 +7,8 @@ use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use serde_json::Value as JsonValue;
 use wqpl::module::{ModuleError, ModuleRequest, ModuleResolver, ResolvedModule};
 use wqpl::session::Session;
+use wqpl::session::stdio::{WqIoError, WqOutput};
+use wqpl::style::ColorMode;
 
 use crate::support::{ResultContext as _, TestResult, test_error};
 
@@ -21,6 +23,22 @@ struct WqFence {
 #[derive(Clone)]
 struct ArticleModuleResolver {
     modules: Arc<HashMap<String, String>>,
+}
+
+struct SinkOutput;
+
+impl WqOutput for SinkOutput {
+    fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
+        Ok(())
+    }
+}
+
+fn quiet_session() -> Session {
+    let mut session = Session::new();
+    session.set_stdout(Box::new(SinkOutput));
+    session.set_stderr(Box::new(SinkOutput));
+    session.set_color_mode(ColorMode::Never);
+    session
 }
 
 impl ModuleResolver for ArticleModuleResolver {
@@ -123,11 +141,11 @@ fn article_wq_fences_follow_the_portable_example_contract() -> TestResult {
             .and_then(|value| value.get("error"))
             .and_then(JsonValue::as_str);
 
-        let mut standalone_session = Session::new();
+        let mut standalone_session = quiet_session();
         let session = if let Some(cell_group) = cell_group {
             cell_group_sessions
                 .entry((fence.file.clone(), cell_group.to_string()))
-                .or_default()
+                .or_insert_with(quiet_session)
         } else {
             &mut standalone_session
         };

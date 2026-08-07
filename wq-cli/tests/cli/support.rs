@@ -40,5 +40,7 @@ pub fn test_error(message: impl Into<String>) -> TestError {
 }
 
 pub fn wq_command() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_wq"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wq"));
+    command.env_remove("CLICOLOR_FORCE").env("NO_COLOR", "1");
+    command
 }

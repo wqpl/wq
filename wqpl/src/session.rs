@@ -1511,6 +1511,8 @@ mod tests {
 
     struct CaptureOutput(Arc<Mutex<String>>);
 
+    struct SinkOutput;
+
     struct FixedInput(&'static str);
 
     #[derive(Clone)]
@@ -1551,6 +1553,12 @@ mod tests {
     impl WqOutput for CaptureOutput {
         fn write(&mut self, text: &str) -> Result<(), WqIoError> {
             self.0.lock().expect("capture output lock").push_str(text);
+            Ok(())
+        }
+    }
+
+    impl WqOutput for SinkOutput {
+        fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
             Ok(())
         }
     }
@@ -2654,6 +2662,8 @@ mod tests {
     fn alternate_interpreters_yield_cooperatively() {
         for kind in [InterpreterKind::Sample, InterpreterKind::Profiler] {
             let mut session = Session::new();
+            session.set_stderr(Box::new(SinkOutput));
+            session.set_color_mode(ColorMode::Never);
             session.set_interpreter(kind);
             let mut evaluation = session
                 .start_script_evaluation("alternate.wq", "i:0;W[i<20;i+:1];i")

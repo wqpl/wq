@@ -1234,9 +1234,27 @@ fn spec_error(message: impl Into<String>) -> WqError {
 mod tests {
     use super::parse_argv_value;
     use crate::session::Session;
+    use crate::session::stdio::{WqIoError, WqOutput};
+    use crate::style::ColorMode;
     use crate::value::Value;
 
     const SPEC: &str = r#"(`name:"rgrep";`version:"1.0";`about:"search files";`args:((`name:`ignore_case;`kind:`flag;`short:"i";`help:"ignore case");(`name:`max_count;`kind:`option;`short:"m";`parse:int;`value_name:,"N");(`name:`pattern;`kind:`positional;`required:T);(`name:`paths;`kind:`positional;`required:T;`multiple:T)))"#;
+
+    struct SinkOutput;
+
+    impl WqOutput for SinkOutput {
+        fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
+            Ok(())
+        }
+    }
+
+    fn quiet_session() -> Session {
+        let mut session = Session::new();
+        session.set_stdout(Box::new(SinkOutput));
+        session.set_stderr(Box::new(SinkOutput));
+        session.set_color_mode(ColorMode::Never);
+        session
+    }
 
     #[test]
     fn argv_returns_session_arguments() {
@@ -1402,7 +1420,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
 
     #[test]
     fn cliargs_returns_values_or_requests_an_uncatchable_halt() {
-        let mut success = Session::new();
+        let mut success = quiet_session();
         success.set_argv(vec!["needle".into(), "a.txt".into()]);
         let value = success
             .eval_string(&format!(
@@ -1412,7 +1430,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
         assert_eq!(value.to_string(), "(\"needle\";,\"a.txt\")");
         assert_eq!(success.halt_status(), None);
 
-        let mut help = Session::new();
+        let mut help = quiet_session();
         help.set_argv(vec!["--help".into()]);
         help.eval_string(&format!("@t cliargs[{SPEC}];after:1"))
             .expect("help halts without an error");
@@ -1420,7 +1438,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
         assert_eq!(help.halt_status(), Some(0));
         assert!(!help.bindings().contains_key("after"));
 
-        let mut error = Session::new();
+        let mut error = quiet_session();
         error.set_argv(vec!["--wat".into()]);
         error
             .eval_string(&format!("cliargs[{SPEC}];after:1"))

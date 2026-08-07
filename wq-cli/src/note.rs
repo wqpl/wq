@@ -375,7 +375,7 @@ impl TerminalTable {
     }
 }
 
-fn render_terminal_table(table: &TerminalTable) -> String {
+fn render_terminal_table(table: &TerminalTable, color_mode: ColorMode) -> String {
     let column_count = table
         .rows
         .iter()
@@ -395,27 +395,33 @@ fn render_terminal_table(table: &TerminalTable) -> String {
     }
 
     let mut out = String::new();
-    out.push_str(&terminal_table_rule(&widths));
+    out.push_str(&terminal_table_rule(&widths, color_mode));
     out.push('\n');
     out.push_str(&terminal_table_row(
         &table.header,
         &widths,
         &table.alignments,
+        color_mode,
     ));
     if !table.rows.is_empty() {
         out.push('\n');
-        out.push_str(&terminal_table_rule(&widths));
+        out.push_str(&terminal_table_rule(&widths, color_mode));
         for row in &table.rows {
             out.push('\n');
-            out.push_str(&terminal_table_row(row, &widths, &table.alignments));
+            out.push_str(&terminal_table_row(
+                row,
+                &widths,
+                &table.alignments,
+                color_mode,
+            ));
         }
     }
     out.push('\n');
-    out.push_str(&terminal_table_rule(&widths));
+    out.push_str(&terminal_table_rule(&widths, color_mode));
     out
 }
 
-fn terminal_table_rule(widths: &[usize]) -> String {
+fn terminal_table_rule(widths: &[usize], color_mode: ColorMode) -> String {
     let mut rule = String::new();
     rule.push('+');
     for (index, width) in widths.iter().enumerate() {
@@ -425,12 +431,17 @@ fn terminal_table_rule(widths: &[usize]) -> String {
         rule.push_str(&"-".repeat(width + 2));
     }
     rule.push('+');
-    note_dim(&rule)
+    note_dim_with_color_mode(&rule, color_mode)
 }
 
-fn terminal_table_row(row: &[String], widths: &[usize], alignments: &[Alignment]) -> String {
+fn terminal_table_row(
+    row: &[String],
+    widths: &[usize],
+    alignments: &[Alignment],
+    color_mode: ColorMode,
+) -> String {
     let mut out = String::new();
-    out.push_str(&note_dim("|"));
+    out.push_str(&note_dim_with_color_mode("|", color_mode));
     for (column, width) in widths.iter().copied().enumerate() {
         let cell = row.get(column).map(String::as_str).unwrap_or_default();
         let padding = width.saturating_sub(visible_terminal_width(cell));
@@ -445,7 +456,7 @@ fn terminal_table_row(row: &[String], widths: &[usize], alignments: &[Alignment]
         out.push_str(cell);
         out.push_str(&" ".repeat(right_padding));
         out.push(' ');
-        out.push_str(&note_dim("|"));
+        out.push_str(&note_dim_with_color_mode("|", color_mode));
     }
     out
 }
@@ -469,6 +480,10 @@ fn visible_terminal_width(text: &str) -> usize {
 }
 
 fn render_terminal_fragment(md: &str) -> String {
+    render_terminal_fragment_with_color_mode(md, ColorMode::Auto)
+}
+
+fn render_terminal_fragment_with_color_mode(md: &str, color_mode: ColorMode) -> String {
     let parser = Parser::new_ext(md, Options::ENABLE_TABLES);
     let mut out = String::new();
 
@@ -486,7 +501,7 @@ fn render_terminal_fragment(md: &str) -> String {
             match event {
                 Event::End(TagEnd::Table) => {
                     let finished = table.take().expect("table should be active");
-                    out.push_str(&render_terminal_table(&finished));
+                    out.push_str(&render_terminal_table(&finished, color_mode));
                     out.push('\n');
                     out.push('\n');
                 }
@@ -524,7 +539,9 @@ fn render_terminal_fragment(md: &str) -> String {
                 Event::Start(Tag::Link { .. }) => in_link = true,
                 Event::End(TagEnd::Link) => in_link = false,
                 Event::Text(text) => {
-                    let text = apply_text_style(&text, in_strong, in_em, in_link);
+                    let text = apply_text_style_with_color_mode(
+                        &text, in_strong, in_em, in_link, color_mode,
+                    );
                     table
                         .as_mut()
                         .expect("table should be active")
@@ -534,7 +551,10 @@ fn render_terminal_fragment(md: &str) -> String {
                     table
                         .as_mut()
                         .expect("table should be active")
-                        .push_cell_text(&format!("`{}`", note_dim(&code)));
+                        .push_cell_text(&format!(
+                            "`{}`",
+                            note_dim_with_color_mode(&code, color_mode)
+                        ));
                 }
                 Event::SoftBreak | Event::HardBreak => {
                     table
@@ -595,7 +615,11 @@ fn render_terminal_fragment(md: &str) -> String {
                     indent,
                     " ".repeat(marker.chars().count())
                 ));
-                out.push_str(&format!("{}{}", indent, note_dim(&marker)));
+                out.push_str(&format!(
+                    "{}{}",
+                    indent,
+                    note_dim_with_color_mode(&marker, color_mode)
+                ));
             }
             Event::End(TagEnd::Item) => {
                 item_continuation_indent.pop();
@@ -605,11 +629,15 @@ fn render_terminal_fragment(md: &str) -> String {
                 }
             }
             Event::Text(text) => {
-                let s = apply_text_style(&text, in_strong, in_em, in_link);
+                let s =
+                    apply_text_style_with_color_mode(&text, in_strong, in_em, in_link, color_mode);
                 out.push_str(&s);
             }
             Event::Code(code) => {
-                out.push_str(&format!("`{}`", note_dim(&code)));
+                out.push_str(&format!(
+                    "`{}`",
+                    note_dim_with_color_mode(&code, color_mode)
+                ));
             }
             Event::SoftBreak => out.push(' '),
             Event::HardBreak => {
@@ -618,7 +646,10 @@ fn render_terminal_fragment(md: &str) -> String {
                     item_continuation_indent.last().map(String::as_str),
                 );
             }
-            Event::Rule => out.push_str(&format!("{}\n", note_dim(&"-".repeat(40)))),
+            Event::Rule => out.push_str(&format!(
+                "{}\n",
+                note_dim_with_color_mode(&"-".repeat(40), color_mode)
+            )),
             Event::Html(html) => out.push_str(&html),
             _ => {}
         }
@@ -632,10 +663,6 @@ fn push_terminal_newline(out: &mut String, indent: Option<&str>) {
     if let Some(indent) = indent {
         out.push_str(indent);
     }
-}
-
-fn apply_text_style(text: &str, strong: bool, em: bool, link: bool) -> String {
-    apply_text_style_with_color_mode(text, strong, em, link, ColorMode::Auto)
 }
 
 fn apply_text_style_with_color_mode(
@@ -663,11 +690,11 @@ fn apply_text_style_with_color_mode(
 }
 
 fn note_dim(text: &str) -> String {
-    note_paint(text, TextStyle::new().dimmed())
+    note_dim_with_color_mode(text, ColorMode::Auto)
 }
 
-fn note_paint(text: &str, style: TextStyle) -> String {
-    note_paint_with_color_mode(text, style, ColorMode::Auto)
+fn note_dim_with_color_mode(text: &str, color_mode: ColorMode) -> String {
+    note_paint_with_color_mode(text, TextStyle::new().dimmed(), color_mode)
 }
 
 fn note_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
@@ -775,7 +802,7 @@ mod tests {
     use super::*;
 
     fn render_terminal(md: &str) -> String {
-        render_terminal_fragment(md)
+        render_terminal_fragment_with_color_mode(md, ColorMode::Never)
     }
 
     fn strip_ansi(s: &str) -> String {

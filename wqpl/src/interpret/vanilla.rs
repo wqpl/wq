@@ -2122,12 +2122,21 @@ mod tests {
     use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
+    use crate::session::stdio::{WqIoError, WqOutput};
     use crate::value::func::FunctionData;
     use crate::value::{Value, WqResult, eval_binary};
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
     use crate::vm::{PreparedInstructions, Slot, Vm};
     use crate::wqdb::data::ChunkId;
     use crate::wqerror::Requirement;
+
+    struct SinkOutput;
+
+    impl WqOutput for SinkOutput {
+        fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn runtime_requirement_helpers_use_canonical_terms() {
@@ -2704,6 +2713,9 @@ mod tests {
     fn setup_trace_vm(insts: Vec<Instruction>) -> Vm {
         let len = insts.len();
         let mut vm = Vm::new(insts);
+        vm.runtime_io.set_stderr(Box::new(SinkOutput));
+        vm.debug_log.set_output(vm.runtime_io.stderr_output());
+        vm.color_mode = crate::style::ColorMode::Never;
         vm.runtime_debug_info = true;
         let file_id = vm.debug_info.new_file("<trace-test>", "test source text");
         let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, len);
