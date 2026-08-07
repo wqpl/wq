@@ -24,11 +24,13 @@ class VersionTests(unittest.TestCase):
         require_version_advance("0.9.0-preview1", "0.9.0-preview2")
         require_version_advance("0.9.0-preview1", "0.9.0")
         require_version_advance("0.9.0-1", "0.9.0-preview")
+        require_version_advance("0.9.0-preview", "0.9.0-preview.1")
 
         for current, target in (
             ("0.9.0", "0.9.0-preview1"),
             ("1.0.0", "0.9.0"),
             ("0.9.0-preview2", "0.9.0-preview1"),
+            ("0.9.0-preview.1", "0.9.0-preview"),
             ("0.9.0+build.1", "0.9.0+build.2"),
         ):
             with (

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import tomllib
 from dataclasses import dataclass
-from itertools import zip_longest
+from typing import cast
 
 from command import PublishError
 
@@ -78,16 +78,7 @@ def _compare_versions(left: Version, right: Version) -> int:
     if right.prerelease is None:
         return -1
 
-    missing = object()
-    for left_part, right_part in zip_longest(
-        left.prerelease,
-        right.prerelease,
-        fillvalue=missing,
-    ):
-        if left_part is missing:
-            return -1
-        if right_part is missing:
-            return 1
+    for left_part, right_part in zip(left.prerelease, right.prerelease, strict=False):
         if left_part == right_part:
             continue
 
@@ -98,7 +89,9 @@ def _compare_versions(left: Version, right: Version) -> int:
         if left_numeric != right_numeric:
             return -1 if left_numeric else 1
         return 1 if left_part > right_part else -1
-    return 0
+    if len(left.prerelease) == len(right.prerelease):
+        return 0
+    return 1 if len(left.prerelease) > len(right.prerelease) else -1
 
 
 def next_version(version: str) -> str:
@@ -208,7 +201,7 @@ def update_json_version(
             raise PublishError(
                 f"expected {label} version {current_version}, got {nested}"
             )
-        container = nested
+        container = cast(dict[str, object], nested)
 
     field = path[-1]
     actual_version = container.get(field)

@@ -83,9 +83,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
+    from rich.console import Console  # ty: ignore[unresolved-import]
+    from rich.panel import Panel  # ty: ignore[unresolved-import]
+    from rich.table import Table  # ty: ignore[unresolved-import]
 except ModuleNotFoundError:
     RICH_AVAILABLE = False
 
@@ -791,7 +791,7 @@ def generate_visualizations(
         return
 
     try:
-        import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt  # ty: ignore[unresolved-import]
     except ModuleNotFoundError:
         console.print(
             "[yellow]matplotlib is not installed; skipping plots. "

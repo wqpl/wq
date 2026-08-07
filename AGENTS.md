@@ -102,7 +102,7 @@
   - Prefer `pub(super)` over `pub(crate)`.
   - Prefer `pub(crate)` over `pub`.
   - Avoid `pub` if it is not intended to be public API.
-- If you touched Python code, run ruff lint and format.
+- If you touched Python code, run `ty check`, ruff lint and ruff format.
 - If you changed `wqpl/viz`, also update `wqide/viz`.
 - If you added/changed syntax feature or builtin, also update:
   - `wqpl/doc`
