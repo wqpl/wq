@@ -96,6 +96,51 @@ xs[1..4]
 xs[-3..=-1]
 ```
 
+## Shape, Depth, and Axes
+
+Nested lists can represent rows, grids and higher-dimensional data. An axis is
+one direction through a uniform nested list. Axis `0` is the outermost list,
+axis `1` is the next list inward, and so on.
+
+`R` is the short name for `reshape`. It flattens the input, then fills a new
+shape whose numbers give the length of each axis from outermost to innermost:
+
+<!-- wq-example {"id":"list-reshape-matrix","cellGroup":"list-shape-depth","expect":{"value":"((1;2;3);(4;5;6))"}} -->
+```wq
+matrix:R[1..=6;(2;3)]
+matrix
+```
+
+This shape creates `2` rows with `3` items in each row. With nonempty input, `R`
+cycles through the flattened input if the requested shape needs more items.
+
+`shape` reports those axis lengths. `depth` reports how many container layers
+lead from the outer value to its deepest atom:
+
+<!-- wq-example {"id":"list-matrix-shape","cellGroup":"list-shape-depth","expect":{"value":"(2;3)"}} -->
+```wq
+shape matrix
+```
+
+<!-- wq-example {"id":"list-matrix-depth","cellGroup":"list-shape-depth","expect":{"value":"2"}} -->
+```wq
+depth matrix
+```
+
+Atoms have depth `0`, flat lists have depth `1`, and this matrix has depth `2`.
+For a ragged list, `shape` stops after the last uniform axis while `depth` still
+follows the deepest branch.
+
+`TP` is the short name for `transpose`. On a matrix, it swaps the row and column
+axes:
+
+<!-- wq-example {"id":"list-transpose-matrix","cellGroup":"list-shape-depth","expect":{"value":"((1;4);(2;5);(3;6))"}} -->
+```wq
+TP matrix
+```
+
+The result has shape `(3;2)`: three rows with two items in each row.
+
 ## Unpack A Shape
 
 A list-shaped assignment target unpacks by position:
@@ -154,6 +199,8 @@ xs
 - `(a;b;c)` is a list.
 - `(a)` groups `a`. `,a` enlists one item.
 - `xs[i]` indexes. `xs[a..b]` slices.
+- `shape` reports axis lengths. `depth` counts container layers.
+- `R` reshapes values. `TP` transposes uniform nested lists.
 - `(a;b):value` unpacks a list by position.
 - Index assignment and bang indexing mutate a bound list.
 - Continue to **Functions** to transform lists without manual loops.

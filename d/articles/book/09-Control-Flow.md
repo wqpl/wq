@@ -3,6 +3,53 @@
 Control-flow forms are expressions. Branches and loops produce values, and
 their conditions accept bools only.
 
+## Combine Conditions
+
+`not` reverses one bool:
+
+<!-- wq-example {"id":"bool-not","expect":{"value":"F"}} -->
+```wq
+not[T]
+```
+
+`and[...]` returns `T` only when every condition is `T`. `or[...]` returns `T`
+when at least one condition is `T`.
+
+<!-- wq-example {"id":"bool-and","cellGroup":"short-circuit-bools","expect":{"value":"T"}} -->
+```wq
+and[3<5;5<10]
+```
+
+<!-- wq-example {"id":"bool-or","cellGroup":"short-circuit-bools","expect":{"value":"T"}} -->
+```wq
+or[3>5;5<10]
+```
+
+Both forms short-circuit from left to right. `and` stops at the first `F`, while
+`or` stops at the first `T`; expressions after that point are not evaluated.
+`A[...]` and `O[...]` are shorter spellings of `and[...]` and `or[...]`.
+
+`band`, `bor` and `bxor` also accept bools, but they evaluate every argument.
+Use `bxor` when exactly one of two bools should be true:
+
+<!-- wq-example {"id":"bool-bitwise-and","cellGroup":"eager-bool-logic","expect":{"value":"F"}} -->
+```wq
+band[T;F]
+```
+
+<!-- wq-example {"id":"bool-bitwise-or","cellGroup":"eager-bool-logic","expect":{"value":"T"}} -->
+```wq
+bor[T;F]
+```
+
+<!-- wq-example {"id":"bool-bitwise-xor","cellGroup":"eager-bool-logic","expect":{"value":"T"}} -->
+```wq
+bxor[T;F]
+```
+
+The same three builtins apply bit by bit to ints, as shown in
+[Arithmetic](02-Arithmetic.md).
+
 ## Choose One
 
 `$[condition;true;false]` is the basic conditional.
@@ -112,6 +159,8 @@ the leading minus as subtraction.
 
 ## Summary
 
+- `not`, `and` and `or` combine bool conditions; `and` and `or` short-circuit.
+- `band`, `bor` and `bxor` combine bools eagerly.
 - `$[c;t;f]` chooses between two values.
 - `$[c;t;f1;f2...]` runs a multi-expression false branch.
 - `$.[c;t1;t2...]` runs a multi-expression body only when `c` is true.

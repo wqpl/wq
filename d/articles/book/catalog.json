@@ -15,13 +15,13 @@
       "title": "Values and Display",
       "file": "01-Values.md",
       "description": "Recognize atoms, containers, bools, chars, strings, tags, and result display.",
-      "code": "(type[\"a\"];type[,\"a\"])"
+      "code": "type[(1;2;3)]"
     },
     {
       "slug": "arithmetic",
       "title": "Arithmetic",
       "file": "02-Arithmetic.md",
-      "description": "Use calculator expressions, exact arithmetic, broadcasting, and comparisons.",
+      "description": "Use numeric, matrix, and bit operations with exact arithmetic and broadcasting.",
       "code": "(1;2;3)^2+1"
     },
     {
@@ -42,7 +42,7 @@
       "slug": "lists",
       "title": "Lists",
       "file": "05-Lists.md",
-      "description": "Create, index, slice, unpack, and mutate lists.",
+      "description": "Create, index, reshape, transpose, unpack, and mutate lists.",
       "code": "(1;2;3)*4"
     },
     {
@@ -51,6 +51,13 @@
       "file": "06-Functions.md",
       "description": "Create functions, name parameters, and capture nearby bindings.",
       "code": "twice:{x*2};twice 4"
+    },
+    {
+      "slug": "higher-order",
+      "title": "Higher-Order Builtins",
+      "file": "06-Higher-Order.md",
+      "description": "Transform, filter, pair, fold, and scan lists with functions.",
+      "code": "map[(1;2;3);{x*x}]"
     },
     {
       "slug": "dicts",
@@ -70,7 +77,7 @@
       "slug": "control-flow",
       "title": "Control Flow",
       "file": "09-Control-Flow.md",
-      "description": "Choose branches, repeat work, and return early with bool conditions.",
+      "description": "Combine bool conditions, choose branches, repeat work, and return early.",
       "code": "n:1;$[n>0;\"+\";\"-\"]"
     },
     {
@@ -84,7 +91,7 @@
       "slug": "modules",
       "title": "Modules",
       "file": "11-Modules.md",
-      "description": "Export a value from an isolated file and import it through a cached workspace.",
+      "description": "Export a value from an isolated file and import it from another file.",
       "code": "answer:@i\"answer.wq\""
     },
     {

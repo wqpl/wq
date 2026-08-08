@@ -45,28 +45,6 @@ box:{[`w:4;`h:2]w*h}
 box[`h:5;`w:3]
 ```
 
-## Higher-Order Functions
-
-Builtins can receive functions as values.
-
-<!-- wq-example {"id":"function-map-list","cellGroup":"higher-order-functions"} -->
-```wq
-(1;2;3)|map{x*x}
-```
-
-<!-- wq-example {"id":"function-filter-list","cellGroup":"higher-order-functions"} -->
-```wq
-(1;2;3;4;5)|filter{x%2=0}
-```
-
-<!-- wq-example {"id":"function-fold-list","cellGroup":"higher-order-functions"} -->
-```wq
-(1;2;3;4)|fold{x+y}
-```
-
-`map` and `filter` call their function with `x`. `fold` calls its function with
-the accumulated value as `x` and the next item as `y`.
-
 ## Capturing Nearby Names
 
 A function can capture nearby values.
@@ -97,6 +75,5 @@ that retain private mutable state.
 - An implicit function can use `x`, `y` and `z` for its first three arguments.
 - `{[a;b]a+b}` names parameters.
 - `fn[arg1;arg2]` passes multiple arguments.
-- Higher-order builtins such as `map`, `filter` and `fold` apply functions to
-  lists.
 - `'{...}` captures referenced bindings so the function can update them.
+- Continue to **Higher-Order Builtins** to transform lists with functions.
