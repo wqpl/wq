@@ -1,14 +1,14 @@
 # Modules
 
-A module is a wq file with a private lexical scope. `@i` returns its final value
-as the export.
+Use modules to split a program into files without sharing every binding.
+`@i"path.wq"` runs a file in its own scope and returns its final value.
 
-The examples below form one workspace. wqide registers named files for the
-entry block. In the CLI, save them beside the entry script.
+The first example uses two files in the same directory.
 
 ## Export One Value
 
-Create `counter.wq`. Its final dict is the module export:
+Create `counter.wq`. The final expression is a dict, so that dict is the value
+returned by `@i`:
 
 <!-- wq-example {"id":"counter-file","workspace":"counter","file":"counter.wq"} -->
 ```wq
@@ -17,11 +17,10 @@ next:'{count+:1}
 (`next:next;`initial:count)
 ```
 
-The `'` captures `count` by reference, allowing exported `next` to update the
-module's private state.
+The leading `'` lets `next` update the captured `count` binding. That binding
+belongs to `counter.wq` and is not visible to the importing file.
 
-Import the module and unpack its public entries. The expected result is
-`(0;1;2)`.
+Create `main.wq` beside it. Import the dict and unpack the two entries:
 
 <!-- wq-example {"id":"counter-entry","workspace":"counter","entry":true,"expect":{"value":"(0;1;2)"}} -->
 ```wq
@@ -29,16 +28,16 @@ Import the module and unpack its public entries. The expected result is
 (initial;next[];next[])
 ```
 
-In the CLI, save that second block as `main.wq` beside `counter.wq`, then run
-`wq main.wq -p`.
+Run `wq main.wq -p` to produce `(0;1;2)`.
 
-The importing code receives the exported dict. The top-level `count` binding
-remains private.
+An empty module returns `()`. A module can return any one value, but a function
+or dict makes a convenient public interface.
 
-## Entry-Only Behavior
+## Run Code Only From the Entry File
 
 `main?[]` returns `T` in the entry script and `F` in an imported module. Use it
-to guard a command-line entry point:
+when a file should work both as a reusable module and as a command-line entry
+point:
 
 ```wq
 run:{[]echo "running directly"}
@@ -46,13 +45,16 @@ $.[main?[];run[]]
 run
 ```
 
-Functions retain the status of their defining file. An exported module function
-continues to observe `F`.
+Here the final `run` exports the function. Running this file directly also calls
+it through the guard. If another file imports it, the guard does nothing.
+
+A function uses the `main?[]` status of the file where it was defined. An
+exported function from a module therefore continues to receive `F` when called
+by the entry script.
 
 ## Literal Paths
 
-Import paths must be ordinary or raw string literals. These are syntax
-illustrations rather than one shared workspace:
+Write the import path directly after `@i` as an ordinary or raw string literal:
 
 <!-- wq-example {"id":"module-path-forms","role":"syntax"} -->
 ```wq
@@ -60,26 +62,24 @@ module:@i"module.wq"
 windows_path:@i @l"lib\module.wq"
 ```
 
-Each statically known dependency uses its own `@i` expression.
+Variables, formatted strings and other computed paths are not accepted. A
+relative path starts from the file containing that `@i` expression, so imports
+inside a module are relative to that module.
 
-## Resolution and Caching
+## When a Module Runs
 
-| Question | Contract |
-| --- | --- |
-| Where does a relative path start? | At the source file containing `@i` |
-| When does the module run? | When execution first reaches the import |
-| Execution count | Once per session workspace after a successful import |
-| What does a later import return? | The cached export value and captured state |
-| Failed import | A later import retries |
-| What happens in a cycle? | The error reports the module identity chain |
+An import runs only when execution reaches it. After a successful import, later
+imports of the same module in that wq session return the same exported value.
+Captured state is shared, so importing `counter.wq` twice does not create two
+counters.
 
-The CLI canonicalizes filesystem paths for stable module identity. Other hosts
-provide their own resolver. wqide uses exact virtual module names for examples.
+A failed import is not remembered. A later import tries again. If modules import
+one another in a cycle, wq reports the chain of files in the cycle.
 
 ## Conditional Imports
 
-`@i` is an expression, so it can appear in a branch. This false branch returns
-`()`, leaving `feature.wq` unevaluated.
+Because `@i` is an expression, it can appear in a branch. Here `feature.wq` is
+not run because `use_extra` is `F`:
 
 <!-- wq-example {"id":"feature-file","workspace":"conditional-module","file":"feature.wq"} -->
 ```wq
@@ -94,27 +94,31 @@ $[use_extra;@i"feature.wq";()]
 
 ## Import Errors
 
-`@t` catches resolver, file, syntax, compilation, initialization and cycle
-errors. This example succeeds by returning a tagged error value:
+`@t` catches import failures such as a missing file, invalid module code, an
+error while the module runs or an import cycle:
 
 ```wq
 result:@t @i"missing.wq"
 result 0
 ```
 
-The expected output is `` `error ``. External effects completed before the
-failure remain.
+The result begins with the `` `error `` tag. Work completed before the failure,
+such as output already printed by the module, is not undone.
 
 ## `@i` and `\load`
 
-`@i` isolates bindings and exports one value. `\load` evaluates a legacy script
-in the current workspace and can introduce or replace top-level bindings.
+Use `@i` when one file depends on another. It keeps the imported file's bindings
+private and returns one export value.
+
+`\load` instead evaluates a file in the current session. Its top-level bindings
+become part of that session and can replace existing bindings. It does not
+create a module scope.
 
 ## Summary
 
 - `@i"path.wq"` evaluates an isolated module and returns its final value.
-- Export a function or dict instead of exposing private bindings.
-- Successful imports are cached per session workspace.
+- Export a function or dict to provide a convenient public interface.
+- A successfully imported module runs once per wq session.
 - Relative paths resolve from the source file containing the import.
 - `main?[]` distinguishes entry-script code from imported module code.
 - Continue to **A Prime Sieve** to combine the core language in one program.

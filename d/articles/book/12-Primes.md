@@ -94,10 +94,8 @@ i:2
 W[i<=l;
   $.[p i;
     j:i^2;
-    p[(x-j)/%i+1|iota|*i|+j]:F
-  ];
-  i:$[i=2;3;i+2]
-]
+    p[(x-j)/%i+1|iota|*i|+j]:F];
+  i:$[i=2;3;i+2]]
 
 where p
 ```
@@ -119,13 +117,10 @@ primes:{
   W[i<=l;
     $.[p i;
       j:i^2;
-      p[(x-j)/%i+1|iota|*i|+j]:F
-    ];
-    i:$[i=2;3;i+2]
-  ]
+      p[(x-j)/%i+1|iota|*i|+j]:F];
+    i:$[i=2;3;i+2]]
 
-  where p
-}
+  where p}
 
 primes 30
 ```
