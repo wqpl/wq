@@ -118,8 +118,7 @@ pub(super) fn mutate_target(
             let change;
             let result = {
                 let captures = vm
-                    .captures
-                    .last()
+                    .current_captures()
                     .ok_or_else(|| vm_err("no capture frame"))?;
                 let cell = captures
                     .get(usize::from(*slot))
@@ -180,7 +179,7 @@ pub(super) fn store_local_value(vm: &mut Vm, idx: usize, i: u16, val: Value) -> 
     let track = vm.symbol_trackers_enabled();
     let new = track.then(|| val.clone());
     let mut old = None;
-    if let Some(frame) = vm.locals.last_mut() {
+    if let Some(frame) = vm.current_locals_mut() {
         if let Some(dest) = frame.get_mut(slot) {
             if track {
                 old = Some(dest.read());

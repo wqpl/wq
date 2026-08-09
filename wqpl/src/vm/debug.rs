@@ -163,7 +163,7 @@ impl Vm {
     }
 
     pub(crate) fn resolved_debug_base_offset(&self) -> usize {
-        match self.current_closure_stack.last() {
+        match self.current_callable() {
             Some(Value::CompiledFunction(f)) => f.dbg_source_base_offset,
             Some(Value::Closure(c)) => c.dbg_source_base_offset,
             _ => self.debug_src_offset,
@@ -511,7 +511,7 @@ impl Vm {
                 self.func_name_arc_for_chunk(current_chunk),
             ),
         );
-        if let Some(active) = self.current_closure_stack.last()
+        if let Some(active) = self.current_callable()
             && let Some(existing) = Self::callable_provenance(active)
         {
             for frame in existing.iter().cloned() {
@@ -699,12 +699,12 @@ impl Vm {
     /// The VM's call depth is debugger-only and includes journaled tail-call
     /// frames so step-over and step-out follow logical calls.
     pub(crate) fn call_depth(&self) -> usize {
-        self.call_stack
+        self.caller_frames
             .iter()
             .fold(self.tail_call_depth, |depth, frame| {
-                depth.saturating_add(frame.tail_depth)
+                depth.saturating_add(frame.tail_call_depth)
             })
-            .saturating_add(self.call_stack.len())
+            .saturating_add(self.caller_frames.len())
     }
 
     pub(crate) fn debug_info(&self) -> &DebugInfo {
@@ -1006,8 +1006,7 @@ impl Vm {
                     chunk: current_chunk,
                     pc: self.pc.saturating_sub(1),
                 },
-                self.locals
-                    .last()
+                self.current_locals()
                     .map(|locals| std::sync::Arc::from(Self::read_frame_locals(locals))),
             ),
             Some(Arc::clone(&self.instructions)),
@@ -1035,7 +1034,7 @@ impl Vm {
                 None,
             );
         }
-        if let Some(active) = self.current_closure_stack.last()
+        if let Some(active) = self.current_callable()
             && let Some(provenance) = Self::callable_provenance(active)
         {
             for (index, (location, function)) in provenance.iter().enumerate() {
@@ -1050,21 +1049,26 @@ impl Vm {
                 );
             }
         }
-        for fr in self.call_stack.iter().rev() {
+        for fr in self.caller_frames.iter().rev() {
+            let Some(debug) = fr.debug.as_ref() else {
+                continue;
+            };
             Self::append_captured_frame(
                 &mut frames,
                 &mut frame_instructions,
                 self.located_crash_frame(
-                    fr.func_name.clone(),
+                    Arc::clone(&debug.func_name),
                     CodeLoc {
-                        chunk: fr.chunk,
+                        chunk: debug.chunk,
                         pc: fr.pc.saturating_sub(1),
                     },
-                    fr.locals.clone(),
+                    fr.function
+                        .as_ref()
+                        .map(|function| Arc::from(Self::read_frame_locals(&function.locals))),
                 ),
                 Some(Arc::clone(&fr.instructions)),
             );
-            for tail in fr.tail_frames.iter().rev() {
+            for tail in fr.tail_call_journal.iter().rev() {
                 Self::append_captured_frame(
                     &mut frames,
                     &mut frame_instructions,
@@ -1079,7 +1083,7 @@ impl Vm {
                     Some(Arc::clone(&tail.instructions)),
                 );
             }
-            if fr.tail_frames_overflowed {
+            if fr.tail_call_journal.overflowed() {
                 Self::append_captured_frame(
                     &mut frames,
                     &mut frame_instructions,
@@ -1111,7 +1115,7 @@ impl Vm {
                 .map(<[(usize, Value)]>::to_vec)
                 .unwrap_or_default();
         }
-        if let Some(frame) = self.locals.last() {
+        if let Some(frame) = self.current_locals() {
             frame
                 .iter()
                 .enumerate()

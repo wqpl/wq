@@ -67,9 +67,9 @@ impl Vm {
             self.fail_module(&identity);
             return Err(error);
         }
-        self.execution_frames
+        self.caller_frames
             .last_mut()
-            .expect("entering a module creates an execution frame")
+            .expect("entering a module creates a caller frame")
             .module_identity = Some(identity);
         Ok(None)
     }

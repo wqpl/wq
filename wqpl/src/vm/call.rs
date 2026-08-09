@@ -14,8 +14,8 @@ use crate::vm::builtin_frame::{BuiltinFrame, BuiltinFrameAction};
 use crate::vm::inst::{Instruction, NamedArgMeta};
 use crate::vm::slot::Slot;
 use crate::vm::{
-    CallFrame, ExecutionFrame, InlineCache, Vm, arity_err_vm, ensure_stack_len, not_bound_err,
-    vm_err,
+    CallerFrame, FrameDebug, FunctionActivation, InlineCache, Vm, arity_err_vm, ensure_stack_len,
+    not_bound_err, vm_err,
 };
 use crate::wqdb::build::mark_stmt_heuristic;
 use crate::wqdb::data::ChunkId;
@@ -242,7 +242,7 @@ impl Vm {
     // API for Interpreter ============================
 
     pub(crate) fn invoke_spec(&mut self, spec: CallSpec) -> WqResult<Value> {
-        let caller_depth = self.execution_frames.len();
+        let caller_depth = self.physical_call_depth();
         self.enter_spec(spec)?;
         crate::interpret::vanilla::VanillaInterpreter.interpret_until_call_depth(self, caller_depth)
     }
@@ -328,77 +328,68 @@ impl Vm {
         // Stack and metadata checks must happen before state swap
         ensure_stack_len(&self.stack, argc, || "call arguments".into())?;
 
+        let mut locals = take_locals_from_pool(&mut self.locals_pool, local_count);
+        if let Err(error) = fill_call_frame_from_stack(
+            &mut self.stack,
+            &mut locals,
+            argc,
+            named_layout.as_deref(),
+            "stack underflow while moving arguments",
+        ) {
+            return_locals_to_pool(&mut self.locals_pool, locals);
+            return Err(error);
+        }
+
+        let caller_debug = if self.debug_artifacts_enabled() {
+            let chunk = self.expect_current_chunk();
+            Some(FrameDebug {
+                chunk,
+                func_name: self.func_name_arc_for_chunk(chunk),
+            })
+        } else {
+            None
+        };
         let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
         let saved_pc = self.pc;
         let callee_stack =
             take_stack_from_pool(&mut self.stack_pool, DEFAULT_OPERAND_STACK_CAPACITY);
-        let mut saved_stack = std::mem::replace(&mut self.stack, callee_stack);
+        let saved_stack = std::mem::replace(&mut self.stack, callee_stack);
         let cache_len = self.instructions.len();
         let new_cache = take_cache_from_pool(&mut self.cache_pool, cache_len);
         let saved_cache = std::mem::replace(&mut self.inline_cache, new_cache);
-        let mut saved_tail_journal = std::mem::take(&mut self.tail_call_journal);
+        let saved_tail_journal = std::mem::take(&mut self.tail_call_journal);
         let saved_tail_depth = std::mem::take(&mut self.tail_call_depth);
-        // Push debug frame
-        let mut pushed_dbg = false;
-        if self.debug_artifacts_enabled() {
-            let caller_chunk = self.expect_current_chunk();
-            let caller_locals = self.locals.last().map(|locals| {
-                Arc::from(
-                    locals
-                        .iter()
-                        .enumerate()
-                        .map(|(index, slot)| (index, slot.read()))
-                        .collect::<Vec<_>>(),
-                )
-            });
-            self.call_stack.push(CallFrame {
-                chunk: caller_chunk,
-                pc: saved_pc,
-                func_name: self.func_name_arc_for_chunk(caller_chunk),
-                instructions: Arc::clone(&saved_instructions),
-                locals: caller_locals,
-                tail_frames: saved_tail_journal.snapshot(),
-                tail_frames_overflowed: saved_tail_journal.overflowed(),
-                tail_depth: saved_tail_depth,
-            });
-            self.current_chunk = callee_chunk;
-            pushed_dbg = true;
-        }
+        let caller_function = self.active_function.replace(FunctionActivation {
+            locals,
+            captures: captured,
+            callable: callee,
+        });
         self.pc = 0;
-        let mut frame = take_locals_from_pool(&mut self.locals_pool, local_count);
-        fill_call_frame_from_stack(
-            &mut saved_stack,
-            &mut frame,
-            argc,
-            named_layout.as_deref(),
-            "stack underflow while moving arguments",
-        )?;
-        self.locals.push(frame);
-        self.captures.push(captured);
-        self.current_closure_stack.push(callee);
+        if caller_debug.is_some() {
+            self.current_chunk = callee_chunk;
+        }
+        self.caller_frames.push(CallerFrame {
+            instructions: saved_instructions,
+            pc: saved_pc,
+            stack: saved_stack,
+            inline_cache: saved_cache,
+            function: caller_function,
+            debug: caller_debug,
+            tail_call_journal: saved_tail_journal,
+            tail_call_depth: saved_tail_depth,
+            pending_trace_probe: self.pending_trace_probe.take(),
+            module_identity: None,
+            unpack_depth: self.unpack_frames.len(),
+        });
         // Recursion limit check (tail calls are exempt because they reuse the frame)
         let max_call_depth = self.max_call_depth;
-        if self.locals.len() > max_call_depth {
+        if self.physical_call_depth() > max_call_depth {
             let error = self.record_execution_failure(
                 crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Recursion)
                     .msg(format!("exceeded maximum call depth {max_call_depth}")),
             );
-            self.current_closure_stack.pop();
-            if let Some(frame) = self.locals.pop() {
-                return_locals_to_pool(&mut self.locals_pool, frame);
-            }
-            self.captures.pop();
-            let callee_stack = std::mem::replace(&mut self.stack, saved_stack);
-            return_stack_to_pool(&mut self.stack_pool, callee_stack);
-            self.instructions = saved_instructions;
-            self.pc = saved_pc;
-            let unused_cache = std::mem::replace(&mut self.inline_cache, saved_cache);
-            return_cache_to_pool(&mut self.cache_pool, cache_len, unused_cache);
-            std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
-            self.tail_call_depth = saved_tail_depth;
-            if pushed_dbg && let Some(fr) = self.call_stack.pop() {
-                self.current_chunk = Some(fr.chunk);
-            }
+            let restored = self.restore_user_call();
+            debug_assert!(restored);
             return Err(error);
         }
         if self.debug_log.enabled(DebugLogFlags::WQDB) {
@@ -411,25 +402,13 @@ impl Vm {
                 saved_pc
             ));
         }
-        self.execution_frames.push(ExecutionFrame {
-            instructions: saved_instructions,
-            pc: saved_pc,
-            stack: saved_stack,
-            inline_cache: saved_cache,
-            tail_call_journal: saved_tail_journal,
-            tail_call_depth: saved_tail_depth,
-            pushed_debug_frame: pushed_dbg,
-            pending_trace_probe: self.pending_trace_probe.take(),
-            module_identity: None,
-            unpack_depth: self.unpack_frames.len(),
-        });
         Ok(())
     }
 
     pub(crate) fn finish_user_call(&mut self, value: Value, push_result: bool) -> Option<Value> {
         let value = self.attach_provenance_to_returned_callable(value);
         let module_identity = self
-            .execution_frames
+            .caller_frames
             .last()
             .and_then(|frame| frame.module_identity.clone());
         if !self.restore_user_call() {
@@ -451,7 +430,7 @@ impl Vm {
 
     pub(crate) fn unwind_user_call(&mut self) -> bool {
         let module_identity = self
-            .execution_frames
+            .caller_frames
             .last()
             .and_then(|frame| frame.module_identity.clone());
         if !self.restore_user_call() {
@@ -461,7 +440,7 @@ impl Vm {
             self.fail_module(&identity);
         }
         if self.builtin_frames.last().is_some_and(|frame| {
-            frame.owner_call_depth == self.execution_frames.len()
+            frame.owner_call_depth == self.physical_call_depth()
                 && frame.is_waiting_for_user_function()
         }) {
             self.builtin_frames.pop();
@@ -470,12 +449,11 @@ impl Vm {
     }
 
     fn accept_builtin_callback_result(&mut self, value: Value) -> bool {
+        let call_depth = self.physical_call_depth();
         let Some(frame) = self.builtin_frames.last_mut() else {
             return false;
         };
-        if frame.owner_call_depth != self.execution_frames.len()
-            || !frame.is_waiting_for_user_function()
-        {
+        if frame.owner_call_depth != call_depth || !frame.is_waiting_for_user_function() {
             return false;
         }
         frame.accept_callback_result(value);
@@ -484,7 +462,7 @@ impl Vm {
 
     pub(crate) fn capture_builtin_callback_error(&mut self, error: &WqError) -> bool {
         let captures = self.builtin_frames.last().is_some_and(|frame| {
-            frame.owner_call_depth + 1 == self.execution_frames.len()
+            frame.owner_call_depth + 1 == self.physical_call_depth()
                 && frame.is_waiting_for_user_function()
                 && frame.captures_callback_errors()
         });
@@ -502,7 +480,7 @@ impl Vm {
 
     pub(crate) fn is_builtin_callback_boundary(&self) -> bool {
         self.builtin_frames.last().is_some_and(|frame| {
-            frame.owner_call_depth + 1 == self.execution_frames.len()
+            frame.owner_call_depth + 1 == self.physical_call_depth()
                 && frame.is_waiting_for_user_function()
         })
     }
@@ -515,15 +493,14 @@ impl Vm {
     }
 
     fn restore_user_call(&mut self) -> bool {
-        let Some(frame) = self.execution_frames.pop() else {
+        let Some(frame) = self.caller_frames.pop() else {
             return false;
         };
         self.returned = false;
-        self.current_closure_stack.pop();
-        if let Some(locals) = self.locals.pop() {
-            return_locals_to_pool(&mut self.locals_pool, locals);
+        if let Some(function) = self.active_function.take() {
+            return_locals_to_pool(&mut self.locals_pool, function.locals);
         }
-        self.captures.pop();
+        self.active_function = frame.function;
         self.unpack_frames.truncate(frame.unpack_depth);
         let callee_stack = std::mem::replace(&mut self.stack, frame.stack);
         return_stack_to_pool(&mut self.stack_pool, callee_stack);
@@ -535,18 +512,16 @@ impl Vm {
         self.tail_call_journal = frame.tail_call_journal;
         self.tail_call_depth = frame.tail_call_depth;
         self.pending_trace_probe = frame.pending_trace_probe;
-        if frame.pushed_debug_frame
-            && let Some(debug_frame) = self.call_stack.pop()
-        {
-            self.current_chunk = Some(debug_frame.chunk);
+        if let Some(debug) = frame.debug {
+            self.current_chunk = Some(debug.chunk);
         }
         if self.debug_log.enabled(DebugLogFlags::WQDB) {
             self.debug_log.emit_line(format!(
-                "CALL leave chunk={:?} pc={} stack_len={} locals_depth={}",
+                "CALL leave chunk={:?} pc={} stack_len={} call_depth={}",
                 self.current_chunk,
                 self.pc,
                 self.stack.len(),
-                self.locals.len()
+                self.physical_call_depth()
             ));
         }
         true
@@ -632,9 +607,11 @@ impl Vm {
         ensure_stack_len(&self.stack, argc, || "tail-call arguments".into())?;
 
         let mut frame = std::mem::take(
-            self.locals
-                .last_mut()
-                .ok_or_else(|| vm_err("tail call without local frame"))?,
+            &mut self
+                .active_function
+                .as_mut()
+                .ok_or_else(|| vm_err("tail call without function activation"))?
+                .locals,
         );
         frame.clear();
         frame.resize(usize::from(local_count), Slot::default());
@@ -647,18 +624,13 @@ impl Vm {
             "stack underflow while moving tail-call arguments",
         )?;
         self.stack.clear();
-        *self
-            .locals
-            .last_mut()
-            .ok_or_else(|| vm_err("tail call without local frame"))? = frame;
-        *self
-            .captures
-            .last_mut()
-            .ok_or_else(|| vm_err("tail call without capture frame"))? = captured;
-        *self
-            .current_closure_stack
-            .last_mut()
-            .ok_or_else(|| vm_err("tail call without active callable"))? = callee;
+        let activation = self
+            .active_function
+            .as_mut()
+            .ok_or_else(|| vm_err("tail call without function activation"))?;
+        activation.locals = frame;
+        activation.captures = captured;
+        activation.callable = callee;
         if self.debug_artifacts_enabled() {
             self.current_chunk = callee_chunk;
         }
@@ -791,7 +763,7 @@ impl Vm {
         if self.builtins.validate_runtime_call_args(id, &taken.args)? {
             taken.args.mark_runtime_validated();
         }
-        let owner_call_depth = self.execution_frames.len();
+        let owner_call_depth = self.physical_call_depth();
         let frame = match canonical {
             BuiltinEnum::Apply => {
                 BuiltinFrame::apply(id, argc, discard, owner_call_depth, taken.args)
@@ -855,7 +827,7 @@ impl Vm {
         let Some(frame) = self.builtin_frames.last() else {
             return false;
         };
-        if frame.owner_call_depth != self.execution_frames.len() {
+        if frame.owner_call_depth != self.physical_call_depth() {
             return false;
         }
         if frame.is_waiting_for_user_function() {
@@ -867,7 +839,7 @@ impl Vm {
     pub(crate) fn builtin_frame_at_current_depth(&self) -> bool {
         self.builtin_frames
             .last()
-            .is_some_and(|frame| frame.owner_call_depth == self.execution_frames.len())
+            .is_some_and(|frame| frame.owner_call_depth == self.physical_call_depth())
     }
 
     pub(crate) fn step_builtin_frame(&mut self) -> WqResult<()> {
@@ -1042,8 +1014,7 @@ impl Vm {
 
     #[inline]
     fn last_frame_mut(&mut self) -> WqResult<&mut Vec<Slot>> {
-        self.locals
-            .last_mut()
+        self.current_locals_mut()
             .ok_or_else(|| vm_err("no local frame"))
     }
 
@@ -1127,8 +1098,7 @@ impl BuiltinContext for Vm {
     }
 
     fn is_main(&self) -> bool {
-        self.current_closure_stack
-            .last()
+        self.current_callable()
             .and_then(Value::as_user_function)
             .is_none_or(|function| !function.isolated_module)
     }

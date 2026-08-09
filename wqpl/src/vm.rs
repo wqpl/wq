@@ -62,10 +62,8 @@ pub(crate) struct Vm {
     pub(crate) runtime_io: RuntimeIo,
     pub(crate) debug_log: DebugLog,
     pub(crate) color_mode: ColorMode,
-    /// Stack of local slot frames
-    pub(crate) locals: Vec<Vec<Slot>>,
-    /// Stack of capture vectors (per frame), for closures
-    pub(crate) captures: Vec<Arc<[ValueCell]>>,
+    /// Locals, captures, and callable for the active user function.
+    pub(crate) active_function: Option<FunctionActivation>,
     /// Anonymous extraction values for active unpack assignments.
     pub(crate) unpack_frames: Vec<Box<[Value]>>,
     /// Inline caches for global lookups and call sites
@@ -76,10 +74,8 @@ pub(crate) struct Vm {
     pub(crate) locals_pool: AHashMap<u16, Vec<Vec<Slot>>>,
     /// Pool of cleared operand stacks to avoid per-call allocation.
     pub(crate) stack_pool: Vec<Vec<Value>>,
-    /// Stack of currently executing functions/closures for LoadSelf
-    pub(crate) current_closure_stack: Vec<Value>,
     /// Suspended caller execution states for resumable user-function calls.
-    pub(crate) execution_frames: Vec<ExecutionFrame>,
+    pub(crate) caller_frames: Vec<CallerFrame>,
     pub(crate) builtin_frames: Vec<builtin_frame::BuiltinFrame>,
     // args_scratch: Vec<Value>,
     /// Tail-call journal for backtrace when TCE is active.
@@ -98,7 +94,6 @@ pub(crate) struct Vm {
     pub(crate) skip_debug_pause_once: Option<CodeLoc>,
     pub(crate) next_debug_pause_id: u64,
     pub(crate) current_chunk: Option<ChunkId>,
-    pub(crate) call_stack: Vec<CallFrame>,
     /// Lightweight backtrace mode: build minimal debug info for frames on error
     pub(crate) bt_mode: bool,
     /// Per-run debug metadata required by runtime features like `@d`.
@@ -157,25 +152,26 @@ pub(crate) struct TailFrame {
     pub instructions: Arc<[Instruction]>,
 }
 
-pub(crate) struct CallFrame {
-    pub chunk: ChunkId,
-    pub pc: usize,
-    pub func_name: std::sync::Arc<str>,
-    pub instructions: Arc<[Instruction]>,
-    pub locals: Option<Arc<[(usize, Value)]>>,
-    pub tail_frames: Vec<TailFrame>,
-    pub tail_frames_overflowed: bool,
-    pub tail_depth: usize,
+pub(crate) struct FunctionActivation {
+    pub(crate) locals: Vec<Slot>,
+    pub(crate) captures: Arc<[ValueCell]>,
+    pub(crate) callable: Value,
 }
 
-pub(crate) struct ExecutionFrame {
+pub(crate) struct FrameDebug {
+    pub(crate) chunk: ChunkId,
+    pub(crate) func_name: Arc<str>,
+}
+
+pub(crate) struct CallerFrame {
     pub(crate) instructions: Arc<[Instruction]>,
     pub(crate) pc: usize,
     pub(crate) stack: Vec<Value>,
     pub(crate) inline_cache: Vec<InlineCache>,
+    pub(crate) function: Option<FunctionActivation>,
+    pub(crate) debug: Option<FrameDebug>,
     pub(crate) tail_call_journal: TailCallJournal,
     pub(crate) tail_call_depth: usize,
-    pub(crate) pushed_debug_frame: bool,
     pub(crate) pending_trace_probe: Option<usize>,
     pub(crate) module_identity: Option<Arc<str>>,
     pub(crate) unpack_depth: usize,
@@ -215,10 +211,6 @@ impl TailCallJournal {
         self.frames.iter()
     }
 
-    pub(crate) fn snapshot(&self) -> Vec<TailFrame> {
-        self.frames.iter().cloned().collect()
-    }
-
     pub(crate) fn overflowed(&self) -> bool {
         self.overflowed
     }
@@ -226,7 +218,7 @@ impl TailCallJournal {
 
 pub(crate) struct TryFrame {
     pub(crate) instructions: Arc<[Instruction]>,
-    pub(crate) locals_depth: usize,
+    pub(crate) call_depth: usize,
     pub(crate) end_pc: usize,
     pub(crate) stack_start: usize,
     pub(crate) saved_pending_named_meta: Option<Arc<crate::vm::inst::NamedArgMeta>>,
@@ -277,6 +269,39 @@ impl PreparedInstructions {
 }
 
 impl Vm {
+    #[inline]
+    pub(crate) fn physical_call_depth(&self) -> usize {
+        self.caller_frames.len()
+    }
+
+    #[inline]
+    pub(crate) fn current_locals(&self) -> Option<&[Slot]> {
+        self.active_function
+            .as_ref()
+            .map(|function| function.locals.as_slice())
+    }
+
+    #[inline]
+    pub(crate) fn current_locals_mut(&mut self) -> Option<&mut Vec<Slot>> {
+        self.active_function
+            .as_mut()
+            .map(|function| &mut function.locals)
+    }
+
+    #[inline]
+    pub(crate) fn current_captures(&self) -> Option<&[ValueCell]> {
+        self.active_function
+            .as_ref()
+            .map(|function| function.captures.as_ref())
+    }
+
+    #[inline]
+    pub(crate) fn current_callable(&self) -> Option<&Value> {
+        self.active_function
+            .as_ref()
+            .map(|function| &function.callable)
+    }
+
     pub(crate) fn new(instructions: Vec<Instruction>) -> Self {
         Self::from_prepared_instructions(PreparedInstructions::new(instructions))
     }
@@ -302,15 +327,13 @@ impl Vm {
             runtime_io,
             debug_log,
             color_mode: ColorMode::Auto,
-            locals: Vec::new(),
-            captures: Vec::new(),
+            active_function: None,
             unpack_frames: Vec::new(),
             inline_cache: vec![InlineCache::default(); len],
             cache_pool: AHashMap::new(),
             locals_pool: AHashMap::new(),
             stack_pool: Vec::new(),
-            current_closure_stack: Vec::new(),
-            execution_frames: Vec::new(),
+            caller_frames: Vec::new(),
             builtin_frames: Vec::new(),
             // args_scratch: Vec::new(),
             tail_call_journal: TailCallJournal::default(),
@@ -323,7 +346,6 @@ impl Vm {
             skip_debug_pause_once: None,
             next_debug_pause_id: 0,
             current_chunk: None,
-            call_stack: Vec::new(),
             bt_mode: false,
             runtime_debug_info: false,
 
@@ -356,19 +378,16 @@ impl Vm {
         self.instructions = Arc::<[Instruction]>::from(instructions);
         self.pc = 0;
         self.stack.clear();
-        self.locals.clear();
-        self.captures.clear();
+        self.active_function = None;
         self.unpack_frames.clear();
         self.inline_cache = vec![InlineCache::default(); self.instructions.len()];
-        self.current_closure_stack.clear();
-        self.execution_frames.clear();
+        self.caller_frames.clear();
         self.builtin_frames.clear();
         self.hooks = None;
         self.try_stack.clear();
         self.returned = false;
         self.pending_named_meta = None;
         // Ensure no stale frames leak
-        self.call_stack.clear();
         self.tail_call_journal.clear();
         self.tail_call_depth = 0;
         self.trace_depth = 0;
@@ -466,7 +485,7 @@ impl Vm {
     }
 
     pub(crate) fn root_instruction_limit(&self) -> usize {
-        self.execution_frames
+        self.caller_frames
             .first()
             .map_or(self.instructions.len(), |frame| frame.instructions.len())
     }
@@ -519,7 +538,7 @@ impl Vm {
             }
             Err(error) => {
                 if self.builtin_frames.last().is_some_and(|frame| {
-                    frame.owner_call_depth == self.execution_frames.len()
+                    frame.owner_call_depth == self.physical_call_depth()
                         && frame.is_waiting_for_input_result()
                 }) {
                     self.builtin_frames.pop();
@@ -865,7 +884,11 @@ mod tests {
     #[test]
     fn prepared_instruction_reset_clears_transient_call_state() {
         let mut vm = Vm::new(Vec::new());
-        vm.captures.push(Arc::<[ValueCell]>::from([]));
+        vm.active_function = Some(FunctionActivation {
+            locals: Vec::new(),
+            captures: Arc::<[ValueCell]>::from([]),
+            callable: Value::empty_list(),
+        });
         vm.pending_named_meta = Some(Arc::new(crate::vm::inst::NamedArgMeta {
             pos_count: 0,
             named: Box::new([]),
@@ -873,7 +896,7 @@ mod tests {
 
         vm.reset_with_prepared_instructions(PreparedInstructions::new(Vec::new()));
 
-        assert!(vm.captures.is_empty());
+        assert!(vm.active_function.is_none());
         assert!(vm.pending_named_meta.is_none());
     }
 

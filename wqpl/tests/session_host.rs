@@ -633,6 +633,31 @@ fn postmortem_frames_keep_aligned_locals_and_owned_source() {
 }
 
 #[test]
+fn postmortem_caller_locals_reflect_capture_mutations_after_call_entry() {
+    let mut session = Session::new();
+    let failure = session
+        .eval_source(SourceUnit::named(
+            "captured-caller-local.wq",
+            "outer:{[x]inner:{[v]'x:v;1/0};inner[2];x};outer[1]",
+        ))
+        .expect_err("inner should fail after mutating outer x");
+    let outer = failure
+        .crash()
+        .expect("execution failure should carry a crash")
+        .frames()
+        .iter()
+        .find(|frame| frame.function() == "outer")
+        .expect("outer frame should remain in the backtrace");
+
+    assert!(
+        outer
+            .locals()
+            .is_some_and(|locals| locals.contains(&(0, Value::Int(2)))),
+        "outer x should reflect the mutation performed by inner"
+    );
+}
+
+#[test]
 fn host_diagnostic_failure_never_reuses_a_runtime_crash() {
     let mut session = Session::new();
     let runtime = session

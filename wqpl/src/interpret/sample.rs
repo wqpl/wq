@@ -219,7 +219,7 @@ impl InstructionArt {
     fn observe(&mut self, vm: &Vm, pc: usize, op: &Instruction) -> Result<(), WqIoError> {
         self.ops += 1;
         self.max_stack_len = self.max_stack_len.max(vm.stack.len());
-        self.max_call_depth = self.max_call_depth.max(vm.locals.len());
+        self.max_call_depth = self.max_call_depth.max(vm.physical_call_depth());
         self.last_pc = pc;
 
         let signal = signal_for(op);
@@ -234,7 +234,7 @@ impl InstructionArt {
             ^ usize_to_u64_hash(pc).wrapping_mul(0x9e37_79b9_7f4a_7c15)
             ^ usize_to_u64_hash(self.ops).wrapping_mul(0xbf58_476d_1ce4_e5b9)
             ^ (usize_to_u64_hash(vm.stack.len()) << 32)
-            ^ (usize_to_u64_hash(vm.locals.len()) << 48));
+            ^ (usize_to_u64_hash(vm.physical_call_depth()) << 48));
         let x = hash_coord(seed, WIDTH);
         let y = hash_coord(seed >> 16, HEIGHT);
         self.paint(x, y, signal);

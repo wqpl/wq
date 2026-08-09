@@ -17,17 +17,22 @@ pub(super) fn resolve_operand(
         Operand::Local(i) => {
             let slot = usize::from(*i);
             let slot_num = *i;
-            let val = vm.locals.last().and_then(|f| f.get(slot)).ok_or_else(|| {
-                vm.attach_local_slot_note(slot, vm_err(format!("invalid local slot {slot_num}")))
-            })?;
+            let val = vm
+                .current_locals()
+                .and_then(|f| f.get(slot))
+                .ok_or_else(|| {
+                    vm.attach_local_slot_note(
+                        slot,
+                        vm_err(format!("invalid local slot {slot_num}")),
+                    )
+                })?;
             Ok(val.read())
         }
         Operand::Capture(i) => {
             let slot = usize::from(*i);
             let slot_num = *i;
             let cell = vm
-                .captures
-                .last()
+                .current_captures()
                 .and_then(|c| c.get(slot))
                 .ok_or_else(|| vm_err(format!("invalid capture slot {slot_num}")))?;
             Ok(cell.lock().expect("poisoned capture").clone())
@@ -71,8 +76,7 @@ pub(super) fn resolve_operand(
             }
         }
         Operand::Self_ => vm
-            .current_closure_stack
-            .last()
+            .current_callable()
             .cloned()
             .ok_or_else(|| vm_err("current function is unavailable outside a function")),
     }

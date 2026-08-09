@@ -175,7 +175,7 @@ impl VanillaInterpreter {
                         vm.pending_trace_probe = None;
                         if control
                             .stop_call_depth
-                            .is_some_and(|depth| vm.execution_frames.len() == depth)
+                            .is_some_and(|depth| vm.physical_call_depth() == depth)
                         {
                             return Err(err);
                         }
@@ -191,7 +191,7 @@ impl VanillaInterpreter {
         limit: usize,
         control: &mut InterpretControl,
     ) -> WqResult<InterpretPoll> {
-        let limit = if vm.execution_frames.is_empty() {
+        let limit = if vm.physical_call_depth() == 0 {
             limit
         } else {
             vm.instructions.len()
@@ -337,21 +337,23 @@ impl VanillaInterpreter {
                     }
                     Instruction::LoadLocal(i) => {
                         let slot = usize::from(*i);
-                        let val = vm.locals.last().and_then(|f| f.get(slot)).ok_or_else(|| {
-                            vm.attach_local_slot_note(slot, vm_err("invalid local slot"))
-                        })?;
+                        let val =
+                            vm.current_locals()
+                                .and_then(|f| f.get(slot))
+                                .ok_or_else(|| {
+                                    vm.attach_local_slot_note(slot, vm_err("invalid local slot"))
+                                })?;
                         vm.stack.push(val.read());
                     }
                     Instruction::LoadCapture(i) => {
                         let idx = usize::from(*i);
                         let cap_num = *i;
                         let cell = vm
-                            .captures
-                            .last()
+                            .current_captures()
                             .and_then(|c| c.get(idx))
                             .ok_or_else(|| vm_err(format!("invalid capture slot {cap_num}")))?;
-                        vm.stack
-                            .push(cell.lock().expect("poisoned capture").clone());
+                        let value = cell.lock().expect("poisoned capture").clone();
+                        vm.stack.push(value);
                     }
                     Instruction::LoadClosure(payload) => {
                         let locals = payload.locals;
@@ -361,7 +363,7 @@ impl VanillaInterpreter {
                             match cap {
                                 Capture::Local(slot) => {
                                     let slot_idx = usize::from(*slot);
-                                    let val = if let Some(parent) = vm.locals.last() {
+                                    let val = if let Some(parent) = vm.current_locals() {
                                         parent
                                             .get(slot_idx)
                                             .map(|s| s.read())
@@ -373,7 +375,7 @@ impl VanillaInterpreter {
                                 }
                                 Capture::LocalShared(slot) => {
                                     let slot_idx = usize::from(*slot);
-                                    let cell = if let Some(parent) = vm.locals.last_mut() {
+                                    let cell = if let Some(parent) = vm.current_locals_mut() {
                                         parent
                                             .get_mut(slot_idx)
                                             .map(|s| s.ensure_cell())
@@ -388,8 +390,7 @@ impl VanillaInterpreter {
                                 Capture::FromCapture(i) => {
                                     let cap_idx = usize::from(*i);
                                     let cell = vm
-                                        .captures
-                                        .last()
+                                        .current_captures()
                                         .and_then(|c| c.get(cap_idx))
                                         .cloned()
                                         .unwrap_or_else(|| {
@@ -459,7 +460,7 @@ impl VanillaInterpreter {
                             .push(Value::Bool(vm.lookup_global_slot(name).is_some()));
                     }
                     Instruction::LoadSelf => {
-                        let me = vm.current_closure_stack.last().ok_or_else(|| {
+                        let me = vm.current_callable().ok_or_else(|| {
                             vm_err("current function is unavailable outside a function")
                         })?;
                         vm.stack.push(me.clone());
@@ -477,17 +478,15 @@ impl VanillaInterpreter {
                         })?;
                         let track = vm.symbol_trackers_enabled();
                         let new = track.then(|| val.clone());
-                        let old =
-                            {
-                                let cell =
-                                    vm.captures.last().and_then(|c| c.get(slot)).ok_or_else(
-                                        || vm_err(format!("invalid capture slot {slot_num}")),
-                                    )?;
-                                let mut target = cell.lock().expect("poisoned capture");
-                                let old = track.then(|| target.clone());
-                                *target = val;
-                                old
-                            };
+                        let old = {
+                            let cell = vm.current_captures().and_then(|c| c.get(slot)).ok_or_else(
+                                || vm_err(format!("invalid capture slot {slot_num}")),
+                            )?;
+                            let mut target = cell.lock().expect("poisoned capture");
+                            let old = track.then(|| target.clone());
+                            *target = val;
+                            old
+                        };
                         if let Some(new) = new {
                             vm.note_capture_symbol_write(
                                 idx,
@@ -956,8 +955,7 @@ impl VanillaInterpreter {
                         let mut change = None;
                         let assigned = {
                             let frame = vm
-                                .locals
-                                .last_mut()
+                                .current_locals_mut()
                                 .ok_or_else(|| vm_err("no local frame"))?;
                             let slot_ref = frame.get_mut(slot).ok_or_else(|| match &slot_note {
                                 Some(note) => {
@@ -1006,8 +1004,7 @@ impl VanillaInterpreter {
                         let mut change = None;
                         let assigned = {
                             let frame = vm
-                                .locals
-                                .last_mut()
+                                .current_locals_mut()
                                 .ok_or_else(|| vm_err("no local frame"))?;
                             let slot_ref = frame.get_mut(slot).ok_or_else(|| match &slot_note {
                                 Some(note) => {
@@ -1053,8 +1050,7 @@ impl VanillaInterpreter {
                         let mut change = None;
                         let assigned = {
                             let captures = vm
-                                .captures
-                                .last()
+                                .current_captures()
                                 .ok_or_else(|| vm_err("no capture frame"))?;
                             let cell = captures
                                 .get(slot)
@@ -1094,8 +1090,7 @@ impl VanillaInterpreter {
                         let mut change = None;
                         let assigned = {
                             let captures = vm
-                                .captures
-                                .last()
+                                .current_captures()
                                 .ok_or_else(|| vm_err("no capture frame"))?;
                             let cell = captures
                                 .get(slot)
@@ -1211,8 +1206,7 @@ impl VanillaInterpreter {
                         let mut change = None;
                         let success = {
                             let captures = vm
-                                .captures
-                                .last()
+                                .current_captures()
                                 .ok_or_else(|| vm_err("no capture frame"))?;
                             let cell = captures
                                 .get(slot)
@@ -1250,8 +1244,7 @@ impl VanillaInterpreter {
                         let mut change = None;
                         let success = {
                             let captures = vm
-                                .captures
-                                .last()
+                                .current_captures()
                                 .ok_or_else(|| vm_err("no capture frame"))?;
                             let cell = captures
                                 .get(slot)
@@ -1378,16 +1371,15 @@ impl VanillaInterpreter {
                         let slot_num = usize::from(*slot);
                         let target = *pos;
                         // Jump if local[slot] <= 0
-                        let slot_ref =
-                            vm.locals
-                                .last()
-                                .and_then(|f| f.get(slot_num))
-                                .ok_or_else(|| {
-                                    vm.attach_local_slot_note(
-                                        slot_num,
-                                        vm_err(format!("invalid local slot {slot_num}")),
-                                    )
-                                })?;
+                        let slot_ref = vm
+                            .current_locals()
+                            .and_then(|f| f.get(slot_num))
+                            .ok_or_else(|| {
+                                vm.attach_local_slot_note(
+                                    slot_num,
+                                    vm_err(format!("invalid local slot {slot_num}")),
+                                )
+                            })?;
                         let is_le_zero = slot_ref.with_ref(|val| match val {
                             Value::Int(n) => Ok(*n <= 0),
                             Value::Float(f) => Ok(**f <= 0.0),
@@ -1410,8 +1402,7 @@ impl VanillaInterpreter {
                         let slot_num = usize::from(*slot);
                         let target = *pos;
                         let slot_ref = vm
-                            .locals
-                            .last()
+                            .current_locals()
                             .and_then(|frame| frame.get(slot_num))
                             .ok_or_else(|| {
                                 vm.attach_local_slot_note(
@@ -1549,14 +1540,14 @@ impl VanillaInterpreter {
                         let value = vm.stack.pop().unwrap_or_else(Value::empty_list);
                         Self::discard_current_try_frames(vm);
                         if let Some(stop_call_depth) = control.stop_call_depth
-                            && vm.execution_frames.len() == stop_call_depth + 1
+                            && vm.physical_call_depth() == stop_call_depth + 1
                         {
                             let value = vm
                                 .finish_user_call(value, false)
                                 .expect("stopped call should have a caller frame");
                             return Ok(InterpretPoll::Ready(value));
                         }
-                        if vm.execution_frames.is_empty() {
+                        if vm.physical_call_depth() == 0 {
                             return Ok(InterpretPoll::Ready(value));
                         }
                         vm.finish_user_call(value, true);
@@ -1572,7 +1563,7 @@ impl VanillaInterpreter {
                             .ok_or_else(|| vm_err("invalid try region"))?;
                         vm.try_stack.push(TryFrame {
                             instructions: Arc::clone(&vm.instructions),
-                            locals_depth: vm.locals.len(),
+                            call_depth: vm.physical_call_depth(),
                             end_pc,
                             stack_start: vm.stack.len(),
                             saved_pending_named_meta: vm.pending_named_meta.take(),
@@ -1625,14 +1616,14 @@ impl VanillaInterpreter {
             let value = vm.stack.pop().unwrap_or_else(Value::empty_list);
             Self::discard_current_try_frames(vm);
             if let Some(stop_call_depth) = control.stop_call_depth
-                && vm.execution_frames.len() == stop_call_depth + 1
+                && vm.physical_call_depth() == stop_call_depth + 1
             {
                 let value = vm
                     .finish_user_call(value, false)
                     .expect("stopped call should have a caller frame");
                 return Ok(InterpretPoll::Ready(value));
             }
-            if vm.execution_frames.is_empty() {
+            if vm.physical_call_depth() == 0 {
                 return Ok(InterpretPoll::Ready(value));
             }
             vm.finish_user_call(value, true);
@@ -1643,7 +1634,7 @@ impl VanillaInterpreter {
         let Some(frame) = vm.try_stack.last() else {
             return false;
         };
-        if frame.locals_depth != vm.locals.len()
+        if frame.call_depth != vm.physical_call_depth()
             || !Arc::ptr_eq(&frame.instructions, &vm.instructions)
             || vm.pc < frame.end_pc
         {
@@ -1675,7 +1666,7 @@ impl VanillaInterpreter {
         let Some(frame) = vm.try_stack.last() else {
             return false;
         };
-        if frame.locals_depth != vm.locals.len()
+        if frame.call_depth != vm.physical_call_depth()
             || !Arc::ptr_eq(&frame.instructions, &vm.instructions)
         {
             return false;
@@ -1699,7 +1690,7 @@ impl VanillaInterpreter {
         while vm
             .try_stack
             .last()
-            .is_some_and(|frame| frame.locals_depth == vm.locals.len())
+            .is_some_and(|frame| frame.call_depth == vm.physical_call_depth())
         {
             let frame = vm.try_stack.pop().expect("checked try frame");
             Self::restore_try_state(vm, frame, false);
@@ -1915,8 +1906,7 @@ fn eval_cmp_branch_condition(
 }
 
 fn read_n_loop_local(vm: &Vm, slot: u16) -> WqResult<Value> {
-    vm.locals
-        .last()
+    vm.current_locals()
         .and_then(|locals| locals.get(usize::from(slot)))
         .map(crate::vm::Slot::read)
         .ok_or_else(|| {
@@ -1951,7 +1941,7 @@ fn int_operand(vm: &Vm, operand: &Operand, stack_idx: Option<usize>) -> Option<i
             _ => None,
         },
         Operand::Local(slot) => {
-            let frame = vm.locals.last()?;
+            let frame = vm.current_locals()?;
             let slot = frame.get(usize::from(*slot))?;
             slot.with_ref(|value| match value {
                 Value::Int(n) => Some(*n),
@@ -2126,7 +2116,7 @@ mod tests {
     use crate::value::func::FunctionData;
     use crate::value::{Value, WqResult, eval_binary};
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
-    use crate::vm::{PreparedInstructions, Slot, Vm};
+    use crate::vm::{FunctionActivation, PreparedInstructions, Slot, Vm};
     use crate::wqdb::data::ChunkId;
     use crate::wqerror::Requirement;
 
@@ -2136,6 +2126,14 @@ mod tests {
         fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
             Ok(())
         }
+    }
+
+    fn set_active_function(vm: &mut Vm, locals: Vec<Slot>, callable: Value) {
+        vm.active_function = Some(FunctionActivation {
+            locals,
+            captures: crate::value::cell::empty_cells(),
+            callable,
+        });
     }
 
     #[test]
@@ -2223,8 +2221,11 @@ mod tests {
     fn run_vm_result_with_locals(insts: Vec<Instruction>, locals: Vec<Value>) -> WqResult<Value> {
         let len = insts.len();
         let mut vm = Vm::new(insts);
-        vm.locals
-            .push(locals.into_iter().map(Slot::Value).collect());
+        set_active_function(
+            &mut vm,
+            locals.into_iter().map(Slot::Value).collect(),
+            Value::empty_list(),
+        );
         let mut interpreter = VanillaInterpreter;
         interpreter.interpret(&mut vm, len)
     }
@@ -2332,7 +2333,11 @@ mod tests {
     #[test]
     fn int_binary_fast_path_reads_local_and_const_operands() {
         let mut vm = Vm::new(Vec::new());
-        vm.locals.push(vec![Slot::Value(Value::Int(40))]);
+        set_active_function(
+            &mut vm,
+            vec![Slot::Value(Value::Int(40))],
+            Value::empty_list(),
+        );
         let data = BinaryOpData {
             op: BinaryOperator::Add,
             left: Operand::Local(0),
@@ -2846,7 +2851,7 @@ mod call_safety {
     use crate::value::{Value, cell};
     use crate::vm::call::CallSpec;
     use crate::vm::inst::Instruction;
-    use crate::vm::{InlineCache, Slot, Vm};
+    use crate::vm::{FunctionActivation, InlineCache, Slot, Vm};
     use crate::wqerror::WqErrorType;
 
     fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
@@ -2866,6 +2871,14 @@ mod call_safety {
             dbg_local_names: None,
             dbg_provenance: None,
         }))
+    }
+
+    fn set_active_function(vm: &mut Vm, locals: Vec<Slot>, callable: Value) {
+        vm.active_function = Some(FunctionActivation {
+            locals,
+            captures: cell::empty_cells(),
+            callable,
+        });
     }
 
     fn dict_with_method(method: Value) -> Value {
@@ -2992,9 +3005,8 @@ mod call_safety {
             yields >= 6,
             "expected yields in caller and callee, got {yields}"
         );
-        assert!(vm.execution_frames.is_empty());
-        assert!(vm.locals.is_empty());
-        assert!(vm.captures.is_empty());
+        assert!(vm.caller_frames.is_empty());
+        assert!(vm.active_function.is_none());
     }
 
     #[test]
@@ -3033,7 +3045,7 @@ mod call_safety {
             panic!("expected tagged try result");
         };
         assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
-        assert!(vm.execution_frames.is_empty());
+        assert!(vm.caller_frames.is_empty());
     }
 
     #[test]
@@ -3120,9 +3132,7 @@ mod call_safety {
         vm.instructions = Arc::clone(&insts);
         vm.inline_cache = vec![InlineCache::default(); 2];
         vm.inline_cache[0].slot = Some(42);
-        vm.locals.push(vec![Slot::default()]);
-        vm.captures.push(cell::empty_cells());
-        vm.current_closure_stack.push(Value::empty_list());
+        set_active_function(&mut vm, vec![Slot::default()], Value::empty_list());
 
         vm.prepare_tail(CallSpec {
             instructions: Arc::clone(&insts),
@@ -3151,9 +3161,7 @@ mod call_safety {
         let mut vm = Vm::new(vec![Instruction::Return]);
         vm.stack.push(Value::Int(1));
         vm.stack.push(Value::Int(2));
-        vm.locals.push(vec![Slot::default()]);
-        vm.captures.push(cell::empty_cells());
-        vm.current_closure_stack.push(Value::empty_list());
+        set_active_function(&mut vm, vec![Slot::default()], Value::empty_list());
 
         let result = vm.prepare_tail(CallSpec {
             instructions: insts,
@@ -3169,10 +3177,12 @@ mod call_safety {
 
         assert!(result.is_err());
         assert_eq!(vm.stack, vec![Value::Int(1), Value::Int(2)]);
-        assert_eq!(vm.locals.len(), 1);
-        assert_eq!(vm.locals[0].len(), 1);
-        assert_eq!(vm.captures.len(), 1);
-        assert_eq!(vm.current_closure_stack.len(), 1);
+        let activation = vm
+            .active_function
+            .as_ref()
+            .expect("function activation should remain");
+        assert_eq!(activation.locals.len(), 1);
+        assert!(activation.captures.is_empty());
     }
 
     #[test]
@@ -3238,11 +3248,13 @@ mod call_safety {
             Instruction::CallLocal(0, 0),
             Instruction::Return,
         ]);
-        vm.locals.push(vec![Slot::Value(first)]);
+        set_active_function(&mut vm, vec![Slot::Value(first)], Value::empty_list());
         let limit = vm.instructions.len();
 
         assert_eq!(run_vm_again(&mut vm, limit), Value::Int(1));
-        vm.locals[0][0].write(second);
+        vm.current_locals_mut()
+            .expect("active locals should remain")[0]
+            .write(second);
 
         assert_eq!(run_vm_again(&mut vm, limit), Value::Int(2));
     }
@@ -3259,7 +3271,7 @@ mod call_safety {
             Instruction::CallLocal(0, 0),
             Instruction::Return,
         ]);
-        vm.locals.push(vec![Slot::Value(func)]);
+        set_active_function(&mut vm, vec![Slot::Value(func)], Value::empty_list());
         vm.set_backtrace_enabled(true);
         let file = vm.debug_info.new_file("<test>", "f[]");
         vm.current_chunk = Some(vm.debug_info.new_chunk("<test>", file, 3));

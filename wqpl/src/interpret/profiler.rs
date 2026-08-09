@@ -303,7 +303,7 @@ impl InterpreterHook for ProfilerInterpreter {
     }
 
     fn before_instruction(&self, vm: &Vm, idx: usize, op: &Instruction) {
-        let call_depth = vm.locals.len();
+        let call_depth = vm.physical_call_depth();
         let mut stats = self.stats.borrow_mut();
         stats.record_instruction(vm, idx);
         stats.max_stack_len = stats.max_stack_len.max(vm.stack.len());
