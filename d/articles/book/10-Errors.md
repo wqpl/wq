@@ -106,4 +106,5 @@ Branch on the `kind` tag instead of parsing message strings.
 - `raise` creates an error intentionally.
 - `assert` checks a bool condition and `assert_eq` compares whole values.
 - `@t` catches failure and returns a tagged result with the value or error.
-- Continue to **Modules** to organize code across isolated files.
+- Continue to **Debugging with wqdb** to inspect a running program one step at
+  a time.

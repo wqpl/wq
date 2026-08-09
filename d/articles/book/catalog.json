@@ -88,6 +88,13 @@
       "code": "@t 1/0"
     },
     {
+      "slug": "wqdb",
+      "title": "Debugging with wqdb",
+      "file": "10-wqdb.md",
+      "description": "Pause programs, inspect bindings, step through calls, and set useful stops.",
+      "code": "adjust:{[n]@p n*2};adjust 5"
+    },
+    {
       "slug": "modules",
       "title": "Modules",
       "file": "11-Modules.md",

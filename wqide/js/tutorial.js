@@ -31,6 +31,8 @@ import {
   hasFinalResult,
   planCellRuns,
 } from "./tutorial-cells.js";
+import { mountBookRepl } from "./book-repl.js";
+import { bookReplOptions } from "./book-repl-core.js";
 
 let __outlineObserver = null;
 let __outlineLockUntil = 0;
@@ -383,6 +385,15 @@ window.initTutorialUI = function initTutorialUI() {
       if (m) lang = m.replace("language-", "").trim();
       codeMeta = (codeEl.dataset.codeMeta || "").split(/\s+/).filter(Boolean);
       contract = parseExampleContract(codeEl.dataset.wqExample || "");
+    }
+    const replOptions = bookReplOptions(contract);
+    if (lang === "wq" && replOptions) {
+      mountBookRepl(pre, {
+        source: codeEl?.textContent || "",
+        contract,
+        options: replOptions,
+      }).catch((error) => console.error("[book repl] mount failed", error));
+      return;
     }
     const expectedError =
       contract?.expect?.error ||

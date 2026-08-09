@@ -481,7 +481,11 @@ export function renderWqdbPanel(
   body,
   state,
   actions,
-  { frontend = null } = {},
+  {
+    frontend = null,
+    emptyMessage =
+      "Enable \\wqdb, then run code to pause before its first instruction.",
+  } = {},
 ) {
   if (!body) return;
   body.classList.toggle("is-empty", !state.pause);
@@ -492,7 +496,7 @@ export function renderWqdbPanel(
       element(
         "span",
         "",
-        "Enable \\wqdb, then run code to pause before its first instruction.",
+        emptyMessage,
       ),
     );
     body.replaceChildren(empty);
