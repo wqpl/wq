@@ -11,6 +11,12 @@ description = "The wq Programming Language"
 readme = "README.md"
 publish = ["crates-io"]
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.R]
 inherits = "release"
 lto = "thin"
