@@ -56,6 +56,7 @@ fn has_fusable_patterns(code: &[Instruction]) -> bool {
             match (&code[i], &code[i + 1]) {
                 (StoreLocalKeep(_), Pop)
                 | (StoreVarKeep(_), Pop)
+                | (StoreCaptureKeep(_), Pop)
                 | (IndexAssignCapture(_), Pop)
                 | (IndexAssignLocal(_), Pop)
                 | (IndexAssignVar(_), Pop)
@@ -229,6 +230,15 @@ fn fuse_once(
                     keep[i] = true;
                     keep[i + 1] = false;
                     stats.svk_pop += 1;
+                    changed_any = true;
+                    i += 2;
+                    continue;
+                }
+                (StoreCaptureKeep(slot), Pop) => {
+                    out.push(StoreCapture(*slot));
+                    origin.push(i);
+                    keep[i] = true;
+                    keep[i + 1] = false;
                     changed_any = true;
                     i += 2;
                     continue;
@@ -470,6 +480,53 @@ fn fuse_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fuses_capture_store_pop_and_preserves_debug_origin() {
+        let mut code = vec![
+            Instruction::StoreCaptureKeep(7),
+            Instruction::Pop,
+            Instruction::Return,
+        ];
+        let mut spans = vec![Some((10, 11)), Some((20, 21)), Some((30, 31))];
+        let mut marks = vec![
+            DebugStmtMark {
+                pc: 0,
+                start: 10,
+                end: 11,
+            },
+            DebugStmtMark {
+                pc: 2,
+                start: 30,
+                end: 31,
+            },
+        ];
+        let mut stats = Stats::default();
+
+        let changed = fuse_once(&mut code, Some(&mut spans), Some(&mut marks), &mut stats);
+
+        assert!(changed);
+        assert_eq!(
+            code,
+            vec![Instruction::StoreCapture(7), Instruction::Return]
+        );
+        assert_eq!(spans, vec![Some((10, 11)), Some((30, 31))]);
+        assert_eq!(
+            marks,
+            vec![
+                DebugStmtMark {
+                    pc: 0,
+                    start: 10,
+                    end: 11,
+                },
+                DebugStmtMark {
+                    pc: 1,
+                    start: 30,
+                    end: 31,
+                },
+            ]
+        );
+    }
 
     #[test]
     fn fuses_local_compare_jump_false_and_remaps_targets() {

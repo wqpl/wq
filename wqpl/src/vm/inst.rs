@@ -175,8 +175,6 @@ pub(crate) enum Instruction {
     StoreLocal(u16),
     /// Store into a local slot and keep value on stack
     StoreLocalKeep(u16),
-    /// Store into a captured variable slot
-    // StoreCapture(u16),
     /// Store into a captured variable slot and keep value on stack
     StoreCaptureKeep(u16),
     /// Extract every path from one source value before exposing any result.
@@ -275,6 +273,8 @@ pub(crate) enum Instruction {
     /// Store named-argument metadata into the VM.  The next call
     /// instruction consumes it (and clears it after the call).
     PrepareNamedArgs(Arc<NamedArgMeta>),
+    /// Store into a captured variable slot
+    StoreCapture(u16),
 }
 
 impl Instruction {
@@ -417,7 +417,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         // Stores
         I::StoreLocal(_)
         | I::StoreLocalKeep(_)
-        // | I::StoreCapture(_)
+        | I::StoreCapture(_)
         | I::StoreCaptureKeep(_)
         | I::StoreVar(_)
         // | I::DeleteVar(_)
@@ -770,13 +770,16 @@ impl InstPrettyDumper {
 
         // capture indices
         if let Instruction::LoadCapture(i)
-        // | Instruction::StoreCapture(i)
+        | Instruction::StoreCapture(i)
         | Instruction::StoreCaptureKeep(i)
         | Instruction::IndexLoadCapture(i)
         | Instruction::IndexManyLoadCapture(i, _)
         | Instruction::IndexManyAssignCapture(i, _)
         | Instruction::IndexManyAssignCaptureDrop(i, _)
-        | Instruction::IndexMutate { target: StoreTarget::Capture(i), .. } = *inst
+        | Instruction::IndexMutate {
+            target: StoreTarget::Capture(i),
+            ..
+        } = *inst
         {
             let desc =
                 Self::capture_desc(i, captures_spec).unwrap_or_else(|| "capture".to_string());

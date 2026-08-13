@@ -403,6 +403,11 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.set_global(name, state.peek());
             fallthrough(pc, state)
         }
+        I::StoreCapture(slot) => {
+            let value = state.pop();
+            state.set_capture(*slot, value);
+            fallthrough(pc, state)
+        }
         I::StoreCaptureKeep(slot) => {
             state.set_capture(*slot, state.peek());
             fallthrough(pc, state)
@@ -1259,6 +1264,7 @@ fn note_inst_captures(inst: &Instruction, count: &mut usize) {
     match inst {
         I::LoadCallTarget(operand) => note_operand_captures(operand, count),
         I::LoadCapture(slot)
+        | I::StoreCapture(slot)
         | I::StoreCaptureKeep(slot)
         | I::IndexLoadCapture(slot)
         | I::IndexManyLoadCapture(slot, _)
@@ -1297,4 +1303,44 @@ fn note_operand_captures(operand: &Operand, count: &mut usize) {
 
 fn note_slot(slot: u16, count: &mut usize) {
     *count = (*count).max(usize::from(slot) + 1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_store_dataflow_models_both_stack_effects() {
+        for (store, expected_stack) in [
+            (Instruction::StoreCapture(0), Some(Vec::new())),
+            (
+                Instruction::StoreCaptureKeep(0),
+                Some(vec![Some(Value::Int(9))]),
+            ),
+        ] {
+            let code = vec![
+                Instruction::load_const(Value::Int(9)),
+                store,
+                Instruction::LoadCapture(0),
+            ];
+
+            let states = analyze(&code, 0, 1, vec![Some(Value::Int(1))], IndexMap::new());
+            let state_after_store = states[2].as_ref().expect("reachable load");
+
+            assert_eq!(state_after_store.stack, expected_stack);
+            assert_eq!(state_after_store.captures, vec![Some(Value::Int(9))]);
+
+            let mut rewritten = code;
+            propagate_instructions(
+                &mut rewritten,
+                0,
+                vec![Some(Value::Int(1))],
+                IndexMap::new(),
+            );
+            assert!(matches!(
+                &rewritten[2],
+                Instruction::LoadConst(value) if **value == Value::Int(9)
+            ));
+        }
+    }
 }

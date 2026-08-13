@@ -2962,8 +2962,7 @@ impl Compiler {
         if self.fn_depth > 0 {
             if self.is_ref_default_name(name) {
                 if let Some(idx) = self.ref_capture_map.get(name) {
-                    self.instructions.push(Instruction::StoreCaptureKeep(*idx));
-                    self.instructions.push(Instruction::Pop);
+                    self.instructions.push(Instruction::StoreCapture(*idx));
                 } else {
                     self.instructions
                         .push(Instruction::StoreVar(name.to_string().into()));
@@ -4342,6 +4341,65 @@ mod tests {
             }
         }
         panic!("expected closure payload");
+    }
+
+    #[test]
+    fn captured_store_drop_is_fused_without_a_following_pop() {
+        let top = compile_source("f:{a:1;g:'{[]a:2;0};g}");
+        let mut compiler = Compiler::new();
+        compiler.dbg_pc_spans.resize(top.len(), None);
+        compiler.instructions = top;
+        compiler.fuse();
+        let outer = compiled_function_in(&compiler.instructions);
+        let inner = first_closure_payload(outer.instructions.as_ref());
+
+        assert!(
+            inner
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::StoreCapture(0))),
+            "expected direct captured drop store: {:#?}",
+            inner.instructions
+        );
+        assert!(
+            !inner
+                .instructions
+                .windows(2)
+                .any(|pair| matches!(pair, [Instruction::StoreCaptureKeep(_), Instruction::Pop]))
+        );
+    }
+
+    #[test]
+    fn direct_captured_drop_store_is_one_instruction() {
+        let mut compiler = Compiler::new();
+        compiler.fn_depth = 1;
+        compiler.ref_default_names.insert("a".to_string());
+        compiler.ref_capture_map.insert("a".to_string(), 3);
+        compiler.emit_load_const(Value::Int(9));
+
+        compiler.emit_store("a").expect("emit captured store");
+
+        assert_eq!(
+            compiler.instructions,
+            vec![
+                Instruction::load_const(Value::Int(9)),
+                Instruction::StoreCapture(3),
+            ]
+        );
+    }
+
+    #[test]
+    fn final_captured_store_keeps_its_expression_value() {
+        let top = compile_source("f:{a:1;g:'{[]a:2};g}");
+        let outer = compiled_function_in(&top);
+        let inner = first_closure_payload(outer.instructions.as_ref());
+
+        assert!(
+            inner
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::StoreCaptureKeep(0)))
+        );
     }
 
     fn last_closure_payload(insts: &[Instruction]) -> &crate::vm::inst::ClosurePayload {

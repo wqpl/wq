@@ -15,7 +15,7 @@ use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_bool_op, eval_una
 use crate::vm::debug::DebugBoundary;
 use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
-use crate::vm::{TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
+use crate::vm::{TryFrame, Vm, ensure_stack_len, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
@@ -469,33 +469,8 @@ impl VanillaInterpreter {
                     Instruction::StoreVarKeep(name) => store_var_impl(vm, idx, name, true)?,
                     Instruction::StoreLocal(i) => store_local_impl(vm, idx, *i, false)?,
                     Instruction::StoreLocalKeep(i) => store_local_impl(vm, idx, *i, true)?,
-                    Instruction::StoreCaptureKeep(i) => {
-                        let slot = usize::from(*i);
-                        let slot_num = *i;
-                        let val = last_clone_stack(&vm.stack, || {
-                            format!("store into capture slot {slot_num}")
-                        })?;
-                        let track = vm.symbol_trackers_enabled();
-                        let new = track.then(|| val.clone());
-                        let old = {
-                            let cell = vm.current_captures().and_then(|c| c.get(slot)).ok_or_else(
-                                || vm_err(format!("invalid capture slot {slot_num}")),
-                            )?;
-                            let mut target = cell.lock().expect("poisoned capture");
-                            let old = track.then(|| target.clone());
-                            *target = val;
-                            old
-                        };
-                        if let Some(new) = new {
-                            vm.note_capture_symbol_write(
-                                idx,
-                                *i,
-                                SymbolMutationKind::Store,
-                                old,
-                                new,
-                            );
-                        }
-                    }
+                    Instruction::StoreCapture(i) => store_capture_impl(vm, idx, *i, false)?,
+                    Instruction::StoreCaptureKeep(i) => store_capture_impl(vm, idx, *i, true)?,
 
                     Instruction::Unpack(plan) => {
                         let source =
@@ -2102,7 +2077,7 @@ fn named_arg_index_err() -> WqError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use num_bigint::BigInt;
 
@@ -2117,6 +2092,8 @@ mod tests {
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
     use crate::vm::{FunctionActivation, PreparedInstructions, Slot, Vm};
     use crate::wqdb::data::ChunkId;
+    use crate::wqdb::model::SymbolTrackTarget;
+    use crate::wqdb::{DebugNotification, SymbolMutationKind};
     use crate::wqerror::Requirement;
 
     struct SinkOutput;
@@ -2227,6 +2204,93 @@ mod tests {
         );
         let mut interpreter = VanillaInterpreter;
         interpreter.interpret(&mut vm, len)
+    }
+
+    fn capture_store_vm(keep: bool, slot: u16) -> (Vm, Arc<Mutex<Value>>) {
+        let captured = Arc::new(Mutex::new(Value::Int(1)));
+        let store = if keep {
+            Instruction::StoreCaptureKeep(slot)
+        } else {
+            Instruction::StoreCapture(slot)
+        };
+        let mut vm = Vm::new(vec![
+            Instruction::load_const(Value::Int(9)),
+            store,
+            Instruction::LoadCapture(0),
+            Instruction::Return,
+        ]);
+        vm.active_function = Some(FunctionActivation {
+            locals: Vec::new(),
+            captures: Arc::from(vec![captured.clone()]),
+            callable: Value::empty_list(),
+        });
+        (vm, captured)
+    }
+
+    #[test]
+    fn capture_store_variants_have_distinct_stack_effects() {
+        for (keep, expected_stack) in [(false, Vec::new()), (true, vec![Value::Int(9)])] {
+            let (mut vm, captured) = capture_store_vm(keep, 0);
+            let mut interpreter = VanillaInterpreter;
+
+            let result = interpreter.interpret(&mut vm, 4).expect("execute");
+
+            assert_eq!(result, Value::Int(9));
+            assert_eq!(vm.stack, expected_stack);
+            assert_eq!(*captured.lock().expect("capture lock"), Value::Int(9));
+        }
+    }
+
+    #[test]
+    fn invalid_capture_store_slot_reports_the_slot_for_both_variants() {
+        for keep in [false, true] {
+            let (mut vm, captured) = capture_store_vm(keep, 1);
+            let mut interpreter = VanillaInterpreter;
+
+            let err = interpreter
+                .interpret(&mut vm, 2)
+                .expect_err("invalid capture slot must fail");
+
+            assert_eq!(err.msg.as_deref(), Some("invalid capture slot 1"));
+            assert_eq!(
+                vm.stack,
+                if keep {
+                    vec![Value::Int(9)]
+                } else {
+                    Vec::new()
+                }
+            );
+            assert_eq!(*captured.lock().expect("capture lock"), Value::Int(1));
+        }
+    }
+
+    #[test]
+    fn capture_store_variants_notify_symbol_trackers() {
+        for keep in [false, true] {
+            let (mut vm, _) = capture_store_vm(keep, 0);
+            let file = vm.debug_info.new_file("<test>", "");
+            let chunk = vm.debug_info.new_chunk("<test>", file, 4);
+            vm.current_chunk = Some(chunk);
+            vm.debug_state.set_enabled(true);
+            vm.debug_state
+                .ensure_symbol_tracker(SymbolTrackTarget::Capture {
+                    chunk,
+                    slot: 0,
+                    name: None,
+                });
+            let mut interpreter = VanillaInterpreter;
+
+            interpreter.interpret(&mut vm, 4).expect("execute");
+
+            let notifications = vm.debug_state.take_notifications();
+            let [DebugNotification::SymbolChanged(mutation)] = notifications.as_slice() else {
+                unreachable!("expected one capture mutation notification");
+            };
+            assert_eq!(mutation.operation, SymbolMutationKind::Store);
+            assert_eq!(mutation.location.pc, 1);
+            assert_eq!(mutation.old_value, Some(Value::Int(1)));
+            assert_eq!(mutation.new_value, Value::Int(9));
+        }
     }
 
     fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {

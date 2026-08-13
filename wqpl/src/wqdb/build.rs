@@ -21,7 +21,7 @@ pub(crate) fn mark_stmt_heuristic(
                 | StoreVarKeep(_)
                 | StoreLocal(_)
                 | StoreLocalKeep(_)
-                // | StoreCapture(_)
+                | StoreCapture(_)
                 | StoreCaptureKeep(_)
                 | CallBuiltinId(_, _)
                 | CallBuiltinDiscardId(_, _)

@@ -174,6 +174,31 @@ pub(super) fn store_local_impl(vm: &mut Vm, idx: usize, i: u16, keep: bool) -> W
     store_local_value(vm, idx, i, val)
 }
 
+pub(super) fn store_capture_impl(vm: &mut Vm, idx: usize, i: u16, keep: bool) -> WqResult<()> {
+    let slot = usize::from(i);
+    let val = if keep {
+        crate::vm::last_clone_stack(&vm.stack, || format!("store into capture slot {i}"))?
+    } else {
+        pop1_stack(&mut vm.stack, || format!("store into capture slot {i}"))?
+    };
+    let track = vm.symbol_trackers_enabled();
+    let new = track.then(|| val.clone());
+    let old = {
+        let cell = vm
+            .current_captures()
+            .and_then(|captures| captures.get(slot))
+            .ok_or_else(|| vm_err(format!("invalid capture slot {i}")))?;
+        let mut target = cell.lock().expect("poisoned capture");
+        let old = track.then(|| target.clone());
+        *target = val;
+        old
+    };
+    if let Some(new) = new {
+        vm.note_capture_symbol_write(idx, i, SymbolMutationKind::Store, old, new);
+    }
+    Ok(())
+}
+
 pub(super) fn store_local_value(vm: &mut Vm, idx: usize, i: u16, val: Value) -> WqResult<()> {
     let slot = usize::from(i);
     let track = vm.symbol_trackers_enabled();
