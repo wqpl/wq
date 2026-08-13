@@ -105,7 +105,6 @@ fn dispatch_spec<const TAIL: bool>(vm: &mut Vm, idx: usize, mut spec: CallSpec) 
     }
 }
 
-#[inline]
 fn dispatch_user_value<const TAIL: bool>(
     vm: &mut Vm,
     idx: usize,
@@ -119,7 +118,6 @@ fn dispatch_user_value<const TAIL: bool>(
     }
 }
 
-#[inline]
 fn dispatch_user_named_value<const TAIL: bool>(
     vm: &mut Vm,
     idx: usize,
