@@ -1,4 +1,9 @@
 f1:{a:1;N[9;a];echo a}
 f2:{a:1;N[999;a];echo a}
+countdown:{[n]i:n;W[i>0;i-:1];i}
+loop_check:{[n]W[n>0;@r n];n}
 f1[]
 f2[]
+echo countdown[3/.2]
+echo loop_check[9223372036854775808]
+echo countdown[(-9223372036854775809)]

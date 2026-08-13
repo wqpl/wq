@@ -908,30 +908,31 @@ impl VanillaInterpreter {
                     Instruction::JumpIfLEZLocal(slot, pos) => {
                         let slot_num = usize::from(*slot);
                         let target = *pos;
-                        // Jump if local[slot] <= 0
                         let slot_ref = vm
                             .current_locals()
-                            .and_then(|f| f.get(slot_num))
+                            .and_then(|frame| frame.get(slot_num))
                             .ok_or_else(|| {
                                 vm.attach_local_slot_note(
                                     slot_num,
                                     vm_err(format!("invalid local slot {slot_num}")),
                                 )
                             })?;
-                        let is_le_zero = slot_ref.with_ref(|val| match val {
-                            Value::Int(n) => Ok(*n <= 0),
-                            Value::Float(f) => Ok(**f <= 0.0),
-                            other => Err(attach_pc_source_ctx(
-                                vm,
-                                idx,
-                                domain_requirement(Requirement::one_of([
-                                    Requirement::INT,
-                                    Requirement::FLOAT,
-                                ]))
-                                .got1(other)
-                                .attach_note("this value is used as a loop bound check"),
-                            )),
-                        })?;
+                        let fast_result = slot_ref.with_ref(|value| match value {
+                            Value::Int(value) => Some(*value <= 0),
+                            Value::Float(value) => Some(**value <= 0.0),
+                            _ => None,
+                        });
+                        let is_le_zero = if let Some(result) = fast_result {
+                            result
+                        } else {
+                            let comparison = CmpBranchData {
+                                op: BinaryOperator::Gt,
+                                left: Operand::Local(*slot),
+                                right: Operand::const_val(Value::Int(0)),
+                                target,
+                            };
+                            !eval_cmp_branch_condition(vm, idx, &comparison, hooks)?
+                        };
                         if is_le_zero {
                             vm.pc = target;
                         }
@@ -2529,6 +2530,36 @@ mod tests {
         .expect("execute");
 
         assert_eq!(out, Value::Int(99));
+    }
+
+    #[test]
+    fn jump_if_lez_local_falls_back_for_fraction_and_bigint() {
+        let run = |local| {
+            run_vm_result_with_locals(
+                vec![
+                    Instruction::JumpIfLEZLocal(0, 3),
+                    Instruction::load_const(Value::Int(42)),
+                    Instruction::Return,
+                    Instruction::load_const(Value::Int(99)),
+                    Instruction::Return,
+                ],
+                vec![local],
+            )
+            .expect("execute")
+        };
+
+        assert_eq!(
+            run(Value::from_fraction_parts(BigInt::from(3), BigInt::from(2))),
+            Value::Int(42)
+        );
+        assert_eq!(
+            run(Value::from_bigint(BigInt::from(i64::MAX) + BigInt::from(1))),
+            Value::Int(42)
+        );
+        assert_eq!(
+            run(Value::from_bigint(BigInt::from(i64::MIN) - BigInt::from(1))),
+            Value::Int(99)
+        );
     }
 
     #[test]
