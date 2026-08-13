@@ -778,483 +778,40 @@ impl VanillaInterpreter {
                     }
 
                     Instruction::IndexAssignVar(name) => {
-                        let pc = idx;
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let idx = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = vm
-                            .with_global_slot_mut(name, |obj| {
-                                let old = track.then(|| obj.clone());
-                                let assigned = obj.assign_by_index(&idx, val.clone());
-                                if assigned.is_some()
-                                    && let Some(old) = old
-                                {
-                                    change = Some((old, obj.clone()));
-                                }
-                                assigned
-                            })
-                            .ok_or_else(|| {
-                                not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when assigning to '{name}'"))
-                            })?;
-                        if assigned.is_some() {
-                            vm.stack.push(val);
-                            if let Some((old, new)) = change {
-                                vm.note_global_symbol_write(
-                                    pc,
-                                    name,
-                                    SymbolMutationKind::IndexAssign,
-                                    Some(old),
-                                    new,
-                                );
-                            }
-                        } else {
-                            return Err(invalid_index_assign_err(&idx, format!("'{name}'")));
-                        }
+                        execute_single_index_assign_var(vm, idx, name, true)?;
                     }
                     Instruction::IndexManyAssignVar(name, argc) => {
-                        let pc = idx;
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let args = take_index_args(&mut vm.stack, *argc)?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = vm
-                            .with_global_slot_mut(name, |obj| {
-                                let old = track.then(|| obj.clone());
-                                let assigned = obj.assign_by_indices(&args, val.clone());
-                                if assigned.is_some()
-                                    && let Some(old) = old
-                                {
-                                    change = Some((old, obj.clone()));
-                                }
-                                assigned
-                            })
-                            .ok_or_else(|| {
-                                not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when assigning to '{name}'"))
-                            })?;
-                        if assigned.is_some() {
-                            vm.stack.push(val);
-                            if let Some((old, new)) = change {
-                                vm.note_global_symbol_write(
-                                    pc,
-                                    name,
-                                    SymbolMutationKind::IndexAssign,
-                                    Some(old),
-                                    new,
-                                );
-                            }
-                        } else {
-                            return Err(invalid_index_assign_err_for_args(
-                                &args,
-                                format!("'{name}'"),
-                            ));
-                        }
+                        execute_index_assign_var(vm, idx, name, *argc, true)?;
                     }
                     Instruction::IndexAssignVarDrop(name) => {
-                        let pc = idx;
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let idx = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = vm
-                            .with_global_slot_mut(name, |obj| {
-                                let old = track.then(|| obj.clone());
-                                let assigned = obj.assign_by_index(&idx, val);
-                                if assigned.is_some()
-                                    && let Some(old) = old
-                                {
-                                    change = Some((old, obj.clone()));
-                                }
-                                assigned
-                            })
-                            .ok_or_else(|| {
-                                not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when assigning to '{name}'"))
-                            })?;
-                        if assigned.is_none() {
-                            return Err(invalid_index_assign_err(&idx, format!("'{name}'")));
-                        }
-                        if let Some((old, new)) = change {
-                            vm.note_global_symbol_write(
-                                pc,
-                                name,
-                                SymbolMutationKind::IndexAssign,
-                                Some(old),
-                                new,
-                            );
-                        }
+                        execute_single_index_assign_var(vm, idx, name, false)?;
                     }
                     Instruction::IndexManyAssignVarDrop(name, argc) => {
-                        let pc = idx;
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let args = take_index_args(&mut vm.stack, *argc)?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = vm
-                            .with_global_slot_mut(name, |obj| {
-                                let old = track.then(|| obj.clone());
-                                let assigned = obj.assign_by_indices(&args, val);
-                                if assigned.is_some()
-                                    && let Some(old) = old
-                                {
-                                    change = Some((old, obj.clone()));
-                                }
-                                assigned
-                            })
-                            .ok_or_else(|| {
-                                not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!("when assigning to '{name}'"))
-                            })?;
-                        if assigned.is_none() {
-                            return Err(invalid_index_assign_err_for_args(
-                                &args,
-                                format!("'{name}'"),
-                            ));
-                        }
-                        if let Some((old, new)) = change {
-                            vm.note_global_symbol_write(
-                                pc,
-                                name,
-                                SymbolMutationKind::IndexAssign,
-                                Some(old),
-                                new,
-                            );
-                        }
+                        execute_index_assign_var(vm, idx, name, *argc, false)?;
                     }
                     Instruction::IndexAssignLocal(slot) => {
-                        let pc = idx;
-                        let slot_num = *slot;
-                        let slot = usize::from(slot_num);
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let idx = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
-                        let slot_note = vm
-                            .local_slot_name(slot)
-                            .map(|name| format!("local slot {slot}: {name}"));
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = {
-                            let frame = vm
-                                .current_locals_mut()
-                                .ok_or_else(|| vm_err("no local frame"))?;
-                            let slot_ref = frame.get_mut(slot).ok_or_else(|| match &slot_note {
-                                Some(note) => {
-                                    vm_err(format!("invalid local slot {slot}")).attach_note(note)
-                                }
-                                None => vm_err(format!("invalid local slot {slot}")),
-                            })?;
-                            let old = track.then(|| slot_ref.read());
-                            let assigned = slot_ref
-                                .with_mut(|target| target.assign_by_index(&idx, val.clone()));
-                            if assigned.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, slot_ref.read()));
-                            }
-                            assigned
-                        };
-                        if assigned.is_some() {
-                            vm.stack.push(val);
-                            if let Some((old, new)) = change {
-                                vm.note_local_symbol_write(
-                                    pc,
-                                    slot_num,
-                                    SymbolMutationKind::IndexAssign,
-                                    Some(old),
-                                    new,
-                                );
-                            }
-                        } else {
-                            return Err(vm.attach_local_slot_note(
-                                slot,
-                                invalid_index_assign_err(&idx, "a local value"),
-                            ));
-                        }
+                        execute_single_index_assign_local(vm, idx, *slot, true)?;
                     }
                     Instruction::IndexManyAssignLocal(slot, argc) => {
-                        let pc = idx;
-                        let slot_num = *slot;
-                        let slot = usize::from(slot_num);
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let args = take_index_args(&mut vm.stack, *argc)?;
-                        let slot_note = vm
-                            .local_slot_name(slot)
-                            .map(|name| format!("local slot {slot}: {name}"));
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = {
-                            let frame = vm
-                                .current_locals_mut()
-                                .ok_or_else(|| vm_err("no local frame"))?;
-                            let slot_ref = frame.get_mut(slot).ok_or_else(|| match &slot_note {
-                                Some(note) => {
-                                    vm_err(format!("invalid local slot {slot}")).attach_note(note)
-                                }
-                                None => vm_err(format!("invalid local slot {slot}")),
-                            })?;
-                            let old = track.then(|| slot_ref.read());
-                            let assigned = slot_ref
-                                .with_mut(|target| target.assign_by_indices(&args, val.clone()));
-                            if assigned.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, slot_ref.read()));
-                            }
-                            assigned
-                        };
-                        if assigned.is_some() {
-                            vm.stack.push(val);
-                            if let Some((old, new)) = change {
-                                vm.note_local_symbol_write(
-                                    pc,
-                                    slot_num,
-                                    SymbolMutationKind::IndexAssign,
-                                    Some(old),
-                                    new,
-                                );
-                            }
-                        } else {
-                            return Err(vm.attach_local_slot_note(
-                                slot,
-                                invalid_index_assign_err_for_args(&args, "a local value"),
-                            ));
-                        }
+                        execute_index_assign_local(vm, idx, *slot, *argc, true)?;
                     }
                     Instruction::IndexAssignCapture(slot) => {
-                        let pc = idx;
-                        let slot_num = *slot;
-                        let slot = usize::from(slot_num);
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let idx = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = {
-                            let captures = vm
-                                .current_captures()
-                                .ok_or_else(|| vm_err("no capture frame"))?;
-                            let cell = captures
-                                .get(slot)
-                                .ok_or_else(|| vm_err(format!("invalid capture slot {slot}")))?;
-                            let mut target = cell.lock().expect("poisoned capture");
-                            let old = track.then(|| target.clone());
-                            let assigned = target.assign_by_index(&idx, val.clone());
-                            if assigned.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, target.clone()));
-                            }
-                            assigned
-                        };
-                        if assigned.is_some() {
-                            vm.stack.push(val);
-                            if let Some((old, new)) = change {
-                                vm.note_capture_symbol_write(
-                                    pc,
-                                    slot_num,
-                                    SymbolMutationKind::IndexAssign,
-                                    Some(old),
-                                    new,
-                                );
-                            }
-                        } else {
-                            return Err(invalid_index_assign_err(&idx, "a captured value"));
-                        }
+                        execute_single_index_assign_capture(vm, idx, *slot, true)?;
                     }
                     Instruction::IndexManyAssignCapture(slot, argc) => {
-                        let pc = idx;
-                        let slot_num = *slot;
-                        let slot = usize::from(slot_num);
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let args = take_index_args(&mut vm.stack, *argc)?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let assigned = {
-                            let captures = vm
-                                .current_captures()
-                                .ok_or_else(|| vm_err("no capture frame"))?;
-                            let cell = captures
-                                .get(slot)
-                                .ok_or_else(|| vm_err(format!("invalid capture slot {slot}")))?;
-                            let mut target = cell.lock().expect("poisoned capture");
-                            let old = track.then(|| target.clone());
-                            let assigned = target.assign_by_indices(&args, val.clone());
-                            if assigned.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, target.clone()));
-                            }
-                            assigned
-                        };
-                        if assigned.is_some() {
-                            vm.stack.push(val);
-                            if let Some((old, new)) = change {
-                                vm.note_capture_symbol_write(
-                                    pc,
-                                    slot_num,
-                                    SymbolMutationKind::IndexAssign,
-                                    Some(old),
-                                    new,
-                                );
-                            }
-                        } else {
-                            return Err(invalid_index_assign_err_for_args(
-                                &args,
-                                "a captured value",
-                            ));
-                        }
+                        execute_index_assign_capture(vm, idx, *slot, *argc, true)?;
                     }
                     Instruction::IndexAssignLocalDrop(slot) => {
-                        let pc = idx;
-                        let slot_n = usize::from(*slot);
-                        let slot_num = *slot;
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let idx = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let success = {
-                            let slot_ref = vm.local_slot_mut(*slot)?;
-                            let old = track.then(|| slot_ref.read());
-                            let success =
-                                slot_ref.with_mut(|target| target.assign_by_index(&idx, val));
-                            if success.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, slot_ref.read()));
-                            }
-                            success
-                        };
-                        if success.is_none() {
-                            return Err(vm.attach_local_slot_note(
-                                slot_n,
-                                invalid_index_assign_err(&idx, "a local value"),
-                            ));
-                        }
-                        if let Some((old, new)) = change {
-                            vm.note_local_symbol_write(
-                                pc,
-                                slot_num,
-                                SymbolMutationKind::IndexAssign,
-                                Some(old),
-                                new,
-                            );
-                        }
-                        // Drop result
+                        execute_single_index_assign_local(vm, idx, *slot, false)?;
                     }
                     Instruction::IndexManyAssignLocalDrop(slot, argc) => {
-                        let pc = idx;
-                        let slot_n = usize::from(*slot);
-                        let slot_num = *slot;
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let args = take_index_args(&mut vm.stack, *argc)?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let success = {
-                            let slot_ref = vm.local_slot_mut(*slot)?;
-                            let old = track.then(|| slot_ref.read());
-                            let success =
-                                slot_ref.with_mut(|target| target.assign_by_indices(&args, val));
-                            if success.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, slot_ref.read()));
-                            }
-                            success
-                        };
-                        if success.is_none() {
-                            return Err(vm.attach_local_slot_note(
-                                slot_n,
-                                invalid_index_assign_err_for_args(&args, "a local value"),
-                            ));
-                        }
-                        if let Some((old, new)) = change {
-                            vm.note_local_symbol_write(
-                                pc,
-                                slot_num,
-                                SymbolMutationKind::IndexAssign,
-                                Some(old),
-                                new,
-                            );
-                        }
+                        execute_index_assign_local(vm, idx, *slot, *argc, false)?;
                     }
                     Instruction::IndexAssignCaptureDrop(slot) => {
-                        let pc = idx;
-                        let slot_num = *slot;
-                        let slot = usize::from(slot_num);
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let idx = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let success = {
-                            let captures = vm
-                                .current_captures()
-                                .ok_or_else(|| vm_err("no capture frame"))?;
-                            let cell = captures
-                                .get(slot)
-                                .ok_or_else(|| vm_err(format!("invalid capture slot {slot}")))?;
-                            let mut target = cell.lock().expect("poisoned capture");
-                            let old = track.then(|| target.clone());
-                            let success = target.assign_by_index(&idx, val);
-                            if success.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, target.clone()));
-                            }
-                            success
-                        };
-                        if success.is_none() {
-                            return Err(invalid_index_assign_err(&idx, "a captured value"));
-                        }
-                        if let Some((old, new)) = change {
-                            vm.note_capture_symbol_write(
-                                pc,
-                                slot_num,
-                                SymbolMutationKind::IndexAssign,
-                                Some(old),
-                                new,
-                            );
-                        }
+                        execute_single_index_assign_capture(vm, idx, *slot, false)?;
                     }
                     Instruction::IndexManyAssignCaptureDrop(slot, argc) => {
-                        let pc = idx;
-                        let slot_num = *slot;
-                        let slot = usize::from(slot_num);
-                        let val = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
-                        let args = take_index_args(&mut vm.stack, *argc)?;
-                        let track = vm.symbol_trackers_enabled();
-                        let mut change = None;
-                        let success = {
-                            let captures = vm
-                                .current_captures()
-                                .ok_or_else(|| vm_err("no capture frame"))?;
-                            let cell = captures
-                                .get(slot)
-                                .ok_or_else(|| vm_err(format!("invalid capture slot {slot}")))?;
-                            let mut target = cell.lock().expect("poisoned capture");
-                            let old = track.then(|| target.clone());
-                            let success = target.assign_by_indices(&args, val);
-                            if success.is_some()
-                                && let Some(old) = old
-                            {
-                                change = Some((old, target.clone()));
-                            }
-                            success
-                        };
-                        if success.is_none() {
-                            return Err(invalid_index_assign_err_for_args(
-                                &args,
-                                "a captured value",
-                            ));
-                        }
-                        if let Some((old, new)) = change {
-                            vm.note_capture_symbol_write(
-                                pc,
-                                slot_num,
-                                SymbolMutationKind::IndexAssign,
-                                Some(old),
-                                new,
-                            );
-                        }
+                        execute_index_assign_capture(vm, idx, *slot, *argc, false)?;
                     }
 
                     Instruction::Postfix(argc) => {
@@ -2048,6 +1605,264 @@ fn index_value_with_args(target: &Value, args: Sv4) -> WqResult<Value> {
     }
 }
 
+fn execute_single_index_assign_var(vm: &mut Vm, pc: usize, name: &str, keep: bool) -> WqResult<()> {
+    let value = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
+    let index = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
+    let result = keep.then(|| value.clone());
+    let track = vm.symbol_trackers_enabled();
+    let mut change = None;
+    let assigned = vm
+        .with_global_slot_mut(name, |target| {
+            let old = track.then(|| target.clone());
+            let assigned = target.assign_by_index(&index, value);
+            if assigned.is_some()
+                && let Some(old) = old
+            {
+                change = Some((old, target.clone()));
+            }
+            assigned
+        })
+        .ok_or_else(|| {
+            not_bound_err(format!("'{name}' has not been bound to a value"))
+                .attach_note(format!("when assigning to '{name}'"))
+        })?;
+    if assigned.is_none() {
+        return Err(invalid_index_assign_err(&index, format!("'{name}'")));
+    }
+    if let Some(value) = result {
+        vm.stack.push(value);
+    }
+    if let Some((old, new)) = change {
+        vm.note_global_symbol_write(pc, name, SymbolMutationKind::IndexAssign, Some(old), new);
+    }
+    Ok(())
+}
+
+fn execute_index_assign_var(
+    vm: &mut Vm,
+    pc: usize,
+    name: &str,
+    argc: usize,
+    keep: bool,
+) -> WqResult<()> {
+    let value = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
+    let args = take_index_args(&mut vm.stack, argc)?;
+    let result = keep.then(|| value.clone());
+    let track = vm.symbol_trackers_enabled();
+    let mut change = None;
+    let assigned = vm
+        .with_global_slot_mut(name, |target| {
+            let old = track.then(|| target.clone());
+            let assigned = target.assign_by_indices(&args, value);
+            if assigned.is_some()
+                && let Some(old) = old
+            {
+                change = Some((old, target.clone()));
+            }
+            assigned
+        })
+        .ok_or_else(|| {
+            not_bound_err(format!("'{name}' has not been bound to a value"))
+                .attach_note(format!("when assigning to '{name}'"))
+        })?;
+    if assigned.is_none() {
+        return Err(invalid_index_assign_err_for_args(
+            &args,
+            format!("'{name}'"),
+        ));
+    }
+    if let Some(value) = result {
+        vm.stack.push(value);
+    }
+    if let Some((old, new)) = change {
+        vm.note_global_symbol_write(pc, name, SymbolMutationKind::IndexAssign, Some(old), new);
+    }
+    Ok(())
+}
+
+fn execute_single_index_assign_local(
+    vm: &mut Vm,
+    pc: usize,
+    slot_num: u16,
+    keep: bool,
+) -> WqResult<()> {
+    let value = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
+    let index = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
+    let result = keep.then(|| value.clone());
+    let track = vm.symbol_trackers_enabled();
+    let mut change = None;
+    let slot = usize::from(slot_num);
+    let assigned = {
+        let slot_ref = vm.local_slot_mut(slot_num)?;
+        let old = track.then(|| slot_ref.read());
+        let assigned = slot_ref.with_mut(|target| target.assign_by_index(&index, value));
+        if assigned.is_some()
+            && let Some(old) = old
+        {
+            change = Some((old, slot_ref.read()));
+        }
+        assigned
+    };
+    if assigned.is_none() {
+        return Err(
+            vm.attach_local_slot_note(slot, invalid_index_assign_err(&index, "a local value"))
+        );
+    }
+    if let Some(value) = result {
+        vm.stack.push(value);
+    }
+    if let Some((old, new)) = change {
+        vm.note_local_symbol_write(
+            pc,
+            slot_num,
+            SymbolMutationKind::IndexAssign,
+            Some(old),
+            new,
+        );
+    }
+    Ok(())
+}
+
+fn execute_index_assign_local(
+    vm: &mut Vm,
+    pc: usize,
+    slot_num: u16,
+    argc: usize,
+    keep: bool,
+) -> WqResult<()> {
+    let value = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
+    let args = take_index_args(&mut vm.stack, argc)?;
+    let result = keep.then(|| value.clone());
+    let track = vm.symbol_trackers_enabled();
+    let mut change = None;
+    let slot = usize::from(slot_num);
+    let assigned = {
+        let slot_ref = vm.local_slot_mut(slot_num)?;
+        let old = track.then(|| slot_ref.read());
+        let assigned = slot_ref.with_mut(|target| target.assign_by_indices(&args, value));
+        if assigned.is_some()
+            && let Some(old) = old
+        {
+            change = Some((old, slot_ref.read()));
+        }
+        assigned
+    };
+    if assigned.is_none() {
+        return Err(vm.attach_local_slot_note(
+            slot,
+            invalid_index_assign_err_for_args(&args, "a local value"),
+        ));
+    }
+    if let Some(value) = result {
+        vm.stack.push(value);
+    }
+    if let Some((old, new)) = change {
+        vm.note_local_symbol_write(
+            pc,
+            slot_num,
+            SymbolMutationKind::IndexAssign,
+            Some(old),
+            new,
+        );
+    }
+    Ok(())
+}
+
+fn execute_single_index_assign_capture(
+    vm: &mut Vm,
+    pc: usize,
+    slot_num: u16,
+    keep: bool,
+) -> WqResult<()> {
+    let value = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
+    let index = pop1_stack(&mut vm.stack, || "index for assignment".into())?;
+    let result = keep.then(|| value.clone());
+    let track = vm.symbol_trackers_enabled();
+    let mut change = None;
+    let slot = usize::from(slot_num);
+    let assigned = {
+        let captures = vm
+            .current_captures()
+            .ok_or_else(|| vm_err("no capture frame"))?;
+        let cell = captures
+            .get(slot)
+            .ok_or_else(|| vm_err(format!("invalid capture slot {slot}")))?;
+        let mut target = cell.lock().expect("poisoned capture");
+        let old = track.then(|| target.clone());
+        let assigned = target.assign_by_index(&index, value);
+        if assigned.is_some()
+            && let Some(old) = old
+        {
+            change = Some((old, target.clone()));
+        }
+        assigned
+    };
+    if assigned.is_none() {
+        return Err(invalid_index_assign_err(&index, "a captured value"));
+    }
+    if let Some(value) = result {
+        vm.stack.push(value);
+    }
+    if let Some((old, new)) = change {
+        vm.note_capture_symbol_write(
+            pc,
+            slot_num,
+            SymbolMutationKind::IndexAssign,
+            Some(old),
+            new,
+        );
+    }
+    Ok(())
+}
+
+fn execute_index_assign_capture(
+    vm: &mut Vm,
+    pc: usize,
+    slot_num: u16,
+    argc: usize,
+    keep: bool,
+) -> WqResult<()> {
+    let value = pop1_stack(&mut vm.stack, || "index assignment value".into())?;
+    let args = take_index_args(&mut vm.stack, argc)?;
+    let result = keep.then(|| value.clone());
+    let track = vm.symbol_trackers_enabled();
+    let mut change = None;
+    let slot = usize::from(slot_num);
+    let assigned = {
+        let captures = vm
+            .current_captures()
+            .ok_or_else(|| vm_err("no capture frame"))?;
+        let cell = captures
+            .get(slot)
+            .ok_or_else(|| vm_err(format!("invalid capture slot {slot}")))?;
+        let mut target = cell.lock().expect("poisoned capture");
+        let old = track.then(|| target.clone());
+        let assigned = target.assign_by_indices(&args, value);
+        if assigned.is_some()
+            && let Some(old) = old
+        {
+            change = Some((old, target.clone()));
+        }
+        assigned
+    };
+    if assigned.is_none() {
+        return Err(invalid_index_assign_err_for_args(&args, "a captured value"));
+    }
+    if let Some(value) = result {
+        vm.stack.push(value);
+    }
+    if let Some((old, new)) = change {
+        vm.note_capture_symbol_write(
+            pc,
+            slot_num,
+            SymbolMutationKind::IndexAssign,
+            Some(old),
+            new,
+        );
+    }
+    Ok(())
+}
+
 // error helpers ===================================
 
 #[inline]
@@ -2095,7 +1910,7 @@ mod tests {
     use crate::session::stdio::{WqIoError, WqOutput};
     use crate::value::func::FunctionData;
     use crate::value::{Value, WqResult, eval_binary};
-    use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
+    use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand, StoreTarget};
     use crate::vm::{FunctionActivation, PreparedInstructions, Slot, Vm};
     use crate::wqdb::data::ChunkId;
     use crate::wqdb::model::SymbolTrackTarget;
@@ -2161,6 +1976,138 @@ mod tests {
         let out = interpreter.interpret(&mut vm, 1).expect("execute");
 
         assert_eq!(out, Value::Int(20));
+    }
+
+    #[test]
+    fn shared_index_assignment_helpers_preserve_all_opcode_modes() {
+        for target in [
+            StoreTarget::Local(0),
+            StoreTarget::Capture(0),
+            StoreTarget::Var("xs".into()),
+        ] {
+            for argc in [1, 2] {
+                for keep in [false, true] {
+                    assert_index_assignment_case(target.clone(), argc, keep);
+                }
+            }
+        }
+    }
+
+    fn assert_index_assignment_case(target: StoreTarget, argc: usize, keep: bool) {
+        let initial = Value::IntList(Arc::new(vec![10, 20]));
+        let expected = if argc == 1 {
+            Value::IntList(Arc::new(vec![10, 99]))
+        } else {
+            Value::IntList(Arc::new(vec![99, 99]))
+        };
+        let indices = if argc == 1 {
+            vec![Value::Int(1)]
+        } else {
+            vec![Value::Int(1), Value::Int(0)]
+        };
+        let mut instructions = indices
+            .into_iter()
+            .map(Instruction::load_const)
+            .collect::<Vec<_>>();
+        instructions.push(Instruction::load_const(Value::Int(99)));
+        instructions.push(index_assignment_instruction(&target, argc, keep));
+        if !keep {
+            instructions.push(match &target {
+                StoreTarget::Local(slot) => Instruction::LoadLocal(*slot),
+                StoreTarget::Capture(slot) => Instruction::LoadCapture(*slot),
+                StoreTarget::Var(name) => Instruction::LoadVar(name.clone()),
+            });
+        }
+        instructions.push(Instruction::Return);
+
+        let instruction_count = instructions.len();
+        let mut vm = Vm::new(instructions);
+        match &target {
+            StoreTarget::Local(_) => set_active_function(
+                &mut vm,
+                vec![Slot::Value(initial.clone())],
+                Value::empty_list(),
+            ),
+            StoreTarget::Capture(_) => {
+                set_active_function(&mut vm, Vec::new(), Value::empty_list());
+                vm.active_function
+                    .as_mut()
+                    .expect("active function")
+                    .captures = Arc::from([Arc::new(Mutex::new(initial.clone()))]);
+            }
+            StoreTarget::Var(name) => {
+                vm.assign_global_and_slot(name, initial.clone());
+            }
+        }
+
+        let mut interpreter = VanillaInterpreter;
+        let result = interpreter
+            .interpret(&mut vm, instruction_count)
+            .expect("execute index assignment");
+
+        let stored = match &target {
+            StoreTarget::Local(slot) => vm
+                .current_locals()
+                .expect("local frame")
+                .get(usize::from(*slot))
+                .expect("local slot")
+                .read(),
+            StoreTarget::Capture(slot) => vm
+                .current_captures()
+                .expect("capture frame")
+                .get(usize::from(*slot))
+                .expect("capture slot")
+                .lock()
+                .expect("poisoned capture")
+                .clone(),
+            StoreTarget::Var(name) => vm.lookup_global_ref(name).expect("global slot").clone(),
+        };
+        let expected_result = if keep {
+            Value::Int(99)
+        } else {
+            expected.clone()
+        };
+        assert_eq!(
+            result, expected_result,
+            "target={target:?}, argc={argc}, keep={keep}"
+        );
+        assert_eq!(
+            stored, expected,
+            "target={target:?}, argc={argc}, keep={keep}"
+        );
+        assert!(
+            vm.stack.is_empty(),
+            "target={target:?}, argc={argc}, keep={keep}"
+        );
+    }
+
+    fn index_assignment_instruction(target: &StoreTarget, argc: usize, keep: bool) -> Instruction {
+        match (target, argc, keep) {
+            (StoreTarget::Local(slot), 1, true) => Instruction::IndexAssignLocal(*slot),
+            (StoreTarget::Local(slot), 1, false) => Instruction::IndexAssignLocalDrop(*slot),
+            (StoreTarget::Local(slot), argc, true) => {
+                Instruction::IndexManyAssignLocal(*slot, argc)
+            }
+            (StoreTarget::Local(slot), argc, false) => {
+                Instruction::IndexManyAssignLocalDrop(*slot, argc)
+            }
+            (StoreTarget::Capture(slot), 1, true) => Instruction::IndexAssignCapture(*slot),
+            (StoreTarget::Capture(slot), 1, false) => Instruction::IndexAssignCaptureDrop(*slot),
+            (StoreTarget::Capture(slot), argc, true) => {
+                Instruction::IndexManyAssignCapture(*slot, argc)
+            }
+            (StoreTarget::Capture(slot), argc, false) => {
+                Instruction::IndexManyAssignCaptureDrop(*slot, argc)
+            }
+            (StoreTarget::Var(name), 1, true) => Instruction::IndexAssignVar(name.clone()),
+            (StoreTarget::Var(name), 1, false) => Instruction::IndexAssignVarDrop(name.clone()),
+            (StoreTarget::Var(name), argc, true) => {
+                Instruction::IndexManyAssignVar(name.clone(), argc)
+            }
+            (StoreTarget::Var(name), argc, false) => {
+                Instruction::IndexManyAssignVarDrop(name.clone(), argc)
+            }
+        }
     }
 
     #[test]
