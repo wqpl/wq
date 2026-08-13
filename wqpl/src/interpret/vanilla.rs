@@ -2656,10 +2656,10 @@ mod tests {
 
     #[test]
     fn booland_lazy_short_circuits_on_false() {
-        // left=false → push false, jump over right operand + BinaryOp to Return
+        // left=false -> push false, jump over right operand + BinaryOp to Return
         let result = run_vm(vec![
             Instruction::load_const(Value::Bool(false)),
-            Instruction::BoolAndLazy(4), // short-circuit → jump to Return
+            Instruction::BoolAndLazy(4), // short-circuit -> jump to Return
             Instruction::load_const(Value::Bool(true)),
             Instruction::BoolCombine(BoolOperator::And),
             Instruction::Return,
@@ -2669,7 +2669,7 @@ mod tests {
 
     #[test]
     fn booland_lazy_no_short_circuit_on_true() {
-        // left=true → continue to evaluate right operand
+        // left=true -> continue to evaluate right operand
         let result = run_vm(vec![
             Instruction::load_const(Value::Bool(true)),
             Instruction::BoolAndLazy(4),
@@ -2682,7 +2682,7 @@ mod tests {
 
     #[test]
     fn boolor_lazy_short_circuits_on_true() {
-        // left=true → push true, jump over right operand + BinaryOp to Return
+        // left=true -> push true, jump over right operand + BinaryOp to Return
         let result = run_vm(vec![
             Instruction::load_const(Value::Bool(true)),
             Instruction::BoolOrLazy(4),
@@ -2695,7 +2695,7 @@ mod tests {
 
     #[test]
     fn boolor_lazy_no_short_circuit_on_false() {
-        // left=false → continue to evaluate right operand
+        // left=false -> continue to evaluate right operand
         let result = run_vm(vec![
             Instruction::load_const(Value::Bool(false)),
             Instruction::BoolOrLazy(4),
@@ -2710,11 +2710,11 @@ mod tests {
 
     #[test]
     fn jumpifge_int_left_greater() {
-        // JumpIfGE: Jump if left >= right. 5 >= 3 → jump.
+        // JumpIfGE: Jump if left >= right. 5 >= 3 -> jump.
         let result = run_vm(vec![
             Instruction::load_const(Value::Int(5)),
             Instruction::load_const(Value::Int(3)),
-            Instruction::JumpIfGE(5), // 5 >= 3 → jump to pc=5 (past LoadConst(99) and Return)
+            Instruction::JumpIfGE(5), // 5 >= 3 -> jump to pc=5 (past LoadConst(99) and Return)
             Instruction::load_const(Value::Int(99)),
             Instruction::Return,
             Instruction::load_const(Value::Int(1)),
@@ -2725,7 +2725,7 @@ mod tests {
 
     #[test]
     fn jumpifge_int_left_equal() {
-        // JumpIfGE: Jump if left >= right. 3 >= 3 → jump (equal counts).
+        // JumpIfGE: Jump if left >= right. 3 >= 3 -> jump (equal counts).
         let result = run_vm(vec![
             Instruction::load_const(Value::Int(3)),
             Instruction::load_const(Value::Int(3)),
@@ -2740,7 +2740,7 @@ mod tests {
 
     #[test]
     fn jumpifge_int_no_jump() {
-        // JumpIfGE: Jump if left >= right. 2 >= 5 → no jump, fall through.
+        // JumpIfGE: Jump if left >= right. 2 >= 5 -> no jump, fall through.
         let result = run_vm(vec![
             Instruction::load_const(Value::Int(2)),
             Instruction::load_const(Value::Int(5)),
@@ -2755,7 +2755,7 @@ mod tests {
 
     #[test]
     fn jumpifge_int_negative() {
-        // JumpIfGE with negative ints. -1 >= -5 → jump.
+        // JumpIfGE with negative ints. -1 >= -5 -> jump.
         let result = run_vm(vec![
             Instruction::load_const(Value::Int(-1)),
             Instruction::load_const(Value::Int(-5)),
