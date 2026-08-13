@@ -984,6 +984,9 @@ mod tests {
         assert_eq!(std::mem::size_of::<StoreTarget>(), 24);
         assert_eq!(std::mem::size_of::<Capture>(), 48);
         assert_eq!(std::mem::size_of::<MutationOp>(), 1);
+        assert_eq!(std::mem::size_of::<BinaryOperator>(), 1);
+        assert_eq!(std::mem::size_of::<BoolOperator>(), 1);
+        assert_eq!(std::mem::size_of::<UnaryOperator>(), 1);
     }
 
     #[test]
