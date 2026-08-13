@@ -1768,6 +1768,54 @@ mod tests {
     }
 
     #[test]
+    fn module_try_survives_successful_tail_callback_before_later_failure() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([(
+            "module",
+            "step:{[x]$[x=2;1/0;x]};callback:{[x]step[x]};caught:@t map[(1;2);callback];caught 0",
+        )]));
+
+        let value = session
+            .eval_string("@i\"module\"")
+            .expect("the module try should catch the second callback failure");
+
+        assert_eq!(value, Value::Tag(Arc::from("error")));
+        assert!(session.debugger().backtrace().is_empty());
+    }
+
+    #[test]
+    fn module_postmortem_keeps_live_local_after_tail_callback_mutation() {
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([(
+            "module",
+            "marker:10;step:{[x]$[x=2;1/0;x]};callback:{[x]'marker+:x;step[x]};map[(1;2);callback]",
+        )]));
+
+        let failure = session
+            .eval_string("@i\"module\"")
+            .expect_err("the second callback should fail");
+        let module = {
+            let debugger = session
+                .postmortem_debugger(&failure)
+                .expect("module failure should provide postmortem state");
+            let module_index = debugger
+                .backtrace()
+                .iter()
+                .position(|frame| frame.function() == "<module module>")
+                .expect("module initializer frame should be present");
+            debugger
+                .frame_locals(module_index)
+                .expect("module initializer locals should be present")
+        };
+
+        assert!(
+            module.locals.contains(&(0, Value::Int(13))),
+            "module marker should retain both callback mutations"
+        );
+        assert!(session.postmortem_available(&failure));
+    }
+
+    #[test]
     fn execution_reset_preserves_modules_and_workspace_reset_clears_them() {
         let resolver = TestModuleResolver::new([("counter", "n:0;'{n+:1}")]);
         let mut session = Session::new();

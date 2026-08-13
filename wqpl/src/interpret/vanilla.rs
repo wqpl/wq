@@ -145,7 +145,6 @@ impl VanillaInterpreter {
         loop {
             match self.interpret_inner(vm, limit, control) {
                 Ok(InterpretPoll::Ready(value)) => {
-                    Self::discard_current_try_frames(vm);
                     return Ok(InterpretPoll::Ready(value));
                 }
                 Ok(
