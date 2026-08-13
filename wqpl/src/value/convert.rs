@@ -60,11 +60,11 @@ impl Value {
 
     /// Try to flatten a value into a Rust [`String`].
     ///
-    /// - `Char` → single-character string
-    /// - `String` → cloned string
-    /// - `List` where every element is string-like → concatenated string
-    /// - empty list containers → empty string
-    /// - everything else → `None`
+    /// - `Char` -> single-character string
+    /// - `String` -> cloned string
+    /// - `List` where every element is string-like -> concatenated string
+    /// - empty list containers -> empty string
+    /// - everything else -> `None`
     pub(crate) fn try_flatten_to_rust_string(&self) -> Option<String> {
         match self {
             Value::Char(value) => Some(value.to_string()),

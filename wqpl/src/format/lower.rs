@@ -1,4 +1,4 @@
-//! CST → [`Doc`] lowering.
+//! CST -> [`Doc`] lowering.
 //!
 //! Walks a [`SyntaxNode`] tree and emits a [`Doc`] that, when rendered,
 //! produces the formatted source. Every CST node kind has a corresponding

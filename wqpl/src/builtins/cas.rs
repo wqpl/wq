@@ -555,7 +555,7 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
         }
     }
 
-    // Build product: ∏ factor^mult
+    // Build product: product(factor^mult)
     let mut factors: Vec<Value> = Vec::new();
     let original_lead = coeffs.last().expect("non-constant poly has lead");
     let product_lead = product_poly
@@ -599,13 +599,13 @@ fn factor_polynomial_full(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
     crate::cas::integrate::rational::factor_polynomial(poly)
 }
 
-/// Factor a quadratic ax²+bx+c over Q. Checks discriminant b²-4ac.
+/// Factor a quadratic ax^2+bx+c over Q. Checks discriminant b^2-4ac.
 fn factor_quadratic(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
     let a = poly.get(2).cloned().unwrap_or(Value::Int(1));
     let b = poly.get(1).cloned().unwrap_or(Value::Int(0));
     let c = poly.first().cloned().unwrap_or(Value::Int(0));
 
-    // Discriminant D = b² - 4ac
+    // Discriminant D = b^2 - 4ac
     let b_sq =
         crate::cas::eval_numeric_binary("*", &b, &b).map_err(|e| e.src(BuiltinEnum::Factor))?;
     let four_ac = crate::cas::eval_numeric_binary(
@@ -632,7 +632,7 @@ fn factor_quadratic(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
         return Ok(vec![poly.to_vec()]); // not a perfect square
     }
 
-    // Roots: (-b ± √D) / (2a)
+    // Roots: (-b +/- sqrt(D)) / (2a)
     let sqrt_d = Value::from_fraction_parts(sqrt_num, sqrt_den);
     let neg_b = crate::cas::eval_numeric_binary("*", &b, &Value::Int(-1))
         .map_err(|e| e.src(BuiltinEnum::Factor))?;
@@ -698,7 +698,7 @@ fn factor_poly_complex_coeff(value: &Value) -> WqResult<num_complex::Complex64> 
     })
 }
 
-/// Factor a quadratic ax²+bx+c over C using the quadratic formula.
+/// Factor a quadratic ax^2+bx+c over C using the quadratic formula.
 /// Handles negative discriminants by producing Complex roots.
 fn factor_quadratic_complex(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
     use num_complex::Complex64;

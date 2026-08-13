@@ -123,7 +123,7 @@ pub(crate) enum Bc2Stop {
 
 impl Value {
     // ---------------------------------------------------------------------------
-    // bc1 – unary broadcasting
+    // bc1 - unary broadcasting
     // ---------------------------------------------------------------------------
 
     pub(crate) fn bc1<F>(&self, mut f: F) -> BcResult<Value>
@@ -313,7 +313,7 @@ impl Value {
 }
 
 // ---------------------------------------------------------------------------
-// bc2 helpers – eliminate the left/right atom duplication in the original
+// bc2 helpers - eliminate the left/right atom duplication in the original
 // ---------------------------------------------------------------------------
 
 /// Left operand is an atom, right is a container
@@ -925,7 +925,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// bc2 – binary broadcasting
+// bc2 - binary broadcasting
 // ---------------------------------------------------------------------------
 
 impl Value {

@@ -66,8 +66,8 @@ impl Formatter {
 
     /// Format one expression-block's worth of wq source.
     ///
-    /// Pipeline: lex → parser → either wrap-only source preservation, or CST
-    /// root → Doc IR → width-aware render. The AST is parsed alongside as a
+    /// Pipeline: lex -> parser -> either wrap-only source preservation, or CST
+    /// root -> Doc IR -> width-aware render. The AST is parsed alongside as a
     /// witness for the CST construction's correctness; it is not consumed here.
     fn format_source(&self, src: &str) -> WqResult<String> {
         use crate::cst::SyntaxNode;

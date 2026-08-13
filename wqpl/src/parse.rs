@@ -1757,7 +1757,7 @@ impl Parser {
         if items.len() == 1 {
             return Ok(items.pop().expect("len == 1"));
         }
-        // Merge List nodes: [1;2],[3;4] → [1;2;3;4]
+        // Merge List nodes: [1;2],[3;4] -> [1;2;3;4]
         if items.iter().all(|item| matches!(item, AstNode::List(..))) {
             let mut merged = vec![];
             for item in items {
@@ -3166,7 +3166,7 @@ impl Parser {
     }
 
     /// Recursively add `offset` to every span in an AST so that sub-expressions
-    /// parsed from a snippet (e.g. inside an f-string `{…}`) map back to the
+    /// parsed from a snippet (e.g. inside an f-string `{...}`) map back to the
     /// correct positions in the original source.
     pub(crate) fn offset_spans(node: &mut AstNode, offset: usize) {
         #![deny(clippy::wildcard_enum_match_arm)]

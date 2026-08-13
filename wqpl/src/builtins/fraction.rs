@@ -260,7 +260,7 @@ fn parse_decimal_fraction(s: &str) -> Option<(BigInt, BigInt)> {
     let int_part = &rest[..dot_idx];
     let frac_part = &rest[dot_idx + 1..];
 
-    // Reject scientific notation (e.g. "1.2e3") – fall back to f64 path.
+    // Reject scientific notation (e.g. "1.2e3") - fall back to f64 path.
     if rest.contains('e') || rest.contains('E') {
         return None;
     }

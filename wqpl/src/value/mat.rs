@@ -139,7 +139,7 @@ fn extract_float_rows(v: &Value) -> Option<Vec<FloatRow<'_>>> {
     }
 }
 
-/// K tiling size: keeps B tile (TILE_K × N × 8 bytes) in L2 cache.
+/// K tiling size: keeps B tile (TILE_K x N x 8 bytes) in L2 cache.
 const TILE_K: usize = 64;
 
 /// Lightweight sequence accessor that avoids recursive `index_path` traversal.
@@ -459,7 +459,7 @@ fn build_batched(ctx: &MmCtx<'_>, out_idx: &[usize]) -> WqResult<Value> {
     Ok(Value::from_items(items?))
 }
 
-/// Fast path: dot product of two IntList vectors (rank 1 × rank 1).
+/// Fast path: dot product of two IntList vectors (rank 1 x rank 1).
 fn mm_intlist_dot(a: &Value, b: &Value, k: usize) -> Option<WqResult<Value>> {
     let a_slice = as_int_slice(a)?;
     let b_slice = as_int_slice(b)?;
@@ -473,7 +473,7 @@ fn mm_intlist_dot(a: &Value, b: &Value, k: usize) -> Option<WqResult<Value>> {
     Some(Ok(acc.into_value()))
 }
 
-/// Fast path: matrix-vector (M×K × K → M) where A is `List(IntList)`, B is
+/// Fast path: matrix-vector (M x K * K -> M) where A is `List(IntList)`, B is
 /// `IntList`.
 fn mm_intlist_mv(a: &Value, b: &Value, m: usize, k: usize) -> Option<WqResult<Value>> {
     let a_int_rows = extract_int_rows(a)?;
@@ -495,7 +495,7 @@ fn mm_intlist_mv(a: &Value, b: &Value, m: usize, k: usize) -> Option<WqResult<Va
     Some(Ok(Value::from_items(result)))
 }
 
-/// Fast path: vector-matrix (K × K×N → N) where A is `IntList`, B is
+/// Fast path: vector-matrix (K * K x N -> N) where A is `IntList`, B is
 /// `List(IntList)`. Loop interchange + K tiling for cache-friendly sequential
 /// access.
 fn mm_intlist_vm(a: &Value, b: &Value, k: usize, n: usize) -> Option<WqResult<Value>> {
@@ -580,7 +580,7 @@ fn mm_float_dot(a: &Value, b: &Value, k: usize) -> Option<WqResult<Value>> {
     Some(Ok(Value::Float(OrderedFloat(acc))))
 }
 
-/// Fast path: matrix-vector (M×K × K → M) with native f64 arithmetic.
+/// Fast path: matrix-vector (M x K * K -> M) with native f64 arithmetic.
 fn mm_float_mv(a: &Value, b: &Value, m: usize, k: usize) -> Option<WqResult<Value>> {
     let a_rows = extract_float_rows(a)?;
     let b_vals = as_float_row(b)?;
@@ -601,7 +601,7 @@ fn mm_float_mv(a: &Value, b: &Value, m: usize, k: usize) -> Option<WqResult<Valu
     Some(Ok(Value::FloatList(Arc::new(result))))
 }
 
-/// Fast path: vector-matrix (K × K×N → N) with native f64 arithmetic.
+/// Fast path: vector-matrix (K * K x N -> N) with native f64 arithmetic.
 /// Loop interchange + K tiling for sequential B access.
 fn mm_float_vm(a: &Value, b: &Value, k: usize, n: usize) -> Option<WqResult<Value>> {
     let a_vals = as_float_row(a)?;
@@ -626,7 +626,7 @@ fn mm_float_vm(a: &Value, b: &Value, k: usize, n: usize) -> Option<WqResult<Valu
 }
 
 /// Fast path for 2D Float matrix multiplication with native f64 arithmetic.
-/// Loop interchange (i → kk → j) + K tiling.
+/// Loop interchange (i -> kk -> j) + K tiling.
 fn mm_float_mm(a: &Value, b: &Value, m: usize, k: usize, n: usize) -> Option<WqResult<Value>> {
     let a_rows = extract_float_rows(a)?;
     let b_rows = extract_float_rows(b)?;

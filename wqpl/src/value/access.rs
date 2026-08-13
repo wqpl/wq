@@ -2196,7 +2196,7 @@ mod tests {
         let keys = Value::IntList(Arc::new(vec![1, 3]));
         let vals = Value::List(Arc::new(vec![Value::Char('a'), Value::Char('b')]));
         assert_eq!(s.assign_by_index(&keys, vals), Some(()));
-        // h e l l o → h a l b o
+        // h e l l o -> h a l b o
         assert_eq!(s.to_string(), "\"halbo\"");
     }
 
