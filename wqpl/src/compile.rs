@@ -14,7 +14,8 @@ use crate::value::func::FunctionData;
 use crate::value::unpack::{UnpackPathSegment, extract_path as extract_unpack_path};
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{
-    Capture, DebugStmtMark, ImportData, Instruction, MutationOp, Operand, StoreTarget, UnpackPlan,
+    Capture, DebugStmtMark, ImportData, Instruction, MutationOp, NamedArgMeta, Operand,
+    StoreTarget, UnpackPlan,
 };
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -210,6 +211,9 @@ impl Compiler {
                     (!self.builtins.has_function(name)).then(|| (name.to_string(), None))
                 }
                 Instruction::LoadCallTarget(operand) => self.ambient_global_from_operand(operand),
+                Instruction::NamedCall { call, .. } => {
+                    self.first_ambient_global(std::slice::from_ref(call.as_ref()))
+                }
                 Instruction::UnaryOp(data) => self.ambient_global_from_operand(&data.operand),
                 Instruction::BinaryOp(data) => self
                     .ambient_global_from_operand(&data.left)
@@ -459,9 +463,9 @@ impl Compiler {
         }
     }
 
-    /// Compile call arguments to the stack.  If any are `NamedArg` nodes,
-    /// collect the metadata and emit `SetupNamedCall` for the VM.
-    fn compile_call_args(&mut self, args: &[AstNode]) -> WqResult<()> {
+    /// Compile call arguments to the stack and return any named-argument
+    /// metadata.
+    fn compile_call_args(&mut self, args: &[AstNode]) -> WqResult<Option<Arc<NamedArgMeta>>> {
         let mut named_args: Vec<(u16, Arc<str>)> = Vec::new();
         let mut seen_named = IndexSet::new();
         for (i, arg) in args.iter().enumerate() {
@@ -488,22 +492,21 @@ impl Compiler {
             }
         }
 
-        if !named_args.is_empty() {
-            self.instructions
-                .push(Instruction::PrepareNamedArgs(Arc::new(
-                    crate::vm::inst::NamedArgMeta {
-                        pos_count,
-                        named: named_args.into_boxed_slice(),
-                    },
-                )));
-        }
-
-        Ok(())
+        Ok((!named_args.is_empty()).then(|| {
+            Arc::new(NamedArgMeta {
+                pos_count,
+                named: named_args.into_boxed_slice(),
+            })
+        }))
     }
 
     fn compile_index_args(&mut self, index: &AstNode) -> WqResult<usize> {
         if let Some(items) = Self::synthetic_index_items(index) {
-            self.compile_call_args(items)?;
+            if self.compile_call_args(items)?.is_some() {
+                return Err(self.internal_err_here(
+                    "internal compiler error while compiling named arguments as indexes",
+                ));
+            }
             Ok(items.len())
         } else {
             self.compile_expr(index)?;
@@ -1009,14 +1012,20 @@ impl Compiler {
         self.dbg_pc_spans.push(None);
     }
 
-    fn builtin_call_inst(&self, id: usize, argc: usize) -> Instruction {
+    fn builtin_call_inst(
+        &self,
+        id: usize,
+        argc: usize,
+        named: Option<Arc<NamedArgMeta>>,
+    ) -> Instruction {
         let id = u16::try_from(id).expect("builtin id overflow");
         let argc = u16::try_from(argc).expect("argc overflow");
-        if !self.value_needed && Builtins::has_discard_fn_from_id(id) {
+        let call = if !self.value_needed && Builtins::has_discard_fn_from_id(id) {
             Instruction::CallBuiltinDiscardId(id, argc)
         } else {
             Instruction::CallBuiltinId(id, argc)
-        }
+        };
+        call.with_named_args(named)
     }
 
     fn stmt_span_count(node: &AstNode) -> usize {
@@ -1559,22 +1568,21 @@ impl Compiler {
             } => {
                 let start = self.instructions.len();
                 if let Some(id) = self.builtins.get_id(name) {
-                    self.compile_call_args(args)?;
+                    let named = self.compile_call_args(args)?;
                     self.instructions
-                        .push(self.builtin_call_inst(id, args.len()));
+                        .push(self.builtin_call_inst(id, args.len(), named));
                 } else {
                     let target = self.operand_for_name(name)?;
                     self.instructions.push(Instruction::LoadCallTarget(target));
-                    self.compile_call_args(args)?;
-                    if self.fn_depth == 0 {
-                        self.instructions
-                            .push(Instruction::CallUser(name.clone().into(), args.len()));
+                    let named = self.compile_call_args(args)?;
+                    let call = if self.fn_depth == 0 {
+                        Instruction::CallUser(name.clone().into(), args.len())
                     } else if self.is_local(name) && self.fn_locals.contains(name) {
-                        self.instructions
-                            .push(Instruction::CallLocal(self.locals[name], args.len()));
+                        Instruction::CallLocal(self.locals[name], args.len())
                     } else {
-                        self.instructions.push(Instruction::Postfix(args.len()));
-                    }
+                        Instruction::Postfix(args.len())
+                    };
+                    self.instructions.push(call.with_named_args(named));
                 }
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
@@ -1582,8 +1590,9 @@ impl Compiler {
             AstNode::CallAnonymous { object, args, span } => {
                 let start = self.instructions.len();
                 self.compile_expr(object)?;
-                self.compile_call_args(args)?;
-                self.instructions.push(Instruction::CallAnon(args.len()));
+                let named = self.compile_call_args(args)?;
+                self.instructions
+                    .push(Instruction::CallAnon(args.len()).with_named_args(named));
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
             }
@@ -1612,9 +1621,9 @@ impl Compiler {
                     let sugar = self.builtins.depth_sugar_from_id(id);
                     let args =
                         self.expand_depth_sugar_args(name, sugar, items.to_vec(), *depth, *span)?;
-                    self.compile_call_args(&args)?;
+                    let named = self.compile_call_args(&args)?;
                     self.instructions
-                        .push(self.builtin_call_inst(id, args.len()));
+                        .push(self.builtin_call_inst(id, args.len(), named));
                     let end = self.instructions.len();
                     self.fill_span_range(start, end, *span);
                     return Ok(());
@@ -1626,14 +1635,15 @@ impl Compiler {
 
                 if let Some(id) = builtin_id {
                     // Builtin call: don't compile the callee, only the args
-                    self.compile_call_args(items)?;
+                    let named = self.compile_call_args(items)?;
                     self.instructions
-                        .push(self.builtin_call_inst(id, items.len()));
+                        .push(self.builtin_call_inst(id, items.len(), named));
                 } else {
                     // Non-builtin: compile the callee first, then the args
                     self.compile_expr(object)?;
-                    self.compile_call_args(items)?;
-                    self.instructions.push(Instruction::Postfix(items.len()));
+                    let named = self.compile_call_args(items)?;
+                    self.instructions
+                        .push(Instruction::Postfix(items.len()).with_named_args(named));
                 }
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
@@ -5264,6 +5274,66 @@ mod tests {
 
         assert_eq!(err.err_type, WqErrorType::Syntax);
         assert_eq!(err.msg.as_deref(), Some("duplicate named argument 'x'"));
+    }
+
+    #[test]
+    fn named_call_carries_source_order_metadata_without_an_extra_instruction() {
+        let named = compile_source("f:{[a;b;`x:0;`y:0]a+b+x+y};f[1;`y:4;2;`x:3]");
+        let positional = compile_source("f:{[a;b;`x:0;`y:0]a+b+x+y};f[1;4;2;3]");
+        let (call, meta) = named
+            .iter()
+            .find_map(|instruction| match instruction {
+                Instruction::NamedCall { call, meta } => Some((call.as_ref(), meta)),
+                _ => None,
+            })
+            .expect("named call instruction");
+
+        assert!(matches!(
+            call,
+            Instruction::CallUser(name, 4) if name.as_ref() == "f"
+        ));
+        assert_eq!(meta.pos_count, 2);
+        assert_eq!(
+            meta.named.as_ref(),
+            &[(1, Arc::from("y")), (3, Arc::from("x"))]
+        );
+        assert_eq!(named.len(), positional.len());
+        assert!(positional.iter().any(
+            |instruction| matches!(instruction, Instruction::CallUser(name, 4)
+                    if name.as_ref() == "f")
+        ));
+    }
+
+    #[test]
+    fn named_metadata_wraps_every_non_tail_call_form() {
+        let builtin = compile_source("echo[1;`sep:\",\"]");
+        assert!(builtin.iter().any(|instruction| matches!(
+            instruction,
+            Instruction::NamedCall { call, .. }
+                if matches!(call.as_ref(), Instruction::CallBuiltinId(_, 2))
+        )));
+
+        let anonymous = compile_source("{[x;`y:0]x+y}[1;`y:2]");
+        assert!(anonymous.iter().any(|instruction| matches!(
+            instruction,
+            Instruction::NamedCall { call, .. }
+                if matches!(call.as_ref(), Instruction::CallAnon(2))
+        )));
+
+        let dynamic = compile_source("d:(`f:{[x;`y:0]x+y});d[`f][1;`y:2]");
+        assert!(dynamic.iter().any(|instruction| matches!(
+            instruction,
+            Instruction::NamedCall { call, .. }
+                if matches!(call.as_ref(), Instruction::Postfix(2))
+        )));
+
+        let top = compile_source("outer:{[]f:{[x;`y:0]x+y};f[1;`y:2];0};outer[]");
+        let outer = compiled_function_in(&top);
+        assert!(outer.instructions.iter().any(|instruction| matches!(
+            instruction,
+            Instruction::NamedCall { call, .. }
+                if matches!(call.as_ref(), Instruction::CallLocal(_, 2))
+        )));
     }
 
     #[test]

@@ -270,9 +270,11 @@ pub(crate) enum Instruction {
     Pause,
     Try(usize),
     Import(Box<ImportData>),
-    /// Store named-argument metadata into the VM.  The next call
-    /// instruction consumes it (and clears it after the call).
-    PrepareNamedArgs(Arc<NamedArgMeta>),
+    /// A call carrying its named-argument metadata.
+    NamedCall {
+        call: Box<Instruction>,
+        meta: Arc<NamedArgMeta>,
+    },
     /// Store into a captured variable slot
     StoreCapture(u16),
 }
@@ -284,6 +286,23 @@ impl Instruction {
 
     pub(crate) fn load_closure(payload: ClosurePayload) -> Self {
         Self::LoadClosure(Box::new(payload))
+    }
+
+    pub(crate) fn with_named_args(self, meta: Option<Arc<NamedArgMeta>>) -> Self {
+        match meta {
+            Some(meta) => Self::NamedCall {
+                call: Box::new(self),
+                meta,
+            },
+            None => self,
+        }
+    }
+
+    pub(crate) fn call_instruction(&self) -> &Self {
+        match self {
+            Self::NamedCall { call, .. } => call,
+            _ => self,
+        }
     }
 
     pub(crate) fn binary_op(op: BinaryOperator, left: Operand, right: Operand) -> Self {
@@ -341,6 +360,9 @@ impl Instruction {
     /// result is delivered to the caller's stack instead), so they are
     /// excluded.
     pub(crate) fn is_trace_interesting(&self) -> bool {
+        if let Self::NamedCall { call, .. } = self {
+            return call.is_trace_interesting();
+        }
         use Instruction as I;
         matches!(
             self,
@@ -398,6 +420,9 @@ enum InstClass {
 }
 
 fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
+    if let Instruction::NamedCall { call, .. } = inst {
+        return classify(call);
+    }
     use InstClass::*;
     use Instruction as I;
     match inst {
@@ -452,8 +477,6 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
 
         I::IndexMutate { .. } => (Store, false),
 
-        I::PrepareNamedArgs(_) => (Stack, false),
-
         // Stack-ish
         I::Unpack(_)
         | I::EndUnpack
@@ -492,6 +515,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
 
         // Try
         I::Try(_) => (Try, false),
+        I::NamedCall { .. } => unreachable!("named call was unwrapped before classification"),
         // Fallback
         // _ => (Other, false),
     }
@@ -707,6 +731,11 @@ impl InstPrettyDumper {
         locals_names: Option<&[String]>,
         captures_spec: Option<&[Capture]>,
     ) -> Vec<String> {
+        let named_meta = match inst {
+            Instruction::NamedCall { meta, .. } => Some(meta),
+            _ => None,
+        };
+        let inst = inst.call_instruction();
         let mut parts = Vec::new();
 
         // Jump label
@@ -729,6 +758,14 @@ impl InstPrettyDumper {
             if let Some(name) = Builtins::NAMES.get(idx) {
                 parts.push((*name).to_string());
             }
+        }
+
+        if let Some(meta) = named_meta {
+            parts.push(format!(
+                "named(pos={}, count={})",
+                meta.pos_count,
+                meta.named.len()
+            ));
         }
 
         // Local slot names
@@ -856,6 +893,7 @@ impl InstPrettyDumper {
     }
 
     pub(crate) fn highlight_inst(&self, inst: &Instruction) -> String {
+        let inst = inst.call_instruction();
         let s = format!("{inst:?}");
         let s: String = s.chars().collect();
         // Split off the opcode token to style only it
@@ -918,6 +956,7 @@ impl InstPrettyDumper {
 
     fn jump_target(inst: &Instruction) -> Option<usize> {
         match inst {
+            Instruction::NamedCall { call, .. } => Self::jump_target(call),
             Instruction::Jump(target)
             | Instruction::JumpIfFalse(target)
             | Instruction::JumpIfGE(target)
@@ -996,5 +1035,27 @@ mod tests {
             .expect("instruction should render");
 
         assert_eq!(rendered, "LoadLocal(0)  // answer");
+    }
+
+    #[test]
+    fn named_call_renders_and_classifies_as_its_call() {
+        let instructions = [
+            Instruction::CallUser(Arc::from("f"), 2).with_named_args(Some(Arc::new(
+                NamedArgMeta {
+                    pos_count: 1,
+                    named: vec![(1, Arc::from("limit"))].into_boxed_slice(),
+                },
+            ))),
+        ];
+
+        let rendered = InstPrettyDumper::new(true, false)
+            .render_at(&instructions, 0, None)
+            .expect("instruction should render");
+        let described = InstPrettyDumper::describe_at(&instructions, 0, None)
+            .expect("instruction should be described");
+
+        assert_eq!(rendered, "CallUser(\"f\", 2)  // named(pos=1, count=1)");
+        assert_eq!(described.opcode, "CallUser");
+        assert_eq!(described.class, InstructionClass::Call);
     }
 }

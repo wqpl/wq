@@ -262,13 +262,20 @@ impl VanillaInterpreter {
                 let idx = vm.pc;
                 vm.pc += 1;
                 control.work_units += 1;
-                let op = &instructions[idx];
+                let encoded_op = &instructions[idx];
                 // Mark the trace probe before dispatch. Some call arms continue after a
                 // synchronous push, so the next loop iteration handles the flush.
-                if vm.trace_depth > 0 && op.is_trace_interesting() {
+                if vm.trace_depth > 0 && encoded_op.is_trace_interesting() {
                     vm.pending_trace_probe = Some(idx);
                 }
-                hooks.before_instruction(vm, idx, op);
+                hooks.before_instruction(vm, idx, encoded_op);
+                let op = match encoded_op {
+                    Instruction::NamedCall { call, meta } => {
+                        vm.pending_named_meta = Some(meta.clone());
+                        call.as_ref()
+                    }
+                    _ => encoded_op,
+                };
                 match op {
                     Instruction::LoadConst(v) => {
                         let val = (**v).clone();
@@ -1481,10 +1488,6 @@ impl VanillaInterpreter {
                         vm.stack.push(res);
                     }
 
-                    Instruction::PrepareNamedArgs(meta) => {
-                        vm.pending_named_meta = Some(meta.clone());
-                    }
-
                     Instruction::CmpChain(ops) => {
                         let ops = ops.as_ref();
                         let need = ops.len() + 1;
@@ -1569,6 +1572,9 @@ impl VanillaInterpreter {
                             .emit_line(render_trace_line(vm, idx, value, &records));
                     }
                     Instruction::Pause => {}
+                    Instruction::NamedCall { .. } => {
+                        unreachable!("named call was unwrapped before dispatch")
+                    }
                 }
             }
 
@@ -2204,6 +2210,45 @@ mod tests {
         );
         let mut interpreter = VanillaInterpreter;
         interpreter.interpret(&mut vm, len)
+    }
+
+    #[test]
+    fn named_call_installs_and_consumes_metadata_in_one_dispatch() {
+        let function = Value::CompiledFunction(Arc::new(FunctionData {
+            params: Some(Arc::from(["x".to_string()])),
+            named_params: Some(Arc::from([Arc::<str>::from("y")])),
+            locals: 3,
+            isolated_module: false,
+            instructions: Arc::from([Instruction::LoadLocal(1), Instruction::Return]),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }));
+        let named_call = Instruction::CallAnon(2).with_named_args(Some(Arc::new(
+            crate::vm::inst::NamedArgMeta {
+                pos_count: 1,
+                named: vec![(1, Arc::from("y"))].into_boxed_slice(),
+            },
+        )));
+        let instructions = vec![
+            Instruction::load_const(function),
+            Instruction::load_const(Value::Int(1)),
+            Instruction::load_const(Value::Int(9)),
+            named_call,
+            Instruction::Return,
+        ];
+        let mut vm = Vm::new(instructions);
+        let mut interpreter = VanillaInterpreter;
+
+        let result = interpreter.interpret(&mut vm, 5).expect("execute");
+
+        assert_eq!(result, Value::Int(9));
+        assert!(vm.pending_named_meta.is_none());
+        assert!(vm.stack.is_empty());
     }
 
     fn capture_store_vm(keep: bool, slot: u16) -> (Vm, Arc<Mutex<Value>>) {

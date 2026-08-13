@@ -341,6 +341,7 @@ fn analyze(
 fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, State)> {
     use Instruction as I;
     match inst {
+        I::NamedCall { call, .. } => transfer(pc, call, state),
         I::LoadConst(value) => {
             state.push(Some((**value).clone()));
             fallthrough(pc, state)
@@ -819,7 +820,7 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             fallthrough(pc, state)
         }
         I::Return => Vec::new(),
-        I::Debug | I::Pause | I::TraceBegin | I::PrepareNamedArgs(_) => fallthrough(pc, state),
+        I::Debug | I::Pause | I::TraceBegin => fallthrough(pc, state),
         I::Try(len) => {
             let end = pc + 1 + len;
             let mut out = Vec::new();
@@ -1208,6 +1209,7 @@ fn note_inst_locals(inst: &Instruction, count: &mut usize) {
     use Instruction as I;
     match inst {
         I::LoadCallTarget(operand) => note_operand_locals(operand, count),
+        I::NamedCall { call, .. } => note_inst_locals(call, count),
         I::LoadLocal(slot)
         | I::StoreLocal(slot)
         | I::StoreLocalKeep(slot)
@@ -1263,6 +1265,7 @@ fn note_inst_captures(inst: &Instruction, count: &mut usize) {
     use Instruction as I;
     match inst {
         I::LoadCallTarget(operand) => note_operand_captures(operand, count),
+        I::NamedCall { call, .. } => note_inst_captures(call, count),
         I::LoadCapture(slot)
         | I::StoreCapture(slot)
         | I::StoreCaptureKeep(slot)
@@ -1308,6 +1311,28 @@ fn note_slot(slot: u16, count: &mut usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vm::inst::NamedArgMeta;
+
+    #[test]
+    fn named_call_dataflow_uses_the_wrapped_call_stack_effect() {
+        let call = Instruction::CallLocal(4, 2).with_named_args(Some(Arc::new(NamedArgMeta {
+            pos_count: 1,
+            named: vec![(1, Arc::from("limit"))].into_boxed_slice(),
+        })));
+        let code = vec![
+            Instruction::LoadLocal(4),
+            Instruction::load_const(Value::Int(1)),
+            Instruction::load_const(Value::Int(2)),
+            call,
+            Instruction::Return,
+        ];
+
+        let states = analyze(&code, 5, 0, Vec::new(), IndexMap::new());
+        let state_after_call = states[4].as_ref().expect("reachable return");
+
+        assert_eq!(state_after_call.stack, Some(vec![None]));
+        assert_eq!(inferred_local_count(&code), 5);
+    }
 
     #[test]
     fn capture_store_dataflow_models_both_stack_effects() {

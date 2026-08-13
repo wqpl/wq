@@ -93,15 +93,7 @@ fn rewrite_tail_calls_in_slice(code: &mut [Instruction]) {
             continue;
         }
 
-        let tail = match &code[idx] {
-            Instruction::CallLocal(slot, argc) => Some(Instruction::TailCallLocal(*slot, *argc)),
-            Instruction::CallUser(name, argc) => {
-                Some(Instruction::TailCallUser(name.clone(), *argc))
-            }
-            Instruction::CallAnon(argc) => Some(Instruction::TailCallAnon(*argc)),
-            Instruction::Postfix(argc) => Some(Instruction::TailPostfix(*argc)),
-            _ => None,
-        };
+        let tail = tail_call_instruction(&code[idx]);
 
         if let Some(tail_inst) = tail {
             code[idx] = tail_inst;
@@ -110,10 +102,27 @@ fn rewrite_tail_calls_in_slice(code: &mut [Instruction]) {
     }
 }
 
+fn tail_call_instruction(instruction: &Instruction) -> Option<Instruction> {
+    match instruction {
+        Instruction::CallLocal(slot, argc) => Some(Instruction::TailCallLocal(*slot, *argc)),
+        Instruction::CallUser(name, argc) => Some(Instruction::TailCallUser(name.clone(), *argc)),
+        Instruction::CallAnon(argc) => Some(Instruction::TailCallAnon(*argc)),
+        Instruction::Postfix(argc) => Some(Instruction::TailPostfix(*argc)),
+        Instruction::NamedCall { call, meta } => {
+            tail_call_instruction(call).map(|call| Instruction::NamedCall {
+                call: Box::new(call),
+                meta: meta.clone(),
+            })
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::value::Value;
+    use crate::vm::inst::NamedArgMeta;
 
     fn create_test_function(instructions: Vec<Instruction>) -> Value {
         Value::CompiledFunction(Arc::new(FunctionData {
@@ -175,6 +184,53 @@ mod tests {
             }
         } else {
             panic!("Expected LoadConst");
+        }
+    }
+
+    #[test]
+    fn named_tail_call_rewrite_preserves_metadata_for_every_call_form() {
+        let meta = Arc::new(NamedArgMeta {
+            pos_count: 1,
+            named: vec![(1, Arc::from("limit"))].into_boxed_slice(),
+        });
+
+        for (call, expected) in [
+            (
+                Instruction::CallLocal(3, 2),
+                Instruction::TailCallLocal(3, 2),
+            ),
+            (
+                Instruction::CallUser(Arc::from("f"), 2),
+                Instruction::TailCallUser(Arc::from("f"), 2),
+            ),
+            (Instruction::CallAnon(2), Instruction::TailCallAnon(2)),
+            (Instruction::Postfix(2), Instruction::TailPostfix(2)),
+        ] {
+            let func = create_test_function(vec![
+                call.with_named_args(Some(meta.clone())),
+                Instruction::Return,
+            ]);
+            let mut compiler = Compiler::new();
+            compiler.instructions.push(Instruction::load_const(func));
+
+            compiler.rewrite_tail_calls();
+
+            let Instruction::LoadConst(value) = &compiler.instructions[0] else {
+                unreachable!("test function must remain a constant");
+            };
+            let Value::CompiledFunction(function) = value.as_ref() else {
+                unreachable!("test constant must remain a compiled function");
+            };
+            let Instruction::NamedCall {
+                call,
+                meta: rewritten_meta,
+            } = &function.instructions[0]
+            else {
+                unreachable!("named call wrapper must remain");
+            };
+
+            assert_eq!(call.as_ref(), &expected);
+            assert!(Arc::ptr_eq(rewritten_meta, &meta));
         }
     }
 

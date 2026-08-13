@@ -472,6 +472,7 @@ fn signal_for(op: &Instruction) -> Signal {
 }
 
 fn is_load(op: &Instruction) -> bool {
+    let op = op.call_instruction();
     use Instruction as I;
     matches!(
         op,
@@ -488,6 +489,7 @@ fn is_load(op: &Instruction) -> bool {
 }
 
 fn is_store(op: &Instruction) -> bool {
+    let op = op.call_instruction();
     use Instruction as I;
     matches!(
         op,
@@ -515,6 +517,7 @@ fn is_store(op: &Instruction) -> bool {
 }
 
 fn is_op(op: &Instruction) -> bool {
+    let op = op.call_instruction();
     use Instruction as I;
     matches!(
         op,
@@ -523,6 +526,7 @@ fn is_op(op: &Instruction) -> bool {
 }
 
 fn is_jump(op: &Instruction) -> bool {
+    let op = op.call_instruction();
     use Instruction as I;
     matches!(
         op,
@@ -540,6 +544,7 @@ fn is_jump(op: &Instruction) -> bool {
 }
 
 fn is_build(op: &Instruction) -> bool {
+    let op = op.call_instruction();
     use Instruction as I;
     matches!(
         op,
@@ -548,6 +553,7 @@ fn is_build(op: &Instruction) -> bool {
 }
 
 fn is_index(op: &Instruction) -> bool {
+    let op = op.call_instruction();
     use Instruction as I;
     matches!(
         op,
@@ -569,6 +575,7 @@ fn is_index(op: &Instruction) -> bool {
 }
 
 fn is_call(op: &Instruction) -> bool {
+    let op = op.call_instruction();
     use Instruction as I;
     matches!(
         op,
@@ -586,6 +593,7 @@ fn is_call(op: &Instruction) -> bool {
 }
 
 fn instruction_amount(op: &Instruction) -> usize {
+    let op = op.call_instruction();
     use Instruction as I;
     match op {
         I::Cat(count)
@@ -657,6 +665,8 @@ fn hash_coord(seed: u64, len: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::ast::BinaryOperator;
     use crate::session::stdio::WqOutput;
@@ -692,6 +702,20 @@ mod tests {
         assert_eq!(result, Value::Int(3));
         assert_eq!(interpreter.art.borrow().ops, 4);
         assert_eq!(interpreter.art.borrow().last_label, "stack");
+    }
+
+    #[test]
+    fn named_call_uses_the_wrapped_call_signal() {
+        let instruction = Instruction::CallAnon(2).with_named_args(Some(Arc::new(
+            crate::vm::inst::NamedArgMeta {
+                pos_count: 1,
+                named: vec![(1, Arc::from("limit"))].into_boxed_slice(),
+            },
+        )));
+
+        assert!(is_call(&instruction));
+        assert_eq!(instruction_amount(&instruction), 2);
+        assert_eq!(signal_for(&instruction).label, "call");
     }
 
     struct FailingOutput;

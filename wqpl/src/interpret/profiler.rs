@@ -831,6 +831,7 @@ fn sequence_kind(value: &Value) -> Option<ValueKind> {
 fn instruction_kind(inst: &Instruction) -> &'static str {
     use Instruction as I;
     match inst {
+        I::NamedCall { call, .. } => instruction_kind(call),
         I::LoadConst(_) => "LoadConst",
         I::LoadOwnedConst(_) => "LoadOwnedConst",
         I::LoadClosure(_) => "LoadClosure",
@@ -908,13 +909,18 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::Pause => "Pause",
         I::Try(_) => "Try",
         I::Import(_) => "Import",
-        I::PrepareNamedArgs(_) => "PrepareNamedArgs",
     }
 }
 
 fn instruction_profile_key(inst: &Instruction) -> String {
     use Instruction as I;
     match inst {
+        I::NamedCall { call, meta } => format!(
+            "{} named(pos={}, count={})",
+            instruction_profile_key(call),
+            meta.pos_count,
+            meta.named.len()
+        ),
         I::LoadConst(value) => format!("LoadConst({})", value.debug_kind()),
         I::LoadOwnedConst(slot) => format!("LoadOwnedConst({slot})"),
         I::LoadClosure(payload) => format!(
@@ -1019,13 +1025,6 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::Pause => "Pause".to_string(),
         I::Try(_) => "Try".to_string(),
         I::Import(import) => format!("Import({:?})", import.specifier),
-        I::PrepareNamedArgs(meta) => {
-            format!(
-                "PrepareNamedArgs(pos={}, named={})",
-                meta.pos_count,
-                meta.named.len()
-            )
-        }
     }
 }
 
@@ -1132,6 +1131,22 @@ mod tests {
         assert_eq!(
             format_len_hist_with_color_mode(&lens, 2, ColorMode::Never),
             "sizes 4:3 [++++++++++]  2:1 [++++      ]"
+        );
+    }
+
+    #[test]
+    fn named_calls_profile_as_their_wrapped_call_form() {
+        let instruction = Instruction::CallUser(Arc::from("f"), 2).with_named_args(Some(Arc::new(
+            crate::vm::inst::NamedArgMeta {
+                pos_count: 1,
+                named: vec![(1, Arc::from("limit"))].into_boxed_slice(),
+            },
+        )));
+
+        assert_eq!(instruction_kind(&instruction), "CallUser");
+        assert_eq!(
+            instruction_profile_key(&instruction),
+            "CallUser(f/2) named(pos=1, count=1)"
         );
     }
 

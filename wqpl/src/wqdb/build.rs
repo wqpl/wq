@@ -15,6 +15,7 @@ pub(crate) fn mark_stmt_heuristic(
         ));
     }
     for (pc, op) in code.iter().enumerate() {
+        let op = op.call_instruction();
         let is_stmt = matches!(
             op,
             StoreVar(_)
@@ -170,16 +171,18 @@ fn apply_stmt_spans_exact(
             let mut call_idx: Vec<usize> = Vec::new();
             let mut other_idx: Vec<usize> = Vec::new();
             for (i, &pc) in cand.iter().enumerate() {
-                let is_call = matches!(
-                    code.get(pc),
-                    Some(CallBuiltinId(_, _))
-                        | Some(CallBuiltinDiscardId(_, _))
-                        // | Some(CallBuiltin(_, _))
-                        | Some(CallLocal(_, _))
-                        | Some(CallUser(_, _))
-                        | Some(CallAnon(_))
-                        | Some(Postfix(_))
-                );
+                let is_call = code.get(pc).is_some_and(|instruction| {
+                    matches!(
+                        instruction.call_instruction(),
+                        CallBuiltinId(_, _)
+                            | CallBuiltinDiscardId(_, _)
+                            // | CallBuiltin(_, _)
+                            | CallLocal(_, _)
+                            | CallUser(_, _)
+                            | CallAnon(_)
+                            | Postfix(_)
+                    )
+                });
                 if is_call {
                     call_idx.push(i);
                 } else {
@@ -523,5 +526,20 @@ mod tests {
             di.get_chunk(ChunkId(1)).is_none(),
             "registering the same closure payload twice must not allocate a second chunk"
         );
+    }
+
+    #[test]
+    fn named_call_remains_a_statement_boundary() {
+        let instruction = Instruction::CallAnon(1).with_named_args(Some(std::sync::Arc::new(
+            crate::vm::inst::NamedArgMeta {
+                pos_count: 0,
+                named: vec![(0, std::sync::Arc::from("value"))].into_boxed_slice(),
+            },
+        )));
+        let mut table = LineTable::default();
+
+        mark_stmt_heuristic(&mut table, &[instruction], None);
+
+        assert!(table.is_stmt(0));
     }
 }

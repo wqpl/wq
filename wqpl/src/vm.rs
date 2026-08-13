@@ -108,7 +108,7 @@ pub(crate) struct Vm {
     pub(crate) returned: bool,
     /// The interpreter kind to use for nested calls.
     pub(crate) interpreter_kind: InterpreterKind,
-    /// Named-argument metadata set by SetupNamedCall, consumed by next call.
+    /// Named-argument metadata installed for the active call dispatch.
     pub(crate) pending_named_meta: Option<Arc<crate::vm::inst::NamedArgMeta>>,
     /// Value-provenance recording state for `@d` expressions.
     ///
