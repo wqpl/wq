@@ -896,7 +896,6 @@ export async function mountViz(root) {
     layoutButtons: Array.from(
       root.querySelectorAll("[data-viz-layout-option]"),
     ),
-    stepButtons: Array.from(root.querySelectorAll("[data-viz-step]")),
     selects: {},
     selectPopups: {},
     ranges: Object.fromEntries(
@@ -954,19 +953,6 @@ export async function mountViz(root) {
         setToggleValue(instance, "widthAuto", false);
       }
       setRangeValue(instance, key, input.value);
-      updateView(instance);
-    });
-  });
-  instance.stepButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const key = button.dataset.vizStep;
-      const input = instance.ranges[key];
-      const delta = Number(button.dataset.vizStepDelta) || 0;
-      const current = Number(input?.value || instance.state[key] || 0);
-      if (key === "width") {
-        setToggleValue(instance, "widthAuto", false);
-      }
-      setRangeValue(instance, key, current + delta);
       updateView(instance);
     });
   });

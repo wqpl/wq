@@ -5,18 +5,10 @@
   color-scheme: light;
   --page-top: #2f76b9;
   --topbar-text: #dff4ff;
-  /*--page-top-2: #2a6aa8;*/
   --tab-mint: #7fffe0;
   --tab-text: #9cfbe7;
   --bg: #d7e9f6;
   --body-text: #033b57;
-  --panel-edge: #ffffff26;
-  --panel-inner: #00000012;
-  --text: #f7feff;
-  --text-muted: #e9fbff;
-  --code-bg: #00000022;
-  --shadow:
-    0 14px 24px rgba(19, 78, 110, 0.18), 0 2px 6px rgba(19, 78, 110, 0.1);
   --radius: 16px;
   --radius-xs: 6px;
   --radius-sm: 8px;
@@ -90,7 +82,6 @@
   --surface-card-text: #f7fcff;
   --surface-card-text-muted: #dff1fa;
   --surface-card-code-bg: rgba(29, 55, 82, 0.9);
-  --surface-card-code-border: rgba(232, 248, 255, 0.28);
   --terminal-bg: #fbfdff;
   --terminal-bar-bg: #edf6fa;
   --terminal-border: #abc5d2;
@@ -105,7 +96,6 @@
   --terminal-hover: #dfeef4;
   --history-focus-ring: #4f88a7;
   --terminal-menu-shadow: 0 16px 36px rgba(34, 78, 103, 0.18);
-  --terminal-shell-shadow: 0 18px 42px rgba(34, 78, 103, 0.14);
   --syntax-comment: #557067;
   --syntax-string: #246344;
   --syntax-escape: #00677d;
@@ -134,8 +124,6 @@
   --code-panel-bg: #e8ffe8;
   --code-panel-border: #b5e6b5;
   --code-panel-head-bg: #d4fcd4;
-  --code-result-bg: #f7fff8;
-  --code-result-head-bg: #edf9ef;
   --code-action-bg: transparent;
   --code-action-border: var(--code-group-border);
   --code-action-hover-bg: var(--code-group-gutter-bg);
@@ -165,8 +153,6 @@
   --control-cluster-bg: rgba(255, 255, 255, 0.44);
   --control-cluster-border: rgba(52, 126, 80, 0.22);
   --code-run-shadow: 0 5px 14px rgba(52, 126, 80, 0.18);
-  --globals-panel-bg: #f7fff8;
-  --globals-panel-border: #b9dfc0;
   --globals-list-bg: rgba(255, 255, 255, 0.84);
   --globals-row-border: #d9eddd;
   --globals-row-hover: #f2faf4;
@@ -215,12 +201,6 @@
   --tab-text: #c2b8e0;
   --bg: #0b1020;
   --body-text: #f1f1f3;
-  --panel-edge: rgba(194, 184, 224, 0.18);
-  --panel-inner: rgba(4, 8, 18, 0.4);
-  --text: #f1f1f3;
-  --text-muted: #c2b8e0;
-  --code-bg: rgba(4, 8, 18, 0.54);
-  --shadow: 0 18px 32px rgba(3, 8, 20, 0.42), 0 2px 10px rgba(4, 8, 18, 0.34);
   --focus-ring: #c2b8e0;
   --focus-ring-soft: rgba(194, 184, 224, 0.28);
   --pill-bg: rgba(20, 32, 58, 0.92);
@@ -266,7 +246,6 @@
   --surface-card-text: #f1f1f3;
   --surface-card-text-muted: #d6d0e9;
   --surface-card-code-bg: rgba(5, 10, 23, 0.86);
-  --surface-card-code-border: rgba(194, 184, 224, 0.28);
   --terminal-bg: #080d16;
   --terminal-bar-bg: #0e1624;
   --terminal-border: #31445f;
@@ -281,7 +260,6 @@
   --terminal-hover: #162236;
   --history-focus-ring: #a0c1d1;
   --terminal-menu-shadow: 0 18px 42px rgba(0, 0, 0, 0.46);
-  --terminal-shell-shadow: 0 18px 42px rgba(19, 78, 110, 0.12);
   --syntax-comment: #93a69f;
   --syntax-string: #8bd8b0;
   --syntax-escape: #70d8e8;
@@ -310,8 +288,6 @@
   --code-panel-bg: #101a2f;
   --code-panel-border: #4a3f6b;
   --code-panel-head-bg: #1d2d4d;
-  --code-result-bg: #0b1326;
-  --code-result-head-bg: #14203a;
   --code-action-bg: transparent;
   --code-action-border: #6a5a8f;
   --code-action-hover-bg: #2a1a41;
@@ -331,8 +307,6 @@
   --control-cluster-bg: rgba(17, 15, 34, 0.46);
   --control-cluster-border: rgba(177, 156, 217, 0.3);
   --code-run-shadow: 0 5px 14px rgba(177, 156, 217, 0.2);
-  --globals-panel-bg: #101f35;
-  --globals-panel-border: #33506f;
   --globals-list-bg: #0b1326;
   --globals-row-border: #273b61;
   --globals-row-hover: #111d34;
@@ -606,8 +580,6 @@ body {
   white-space: nowrap;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable both-edges;
-  /*padding: 3px;
-  margin: -3px;*/
 }
 .pill {
   font-size: 11px;
@@ -773,7 +745,6 @@ body {
 .viz-layout-toggle button,
 .viz-select-button,
 .viz-select-menu button,
-.viz-stepper-btn,
 .viz-small-btn,
 .viz-series-remove {
   transition:
@@ -1050,7 +1021,6 @@ body {
 .card {
   border-radius: var(--radius);
   padding: 26px 26px 28px;
-  color: var(--text);
   position: relative;
   margin: 22px 0 36px;
   max-width: 820px;
@@ -1128,7 +1098,6 @@ body {
   max-width: 100%;
   font-family: var(--font-mono);
   padding: 10px 12px;
-  /*border: 1px solid var(--surface-card-code-border);*/
   border-radius: var(--radius-xs);
   background: var(--surface-card-code-bg);
   color: var(--surface-card-text);
@@ -1320,9 +1289,6 @@ body {
   margin-left: auto;
   margin-right: auto;
 }
-.folder-head .icon {
-  font-size: 22px;
-}
 .grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1377,7 +1343,6 @@ body {
 .editor {
   overflow: visible;
   min-width: 0;
-  /*box-shadow: 0 6px 14px rgba(20, 60, 100, 0.08);*/
 }
 
 /* === REPL === */
@@ -2776,15 +2741,6 @@ body {
 #debugToggle {
   display: inline-flex;
 }
-.toolbar.inner {
-  /* inner bars (e.g., REPL codebar) */
-  top: 8px;
-  border-radius: 0;
-}
-.toolbar.flat {
-  /* no rounded corners (e.g., REPL terminal bar) */
-  border-radius: 0;
-}
 .toolbar .btn {
   min-height: 42px;
   padding: 9px 14px;
@@ -2792,18 +2748,10 @@ body {
   line-height: 1.2;
   white-space: nowrap;
 }
-/*.toolbar .btn:active {
-}*/
 .toolbar .mini {
   font-size: 12px;
   opacity: 0.8;
   text-wrap: balance;
-}
-.toolbar .stdin {
-  flex: 1;
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
 }
 .toolbar-main {
   display: flex;
@@ -2829,19 +2777,6 @@ body {
 .toolbar .debug-controls {
   flex: 0 1 auto;
 }
-.toolbar input[type="text"],
-.toolbar textarea {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--surface-border-soft);
-  background: var(--surface-bg);
-  font-family: inherit;
-  outline: none;
-  resize: none;
-  line-height: 1.4;
-}
-
 /* === Playground === */
 .playground-shell {
   display: grid;
@@ -3065,7 +3000,6 @@ body {
   height: 10px;
   z-index: -1;
   border-radius: 3px;
-  /*transform: rotate(-0.8deg);*/
 }
 .playground-template-card-1 strong::after {
   background: rgba(212, 162, 61, 0.3);
@@ -4276,7 +4210,6 @@ textarea.editor-text.repl-input,
 .viz-field label,
 .viz-text-field > span,
 .viz-range > span,
-.viz-stepper span,
 .viz-switch span {
   color: #496f86;
   font-size: 11px;
@@ -4475,59 +4408,6 @@ textarea.editor-text.repl-input,
 .viz-auto-toggle {
   justify-self: end;
   white-space: nowrap;
-}
-.viz-stepper {
-  display: grid;
-  grid-template-columns: 34px minmax(48px, 1fr) 34px;
-  gap: 6px;
-  align-items: center;
-}
-.viz-stepper span {
-  grid-column: 1 / -1;
-}
-.viz-stepper input {
-  width: 100%;
-  min-width: 0;
-  min-height: 36px;
-  padding: 7px 4px;
-  border: 1px solid var(--surface-border-soft);
-  border-radius: 9px;
-  background: var(--surface-bg-field);
-  color: var(--surface-text);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  text-align: center;
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-.viz-stepper input::-webkit-outer-spin-button,
-.viz-stepper input::-webkit-inner-spin-button {
-  margin: 0;
-  -webkit-appearance: none;
-}
-.viz-stepper-btn {
-  width: 34px;
-  min-width: 34px;
-  min-height: 34px;
-  border: 1px solid var(--surface-border-soft);
-  border-radius: var(--radius-pill);
-  background: var(--surface-bg);
-  color: var(--btn-text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 16px;
-  font-weight: 900;
-  line-height: 1;
-}
-.viz-stepper-btn:hover:not(:disabled) {
-  border-color: var(--btn-hover-border);
-  background: var(--btn-hover-bg);
-}
-.viz-stepper input:focus,
-.viz-stepper-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
 }
 .viz-limit-grid {
   display: grid;
@@ -4752,7 +4632,6 @@ textarea.editor-text.repl-input,
   border: 1px solid var(--surface-border-soft);
   border-radius: var(--radius-page);
   padding: 12px;
-  /*box-shadow: 0 6px 14px rgba(20, 60, 100, 0.06);*/
 }
 .outline h3 {
   margin: 6px 0 8px;
@@ -4788,7 +4667,6 @@ textarea.editor-text.repl-input,
   background: var(--surface-bg);
   border: 1px solid var(--surface-border-soft);
   border-radius: var(--radius-page);
-  /*box-shadow: 0 6px 14px rgba(20, 60, 100, 0.08);*/
   padding: 26px;
   color: var(--surface-text);
   min-width: 0; /* allow grid child to shrink and not overflow */
@@ -4819,7 +4697,6 @@ textarea.editor-text.repl-input,
 }
 .article em {
   color: #2563eb;
-  /*color: midnightblue;*/
   font-style: normal;
   text-decoration-line: underline;
   text-decoration-style: wavy;
@@ -6900,7 +6777,6 @@ textarea.editor-text.repl-input,
   .viz-code-chevron,
   .viz-select-button,
   .viz-select-menu button,
-  .viz-stepper-btn,
   .viz-small-btn,
   .viz-series-remove,
   .viz-live-switch input[type="checkbox"],
@@ -6952,7 +6828,6 @@ textarea.editor-text.repl-input,
 :root[data-theme="midnight"] .viz-field label,
 :root[data-theme="midnight"] .viz-text-field > span,
 :root[data-theme="midnight"] .viz-range > span,
-:root[data-theme="midnight"] .viz-stepper span,
 :root[data-theme="midnight"] .viz-switch span,
 :root[data-theme="midnight"] .viz-limit-pair-head > span,
 :root[data-theme="midnight"] .viz-lock-toggle,
@@ -6967,9 +6842,7 @@ textarea.editor-text.repl-input,
   box-shadow: 0 18px 36px rgba(3, 8, 20, 0.52);
 }
 
-:root[data-theme="midnight"] .history-search input,
-:root[data-theme="midnight"] .toolbar input[type="text"],
-:root[data-theme="midnight"] .toolbar textarea {
+:root[data-theme="midnight"] .history-search input {
   color: var(--surface-text);
 }
 
@@ -6977,10 +6850,6 @@ textarea.editor-text.repl-input,
 :root[data-theme="midnight"] .viz-select-menu button:hover,
 :root[data-theme="midnight"] .viz-select-menu button.active {
   background: #1d2d4d;
-}
-
-:root[data-theme="midnight"] .viz-stepper-btn {
-  color: var(--btn-text);
 }
 
 :root[data-theme="midnight"] .pill[data-debug-flag] {
@@ -7164,7 +7033,6 @@ textarea.editor-text.repl-input,
 }
 
 :root[data-theme="midnight"] .viz-preset:hover,
-:root[data-theme="midnight"] .viz-stepper input:focus,
 :root[data-theme="midnight"] .viz-series-field input:focus,
 :root[data-theme="midnight"]
   .viz-series-field
