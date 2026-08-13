@@ -55,6 +55,8 @@
 @s cos[x]
 @s integrate[x;x1]
 @s limit[x;x1;0]
+(@s integrate[2;x];(@s integrate[x;x1];@s integrate[2;x]))
+@s limit[2;x;0]
 @s undef
 1
 -1

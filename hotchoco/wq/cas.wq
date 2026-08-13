@@ -152,6 +152,12 @@ rewrite @s sin[x+pi/2] | echo
 substitute[@s integrate[y;x];@s y;@s x] | echo
 substitute[@s limit[y;x;0];@s y;@s x] | echo
 
+//test calculus forms infer their only free variable when called
+integral:@s integrate[y;x]
+(integral[2];map[(@s x;2);integral]) | echo
+limit_expr:@s limit[y;x;0]
+limit_expr[2] | echo
+
 //test limit approach signs use exact local polynomial order
 nearby:@s sgn[x*(1-100000000000000000000*x)]
 limit[nearby;0] | echo

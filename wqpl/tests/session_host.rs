@@ -461,6 +461,36 @@ fn runtime_failures_match_across_interpreters_without_leaking_postmortem_state()
 }
 
 #[test]
+fn caught_callback_paths_match_across_interpreters() {
+    let source = "step:{[x]$[x=2;1/0;x]};outer:{[seed]map[(1;seed);step]};nested:@t map[(1;2);outer];f:{[x](10;20)x};fallback:@t map[(0;2);f];(nested 0;nested[1][`kind];fallback 0;fallback[1][`kind])";
+    let expected = Value::List(Arc::new(vec![
+        Value::Tag(Arc::from("error")),
+        Value::Tag(Arc::from("zero-div")),
+        Value::Tag(Arc::from("error")),
+        Value::Tag(Arc::from("index")),
+    ]));
+
+    for kind in [
+        InterpreterKind::Vanilla,
+        InterpreterKind::Sample,
+        InterpreterKind::Profiler,
+    ] {
+        let (output, _) = capture();
+        let mut session = Session::new();
+        session.set_stderr(Box::new(output));
+        session.set_color_mode(wqpl::style::ColorMode::Never);
+        session.set_interpreter(kind);
+
+        let value = session
+            .eval_source(SourceUnit::named("callback-parity.wq", source))
+            .expect("both callback failures should be caught");
+
+        assert_eq!(value, expected, "{} diverged from vanilla", kind.name());
+        assert!(session.debugger().backtrace().is_empty());
+    }
+}
+
+#[test]
 fn nested_calls_preserve_tail_call_history_in_logical_order() {
     let mut session = Session::new();
     let failure = session

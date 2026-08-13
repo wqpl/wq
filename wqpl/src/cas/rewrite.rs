@@ -1,6 +1,7 @@
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use super::scope::collect_free_cas_vars;
 use super::{
     CasDebug, cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub,
     collect_single_poly_var, common_numeric_gcd, eval_exact_numeric_div, eval_numeric_binary,
@@ -2099,13 +2100,17 @@ pub(crate) fn normalize_root_objective_cas(input: &Value) -> WqResult<Value> {
 }
 
 pub(crate) fn infer_single_cas_var(expr: &Value) -> WqResult<String> {
-    let mut var = None;
-    if !collect_single_poly_var(expr, &mut var) {
+    let mut vars = std::collections::BTreeSet::new();
+    collect_free_cas_vars(expr, &mut vars);
+    if vars.len() != 1 {
         return Err(cas_err(
             "expected an expression with exactly one symbolic variable",
         ));
     }
-    var.ok_or_else(|| cas_err("expected an expression with exactly one symbolic variable"))
+    Ok(vars
+        .into_iter()
+        .next()
+        .expect("a single collected symbolic variable should exist"))
 }
 
 /// Check whether a CAS expression still contains the given variable.

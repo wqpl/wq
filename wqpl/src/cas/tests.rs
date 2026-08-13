@@ -452,6 +452,23 @@ fn substitute_avoids_integral_capture() {
 }
 
 #[test]
+fn single_var_inference_traverses_calculus_forms_without_counting_binders() {
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let integral = Value::from_cas_integral(close_cas_scope(&y, "x"), None);
+    let limit = Value::from_cas_limit(close_cas_scope(&integral, "y"), x, None);
+
+    assert_eq!(
+        infer_single_cas_var(&integral).expect("integral should have one free variable"),
+        "y"
+    );
+    assert_eq!(
+        infer_single_cas_var(&limit).expect("limit point should be the only free variable"),
+        "x"
+    );
+}
+
+#[test]
 fn simplify_recurses_into_symbolic_application_args() {
     let expr = Value::from_cas_apply(
         "f",
