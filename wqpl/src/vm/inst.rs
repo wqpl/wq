@@ -934,6 +934,16 @@ impl InstPrettyDumper {
 mod tests {
     use super::*;
 
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn interpreter_enums_keep_their_expected_layout() {
+        assert_eq!(std::mem::size_of::<Instruction>(), 32);
+        assert_eq!(std::mem::size_of::<Operand>(), 24);
+        assert_eq!(std::mem::size_of::<StoreTarget>(), 24);
+        assert_eq!(std::mem::size_of::<Capture>(), 48);
+        assert_eq!(std::mem::size_of::<MutationOp>(), 1);
+    }
+
     #[test]
     fn highlight_inst_uses_explicit_opcode_color() {
         let dumper = InstPrettyDumper::new(true, true);
