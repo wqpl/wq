@@ -1,7 +1,7 @@
-va:{[g;r;c;v](br;bc):(r;c)/%3*3
-  (g r;g|M{x c};til 9|M{g[x/%3+br][x%3+bc]})|has?@1[v]|~}
-ch:{b:();bn:10;N[81;$.[x[r:_n/%9][c:_n%9]=0;ca:()
-  til 11|M{[y]$.[va[x;r;c;y];'ca,:y]};$.[(n:#ca)<bn;(b;bn):((r;c;ca);n)]]];b}
-s:{$.[#(p:ch x)=0;@rx];(r;c;ca):p[0..=2]
-  N[#ca;ro:(g2:x)r;ro c:ca _n;g2 r:ro;$.[#(o:s g2)~0;@ro]]}
-s
+{t:0..9
+_:{m:10
+N[81;$.[x _n=0;k:_n;c:k%9;a:1+t|without x[k-c+t,c+9*t,k-k%27+c-c%3+t+t/%3*6]
+$.[#a<m;b:(k;a);m:#a]]]
+$.[m=10;@rx|R(9;9)]
+(k;a):b;N[#a;x k:a _n;$.[#(v:_ x)~0;@rv]]}
+_ flatten x}
