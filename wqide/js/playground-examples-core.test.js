@@ -11,8 +11,9 @@ test("playground examples point at curated e scripts", () => {
   assert.deepEqual(
     PLAYGROUND_EXAMPLE_DEFINITIONS.map((example) => example.sourcePath),
     [
-      "@e/nq.test.wq",
       "@e/primes.test.wq",
+      "@e/nq.test.wq",
+      "@e/sudoku.test.wq",
       "@e/cowsay.test.wq",
       "@e/gol.test.wq",
     ],
@@ -49,7 +50,7 @@ test("playground examples retain their implementation and entry files", () => {
 test("playground example registry rejects missing source entries", () => {
   assert.throws(
     () => createPlaygroundExamples(new Map()),
-    /Missing playground example source nq\.wq for N-Queens/
+    /Missing playground example source primes\.wq for Primes/
   );
 });
 

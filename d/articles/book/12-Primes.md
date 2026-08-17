@@ -5,14 +5,14 @@ optional.
 
 A sieve keeps a bool mask and crosses out composite numbers.
 
-## The Shape
+## The Mask
 
 Create one bool for each number from `0` through the limit.
 
 <!-- wq-example {"id":"sieve-starting-mask","cellGroup":"sieve-shape"} -->
 ```wq
 x:10
-p:x+1|iota|>1
+p:0..=x>1
 p
 ```
 
@@ -21,120 +21,131 @@ p
 where p
 ```
 
-`x+1|iota` creates positions `0` through `x`. The comparison `>1` marks `0`
-and `1` as `F` and the remaining positions as `T`.
+`0..=x` includes both ends of the range. The comparison `>1` marks `0` and `1`
+as `F` and every later position as `T`.
 
 `p` is the mask. `where p` returns its `T` positions as numbers.
 
 ## One Crossing-Out Step
 
-For the prime `2`, cross out every later multiple.
+For the prime `2`, cross out every multiple from its square onward.
 
 <!-- wq-example {"id":"sieve-crossing-indexes","cellGroup":"sieve-crossing"} -->
 ```wq
 x:30
-p:x+1|iota|>1
+p:0..=x>1
 i:2
-j:i^2
 
-(x-j)/%i+1|iota|*i|+j
+range[i^2;#p;i]
 ```
 
 <!-- wq-example {"id":"sieve-after-crossing","cellGroup":"sieve-crossing"} -->
 ```wq
-p[(x-j)/%i+1|iota|*i|+j]:F
+p[range[i^2;#p;i]]:F
 where p
 ```
 
-The index expression has five steps:
+`range[start;end;step]` is half-open. Here it starts at `i^2`, stops before
+`#p`, and advances by `i`. Since the mask has `x+1` positions, the resulting
+indexes include every multiple up to `x`.
 
-- `j:i^2` starts at `4`.
-- `(x-j)/%i+1` counts how many multiples fit from `j` up to `x`.
-- `iota` makes the consecutive ints starting at `0` for that count.
-- `*i` spaces those numbers by the current prime.
-- `+j` shifts them so the first crossed-out number is `j`.
-
-`p[indexes]:F` writes `F` into those positions.
+`p[indexes]:F` writes `F` into all of those positions at once.
 
 ## Why Start At A Square?
 
-For `3`, the crossing-out list starts at `9`.
+For `3`, the crossing-out range starts at `9`.
 
 ```wq
 x:30
+p:0..=x>1
 i:3
-j:i^2
-(x-j)/%i+1|iota|*i|+j
+range[i^2;#p;i]
 ```
 
 Smaller multiples are either the prime itself, such as `3*1`, or have a smaller
 factor, such as `3*2`. Starting at `i^2` skips work completed by smaller
 factors.
 
-That same idea tells us when to stop:
+The same square tells the loop when to stop. The condition `i^2<#p` is true
+exactly while `i^2<=x`, because the mask length is `x+1`.
+
+## Skip Composite Factors
+
+Only positions still marked `T` need a crossing-out step.
 
 ```wq
 x:30
-floor sqrt x
+p:0..=x>1
+i:2
+
+A[p i;p[range[i^2;#p;i]]:F]
+where p
 ```
 
-A composite above this point has a smaller factor that the sieve already
-processed.
+`A[...]` is short-circuit bool and. When `p i` is `F`, it does not evaluate the
+assignment. When `p i` is `T`, the assignment crosses out that factor's
+multiples and returns the assigned bool `F`. The loop ignores the final bool.
+
+This lets the loop visit consecutive ints. Composite factors cost only the
+mask check.
 
 ## The Loop
 
-Move `i` through the possible prime factors.
+Move `i` through the possible factors.
 
 ```wq
 x:30
-p:x+1|iota|>1
-l:floor sqrt x
+p:0..=x>1
 i:2
 
-W[i<=l;
-  $.[p i;
-    j:i^2;
-    p[(x-j)/%i+1|iota|*i|+j]:F];
-  i:$[i=2;3;i+2]]
+W[i^2<#p;
+  A[p i;
+    p[range[i^2;#p;i]]:F];
+  i+:1]
 
 where p
 ```
 
-`W[i<=l; ...]` runs through the square-root limit. A `T` at `p i` identifies
-the next prime, whose later multiples are then crossed out.
-
-The update `i:$[i=2;3;i+2]` moves from `2` to `3`, then checks odd numbers.
+`W[i^2<#p; ...]` stops after every composite up to `x` has a smaller factor
+that was already processed. `i+:1` advances to the next candidate. The
+short-circuit check prevents composite candidates from repeating the work.
 
 ## The Function
 
-The function unpacks the initial mask, limit and first factor, then returns
-`where p`.
+The function receives the inclusive upper limit as its implicit argument `x`
+and returns the positions left marked `T`.
 
 ```wq
 primes:{
-  (p;l;i):(x+1|iota|>1;floor sqrt x;2)
-
-  W[i<=l;
-    $.[p i;
-      j:i^2;
-      p[(x-j)/%i+1|iota|*i|+j]:F];
-    i:$[i=2;3;i+2]]
-
+  p:0..=x>1;
+  i:2;
+  W[i^2<#p;
+    A[p i;
+      p[range[i^2;#p;i]]:F];
+    i+:1];
   where p}
 
 primes 30
 ```
 
-The implicit argument `x` is the upper limit. The repository version in
-`e/primes.wq` uses the same function in compact form.
+The compact repository version is:
+
+```wq
+{p:0..=x>1;i:2;W[i^2<#p;A[p i;p[range[i^2;#p;i]]:F];i+:1];where p}
+```
+
+The file returns the function directly. An import binds that function to the
+name chosen by the importing code.
 
 ## Summary
 
 - A sieve keeps a bool mask and crosses out composites.
-- `where mask` returns the positions that are still `T`.
+- `0..=x>1` builds the initial mask directly from an inclusive range.
+- `range[i^2;#p;i]` selects every remaining multiple of a factor.
 - `p[indexes]:F` mutates many positions at once.
-- Starting at `i^2` skips multiples handled by smaller factors.
-- `W` advances through candidate factors up to `sqrt x`.
+- `A[...]` skips the mutation when the current factor is composite.
+- `i^2<#p` keeps the loop inside the square-root boundary.
+- `where p` returns the prime positions.
 
 Continue to [Symbolic Math with CAS](13-CAS.md) if you want the optional
 symbolic-math tour. Otherwise, you have completed the introductory path.

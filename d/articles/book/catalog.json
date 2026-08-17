@@ -106,7 +106,7 @@
       "title": "A Prime Sieve",
       "file": "12-Primes.md",
       "description": "Combine lists, mutation, pipes, control flow, and functions in a prime sieve.",
-      "code": "x:30;p:x+1|iota|>1;where p"
+      "code": "x:30;p:0..=x>1;where p"
     },
     {
       "slug": "cas",

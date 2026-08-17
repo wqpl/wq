@@ -6933,7 +6933,7 @@ textarea.editor-text.repl-input,
 }
 
 :root[data-theme="midnight"] .playground-template-card:hover {
-  border-color: #a0c1d1;
+  box-shadow: inset 0 0 0 1px #a0c1d1;
 }
 
 :root[data-theme="midnight"] .playground-template-card-1 strong::after {

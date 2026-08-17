@@ -1,19 +1,27 @@
 export const PLAYGROUND_EXAMPLE_DEFINITIONS = [
   {
+    id: "primes",
+    title: "Primes",
+    description: "Generate the prime numbers.",
+    entryPath: "primes.test.wq",
+    initialPath: "primes.wq",
+    sourcePath: "@e/primes.test.wq"
+  },
+  {
     id: "nq",
     title: "N-Queens",
-    description: "Count and list small queen placements.",
+    description: "Count and list queen placements.",
     entryPath: "nq.test.wq",
     initialPath: "nq.wq",
     sourcePath: "@e/nq.test.wq"
   },
   {
-    id: "primes",
-    title: "Primes",
-    description: "Generate the prime numbers below 100.",
-    entryPath: "primes.test.wq",
-    initialPath: "primes.wq",
-    sourcePath: "@e/primes.test.wq"
+    id: "sudoku",
+    title: "Sudoku",
+    description: "Solve a classic 9x9 Sudoku puzzle.",
+    entryPath: "sudoku.test.wq",
+    initialPath: "sudoku.wq",
+    sourcePath: "@e/sudoku.test.wq"
   },
   {
     id: "cowsay",

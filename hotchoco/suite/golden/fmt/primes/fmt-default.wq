@@ -1,4 +1,2 @@
-primes:{
-  (p;l;i):(x+1|iota|> 1;floor sqrt x;2)
-  W[i<=l;$.[p i;j:i^2;p[(x-j)/%i+1|iota|* i|+ j]:false];i:$[i=2;3;i+2]];where p}
-primes
+{
+  p:0..=x>1;i:2;W[i^2<#p;A[p i;p range[i^2;#p;i]:F];i+:1];where p}
