@@ -128,22 +128,22 @@ impl fmt::Display for Value {
             Value::CompiledFunction(func) => {
                 write!(
                     f,
-                    "/* {} */",
+                    "{}",
                     opaque_function_shape(func.params.as_deref(), func.named_params.as_deref())
                 )
             }
             Value::Closure(c) => {
                 write!(
                     f,
-                    "/* {} */",
+                    "{}",
                     opaque_function_shape(c.params.as_deref(), c.named_params.as_deref())
                 )
             }
             Value::BuiltinFunction { name, .. } => {
-                write!(f, "/* builtin-function '{name}' */")
+                write!(f, "{name}")
             }
             Value::LiftedCallable(data) => {
-                write!(f, "/* fn {} */", fmt_callable_expr(&data.expr, false))
+                write!(f, "{}", fmt_callable_expr(&data.expr, false))
             }
 
             Value::Cas(_) => write!(f, "@s {}", self.format_cas()),

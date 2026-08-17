@@ -170,7 +170,7 @@ fn fstring_cursor_context(
 #[inline]
 pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) {
     match name {
-        HighlightName::Comment => ("\x1b[3;38;5;249m", ANSI_RESET),
+        HighlightName::Comment => ("\x1b[38;5;249m", ANSI_RESET),
         HighlightName::ConstantBuiltin => ("\x1b[1;38;5;220m", ANSI_RESET),
         HighlightName::FunctionBuiltin => ("\x1b[4;38;5;75m", ANSI_RESET),
         HighlightName::CasSpecial => ("\x1b[1;38;5;177m", ANSI_RESET),
