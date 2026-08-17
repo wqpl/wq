@@ -824,12 +824,18 @@ pub trait Excerpt {
 impl<T: std::fmt::Display> Excerpt for T {
     fn excerpt(&self) -> String {
         let s = self.to_string();
-        let mut g = s.graphemes(true);
-        let head: String = g.by_ref().take(20).collect();
-        if g.next().is_some() {
-            format!("{head}...")
-        } else {
-            head
+        if s.graphemes(true).count() <= 20 {
+            return s;
         }
+        let head: String = s.graphemes(true).take(10).collect();
+        let tail: String = s
+            .graphemes(true)
+            .rev()
+            .take(10)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!("{head}...{tail}")
     }
 }
