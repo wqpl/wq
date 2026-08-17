@@ -103,24 +103,15 @@ pub(crate) struct Parser {
     // `parse()` returns `Ok`.
     eof_error: Option<WqError>,
 
-    // ===== CST building (Phase 2B) =====
-    // The full lexer output, including `Comment` tokens that `tokens` filters
-    // out. Used to flush trivia into the green tree at the same byte
-    // positions the lexer produced.
+    // Full lexer output, including filtered-out `Comment` tokens.
     raw_tokens: Vec<Token>,
-    // Index of the next raw token waiting to be flushed to the CST.
+    // Next raw token to flush into the CST.
     raw_idx: usize,
-    // Byte cursor into `source` used to synthesize `Whitespace` tokens for
-    // any gap between consecutive lexer-produced tokens. Always equal to
-    // `raw_tokens[raw_idx-1].byte_end` (or 0 before the first flush).
+    // Current byte position in `source`, used to fill whitespace gaps.
     raw_cursor_byte: usize,
-    // Optional green-tree builder. `None` when the caller did not request a
-    // CST; in that case all `cst_*` helpers are no-ops, and the parser runs
-    // exactly as before. The Root node is opened in `parse()` and closed in
-    // `take_cst()`; callers must call `take_cst()` exactly once after
-    // `parse()` returns Ok.
+    // CST builder, if requested.
     cst: Option<GreenNodeBuilder>,
-    // Statement-level subtree reuse plan for incremental CST parses.
+    // Statement-level reuse plan for incremental CST parsing.
     reuse: Option<ReusePlan>,
 }
 
@@ -193,15 +184,10 @@ impl Parser {
         None
     }
 
-    /// Like [`Self::peek_next_real_token`] but starts at `self.current`
-    /// itself, so it answers "what is the next non-trivia token from here,
-    /// without advancing?".
+    /// Like [`Self::peek_next_real_token`], but includes `self.current`.
     ///
-    /// Used by left-recursive parse loops that want to test the next real
-    /// token before deciding to consume trivia. The advance-then-rewind
-    /// pattern (mutate `self.current`, then reset on failure) is wrong with
-    /// CST building enabled, because each `advance()` permanently emits
-    /// the trivia into the green tree.
+    /// Used to look ahead past trivia without advancing, since `advance()`
+    /// emits trivia into the CST and cannot be safely rewound.
     fn peek_real_token_from_here(&self) -> Option<&Token> {
         let mut offset = 0;
         while let Some(tok) = self.tokens.get(self.current + offset) {
@@ -308,14 +294,10 @@ impl Parser {
 
     // ===== CST helpers =====
     //
-    // Each helper is a no-op when `cst` is `None`, so the parser can
-    // unconditionally sprinkle calls without any branch in the hot path of
-    // CST-disabled callers. The Root frame is the responsibility of
-    // [`Self::parse`] / [`Self::take_cst`].
+    // These are no-ops when CST building is disabled. `parse` opens the Root
+    // node and `take_cst` closes it.
 
-    /// Turn on green-tree building. Idempotent: a second call clears any
-    /// previously-buffered builder state, which is what callers that re-use
-    /// a parser would expect.
+    /// Enable CST building, resetting any previous CST state.
     pub(crate) fn enable_cst(&mut self) {
         self.cst = Some(GreenNodeBuilder::new());
         self.raw_idx = 0;
@@ -383,10 +365,7 @@ impl Parser {
                 break;
             }
             if r.byte_start > target_start {
-                // The raw stream is past the target. This should not happen
-                // in practice (token streams from the same lexer are
-                // monotonic and `tokens` is a subset of `raw_tokens`), but we
-                // bail safely instead of asserting.
+                // Raw tokens should never pass the target, but bail safely if they do.
                 break;
             }
             if r.byte_start > self.raw_cursor_byte {
@@ -403,10 +382,9 @@ impl Parser {
         }
     }
 
-    /// Flush any remaining raw tokens (and trailing whitespace) into the
-    /// builder. Free function (taking explicit refs) so that
-    /// [`Self::take_cst`] can call it after `take()`-ing the builder out of
-    /// `self`.
+    /// Flush remaining raw tokens and trailing whitespace into the builder.
+    ///
+    /// Takes explicit references so `take_cst` can use it after taking the builder.
     fn cst_flush_remaining(
         builder: &mut GreenNodeBuilder,
         source: &str,
@@ -442,9 +420,9 @@ impl Parser {
         }
     }
 
-    /// Close the most recently opened CST node. No-op when CST building is
-    /// disabled. Calling this without a matching `cst_start_node` is a logic
-    /// bug that will panic in [`Self::take_cst`] via the underlying builder.
+    /// Close the current CST node. No-op when CST building is disabled.
+    ///
+    /// Must match a preceding `cst_start_node`.
     fn cst_finish_node(&mut self) {
         if let Some(b) = self.cst.as_mut() {
             b.finish_node();
@@ -475,18 +453,10 @@ impl Parser {
             .unwrap_or_else(|| self.source.len())
     }
 
-    /// Open a structural bookmark for a parse construct.
+    /// Mark the start of a parse construct.
     ///
-    /// Pairs a CST [`Checkpoint`] (so the green-tree wrap can be applied
-    /// retroactively once we know the kind) with the byte position the
-    /// construct started at. Pair with [`Self::cst_close_with_span`] to
-    /// finalize both the CST wrap and the AST span in one call.
-    ///
-    /// This is the workhorse helper that replaces the old
-    /// `start_idx` / `span_from_start` / `header_start_idx = current-2` /
-    /// `last_consumed_byte_end` patterns that used to be sprinkled through
-    /// every node-producing parse function. The pair always agrees, so the
-    /// AST span exactly matches the byte range of the CST subtree.
+    /// Pair with [`Self::cst_close_with_span`] to create the CST node and its
+    /// matching AST span.
     fn cst_open(&mut self) -> PendingNode {
         PendingNode {
             cp: self.cst_checkpoint(),
@@ -2679,12 +2649,7 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> WqResult<AstNode> {
-        // Single CST checkpoint at the syntactic start of the primary. After
-        // the inner dispatch returns, we wrap the consumed tokens in the
-        // appropriate kind based on the AstNode variant. This keeps every
-        // primary-level branch (literal, identifier, paren list, function,
-        // control form, etc.) uniformly tagged in the green tree without
-        // threading checkpoints through every callee.
+        // Mark the primary's start, then wrap the parsed tokens based on its AST kind.
         let cp = self.cst_checkpoint();
         let result = self.parse_primary_inner()?;
         if let Some(kind) = Self::primary_syntax_kind(&result) {
@@ -2694,14 +2659,9 @@ impl Parser {
         Ok(result)
     }
 
-    /// Map an [`AstNode`] returned from [`Self::parse_primary_inner`] onto the
-    /// CST kind that should wrap the corresponding source bytes.
+    /// Return the CST kind for a node from [`Self::parse_primary_inner`].
     ///
-    /// `None` means "do not wrap": either the variant carries no source bytes
-    /// (e.g. [`AstNode::PipeInput`], a parser-internal placeholder) or it
-    /// represents a higher-level construction that the corresponding parse
-    /// function already wrapped (e.g. an `Assignment` returned from below
-    /// only when the assignment infrastructure spliced its way in).
+    /// `None` means the node needs no wrapper or was already wrapped elsewhere.
     fn primary_syntax_kind(node: &AstNode) -> Option<SyntaxKind> {
         Some(match node {
             AstNode::Literal(..) => SyntaxKind::LiteralExpr,
