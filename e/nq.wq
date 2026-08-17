@@ -1,7 +1,3 @@
-nq_:{[r;p;oc;rd;fd;n]$.[r=n;@r,p];res:()
-  N[n;_n;(d1;d2):(r+_n;r-_n+n-1);$.[O[oc _n;rd d1;fd d2]|not
-    (oc _n;rd d1;fd d2):3|alloc T
-    res,:nq_[r+1;p,_n;oc;rd;fd;n];(oc _n;rd d1;fd d2):3|alloc F]];res}
-
-nq:{nq_[0;();x|alloc F;(s:2*x-1|alloc F);s;x]}
-nq
+{n:x;_:{$[#x=n;,x;s:()
+N[n;i:_n,n+#x+_n,#x-_n-n;$.[y i=(0;0;0);q:y;q i:1;s,:_[x,_n;q]]];s]}
+_[();0|R(5*n)]}
