@@ -14,6 +14,7 @@ test("playground examples point at curated e scripts", () => {
       "@e/primes.test.wq",
       "@e/nq.test.wq",
       "@e/sudoku.test.wq",
+      "@e/fft.test.wq",
       "@e/cowsay.test.wq",
       "@e/gol.test.wq",
     ],

@@ -1,14 +1,12 @@
-PI:3.141592653589793;EPS64:2.220446049250313e-16
-bitlen:{l:0;m:1;W[m<x;m*:2;l+:1];l} // bitlen:{$[x>1;x|log2|ceil;0]}
-bitrev:{[bs;i]r:0;N[bs;r:r*2+i%2;i/%:2];r}
-bitrevcpy:{[o]n:#o;iota n|M{bitlen n|bitrev x|o}}
-//fft_radix2:{a:bitrevcpy{x|map{complex[x;0.0]}}x;l:2;
-fft_radix2:{a:bitrevcpy{x+0.0i}x;l:2;
-  W[l<=(n:#x);ang:-2*PI/l;b:0;
-    W[b<n;h:l/%2;j:iota h;u:a[b+j];v:j|M{x*ang|{complex[cos x;sin x]}|*a[b+x+h]}
-      (a[b+j];a[b+h+j]):(u+v;u-v);b+:l];l*:2];a}
-ifft_radix2:{i:1.0/#x;x|M{conj x}|fft_radix2|M{i*conj x}}
-clean:{[s;o]eps:32*EPS64*#s*$[(mx:max abs o)>0;mx;1.0]
-  s|M{complex[$[eps>abs re x;0.0;re x];$[eps>abs im x;0.0;im x]]}}
-fft:{fft_radix2 x|clean x}
-fft
+P:-1|arccos
+f:{[x]n:#x
+  $.[n=0;raise"empty input"]
+  r:,0;W[#r<n;r:r*2,r*2+1]
+  $.[#r~n;raise"length must be a power of 2"]
+  a:x r+0i;l:2
+  W[l<=n;h:l/%2;k:0..n%l<h|where;u:a k
+    v:exp(-2i*P/l*0..h)|R(n/%2)|*a[k+h]
+    (a[k];a[k+h]):(u+v;u-v);l*:2];a}
+c:{[s;o]e:8e-15*#s*$[(m:max abs o)>0;m;1.0]
+  s|M{$[e>abs(r:re x);0.0;r]+1i*$[e>abs(i:im x);0.0;i]}}
+(`fft:f;`ifft:{conj f conj x|/#x};`clean:c)

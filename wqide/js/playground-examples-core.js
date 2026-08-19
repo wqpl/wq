@@ -24,6 +24,14 @@ export const PLAYGROUND_EXAMPLE_DEFINITIONS = [
     sourcePath: "@e/sudoku.test.wq"
   },
   {
+    id: "fft",
+    title: "FFT",
+    description: "Perform FFT.",
+    entryPath: "fft.test.wq",
+    initialPath: "fft.wq",
+    sourcePath: "@e/fft.test.wq"
+  },
+  {
     id: "cowsay",
     title: "Cowsay",
     description: "Print a classic terminal speech bubble.",

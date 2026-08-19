@@ -1,7 +1,7 @@
 ============================
 Dictionary unpack patterns
 ============================
-(`fft2;`ifft2):@i"fft2.wq"
+(`fft;`ifft):@i"fft.wq"
 (`wordwrap):@i"wordwrap.wq"
 (`parse_rpn:parse;`rpn):@i"rpn.wq"
 (`api:(`start;`stop);`pair:(left;right);`version):module

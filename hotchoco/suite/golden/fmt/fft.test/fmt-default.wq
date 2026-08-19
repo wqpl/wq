@@ -1,13 +1,25 @@
-fft:@i"fft.wq"
-impulse:fft (0;0;1;0;0;0;0;0)
+(`fft;`ifft;`clean):@i"fft.wq"
+fftclean:{fft x|clean x}
+ifftclean:{ifft x|clean x}
+impulse:fftclean (0;0;1;0;0;0;0;0)
 assert_eq[
   impulse;
   (1+0i;-1i;-1+0i;1i;1+0i;-1i;-1+0i;1i);
   "impulse"]
 echo impulse
-alternating:fft (1;0;-1;0;1;0;-1;0)
+alternating:fftclean (1;0;-1;0;1;0;-1;0)
 assert_eq[
   alternating;
   (0+0i;0+0i;4+0i;0+0i;0+0i;0+0i;4+0i;0+0i);
   "alternating signal"]
 echo alternating
+round_trip:ifftclean fftclean (1+2i;3-4i;-2+1i;0.5-0.25i)
+assert_eq[
+  round_trip;
+  (1+2i;3-4i;-2+1i;0.5-0.25i);
+  "complex round trip"]
+echo round_trip
+assert_eq[fftclean[,7];,7+0i;"singleton"]
+assert_eq[(@t fft ()) 0;`error;"rejects empty input"]
+assert_eq[(@t fft (1;2;3)) 0;`error;"rejects non-power-of-two length"]
+()
