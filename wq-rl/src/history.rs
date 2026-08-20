@@ -409,11 +409,8 @@ impl History for MemHistory {
                     .case_insensitive(true)
                     .build()
                 {
-                    let test = |entry: &str| {
-                        re.find(entry)
-                            .and_then(|m| if m.start() == 0 { Some(m) } else { None })
-                            .map(|m| m.end())
-                    };
+                    let test =
+                        |entry: &str| re.find(entry).filter(|m| m.start() == 0).map(|m| m.end());
                     self.search_match(term, start, dir, test)
                 } else {
                     None

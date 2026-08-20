@@ -905,8 +905,6 @@ impl RLHighlighter for WqReplHighlighter {
 
 #[cfg(test)]
 mod tests {
-    use wq_rl::highlight::Highlighter as _;
-    use wq_rl::hint::Hint as _;
     use wq_rl::history::DefaultHistory;
 
     use super::*;

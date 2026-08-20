@@ -384,7 +384,8 @@ impl Parser {
 
     /// Flush remaining raw tokens and trailing whitespace into the builder.
     ///
-    /// Takes explicit references so `take_cst` can use it after taking the builder.
+    /// Takes explicit references so `take_cst` can use it after taking the
+    /// builder.
     fn cst_flush_remaining(
         builder: &mut GreenNodeBuilder,
         source: &str,

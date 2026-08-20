@@ -7,7 +7,9 @@ use std::io::BufReader;
 use std::io::{self, ErrorKind, Read, Write as _};
 use std::os::fd::{AsFd, AsRawFd as _, BorrowedFd, IntoRawFd, RawFd};
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+#[cfg(not(feature = "signal-hook"))]
+use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex};
 

@@ -86,7 +86,7 @@
       - e.g. `diff integrate @s 1/(x^3-2)`
     - A bare `x^3-2` without `@s` is evaluation and is not related to CAS.
   - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*empty list*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
-- Ensure `cargo clippy --all-targets -- -D warnings` passes.
+- Ensure `cargo clippy --all-features --all-targets -- -D warnings` passes.
   - Avoid using `#[allow(...)]` to pass clippy.
   - If passing clippy requires a large-scope edit, pause and ask the user.
 - If you changed wq lexer/grammar:

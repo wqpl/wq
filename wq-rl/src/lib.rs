@@ -25,8 +25,6 @@ use std::path::Path;
 use std::{fmt, result};
 
 use log::debug;
-#[cfg(feature = "derive")]
-pub use wq_rl_derive::{Completer, Helper, Highlighter, Hinter, Validator};
 
 #[cfg(feature = "custom-bindings")]
 pub use crate::binding::{ConditionalEventHandler, Event, EventContext, EventHandler};
