@@ -11,7 +11,7 @@ packages in dependency order.
 List every release destination in the local Git remote group:
 
 ```sh
-git config remotes.publish "github codeberg"
+git config remotes.publish "github mirror"
 ```
 
 The release script pushes each non-GitHub mirror first and the GitHub repository

@@ -142,28 +142,28 @@ class JsonManifestTests(unittest.TestCase):
 class GitTests(unittest.TestCase):
     def test_parses_unique_publish_remotes(self) -> None:
         self.assertEqual(
-            parse_publish_remotes("github codeberg\nbackup\n"),
-            ["github", "codeberg", "backup"],
+            parse_publish_remotes("github mirror\nbackup\n"),
+            ["github", "mirror", "backup"],
         )
         with self.assertRaisesRegex(PublishError, "configured more than once"):
-            parse_publish_remotes("github codeberg github")
+            parse_publish_remotes("github mirror github")
 
     def test_orders_github_after_mirrors(self) -> None:
         self.assertEqual(
-            order_publish_remotes(["github", "codeberg", "backup"], "github"),
-            ["codeberg", "backup", "github"],
+            order_publish_remotes(["github", "mirror", "backup"], "github"),
+            ["mirror", "backup", "github"],
         )
         with self.assertRaisesRegex(PublishError, "not a publishing remote"):
-            order_publish_remotes(["codeberg"], "github")
+            order_publish_remotes(["mirror"], "github")
 
     def test_builds_an_atomic_branch_and_tag_push(self) -> None:
         self.assertEqual(
-            push_command("codeberg", "main", "v0.9.0-preview2"),
+            push_command("mirror", "main", "v0.9.0-preview2"),
             (
                 "git",
                 "push",
                 "--atomic",
-                "codeberg",
+                "mirror",
                 "HEAD:refs/heads/main",
                 "refs/tags/v0.9.0-preview2:refs/tags/v0.9.0-preview2",
             ),

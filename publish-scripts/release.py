@@ -53,7 +53,7 @@ def parse_arguments(arguments: list[str]) -> argparse.Namespace:
             "examples:\n"
             "  python3 publish-scripts/release.py\n"
             "  python3 publish-scripts/release.py 0.10.0-preview1\n"
-            "  python3 publish-scripts/release.py 0.10.0 --remote codeberg "
+            "  python3 publish-scripts/release.py 0.10.0 --remote mirror "
             "--remote github\n"
             "  python3 publish-scripts/release.py --no-push"
         ),

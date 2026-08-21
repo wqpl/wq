@@ -88,7 +88,7 @@ The command never runs `npm publish` locally.
 Configure the default publishing remotes once:
 
 ```sh
-git config remotes.publish "github codeberg"
+git config remotes.publish "github mirror"
 ```
 
 Without that setting, the command uses `github` when that remote exists and
@@ -145,7 +145,7 @@ Repeat `--remote` to replace the Git configuration for one invocation:
 
 ```sh
 python3 publish-scripts/release.py 0.10.0 \
-  --remote codeberg \
+  --remote mirror \
   --remote github
 ```
 
