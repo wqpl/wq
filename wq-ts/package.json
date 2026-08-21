@@ -1,6 +1,6 @@
 {
   "name": "tree-sitter-wq",
-  "version": "0.9.0-preview2",
+  "version": "0.9.0-preview3",
   "description": "tree-sitter grammar for wq",
   "type": "module",
   "repository": {
