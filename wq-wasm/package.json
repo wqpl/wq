@@ -19,7 +19,7 @@
     "pkg/"
   ],
   "scripts": {
-    "build": "wasm-pack build --target web --profile R -- --locked && python3 ../publish-scripts/prepare_package.py",
+    "build": "wasm-pack build --target web --release -- --locked && python3 ../publish-scripts/prepare_package.py",
     "check": "python3 ../publish-scripts/check_package.py",
     "release": "python3 ../publish-scripts/release.py",
     "test": "node --test ../wqide/js/wasm-session-contract.test.js"

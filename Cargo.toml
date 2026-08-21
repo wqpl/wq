@@ -17,8 +17,7 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
-[profile.R]
-inherits = "release"
+[profile.release]
 lto = "thin"
 codegen-units = 1
 strip = true

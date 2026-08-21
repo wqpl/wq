@@ -30,5 +30,5 @@ You can also clone the repository and build wq yourself:
 ```sh
 git clone https://github.com/wqpl/wq
 cd wq
-cargo build -p wq-cli --profile R
+cargo build -p wq-cli --release
 ```

@@ -38,7 +38,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build binaries
-        run: cargo build --locked --profile R --package wq-cli --package wqls
+        run: cargo build --locked --release --package wq-cli --package wqls
 
       - name: Package Unix release assets
         if: inputs.package_release_assets && runner.os != 'Windows'
@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           archive="wq-${RELEASE_TAG}-${ARTIFACT_PLATFORM}.tar.gz"
-          tar -C target/R -czf "$GITHUB_WORKSPACE/$archive" wq wqls
+          tar -C target/release -czf "$GITHUB_WORKSPACE/$archive" wq wqls
 
       - name: Package Windows release assets
         if: inputs.package_release_assets && runner.os == 'Windows'
@@ -59,7 +59,7 @@ jobs:
         run: |
           $archive = "wq-$env:RELEASE_TAG-$env:ARTIFACT_PLATFORM.zip"
           Compress-Archive `
-            -Path target/R/wq.exe, target/R/wqls.exe `
+            -Path target/release/wq.exe, target/release/wqls.exe `
             -DestinationPath "$env:GITHUB_WORKSPACE/$archive"
 
       - name: Upload binaries
@@ -67,8 +67,8 @@ jobs:
         with:
           name: binary-${{ matrix.artifact_platform }}
           path: |
-            target/R/wq${{ matrix.executable_suffix }}
-            target/R/wqls${{ matrix.executable_suffix }}
+            target/release/wq${{ matrix.executable_suffix }}
+            target/release/wqls${{ matrix.executable_suffix }}
           if-no-files-found: error
 
       - name: Upload release asset

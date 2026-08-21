@@ -16,7 +16,7 @@ DEPENDENCIES
 ------------------------------------------------------------------------------
 USAGE
 ------------------------------------------------------------------------------
-    # Full benchmark run. Defaults to the repo's custom R profile.
+    # Full benchmark run. Defaults to the release profile.
     python3 wqbench.py
 
     # Benchmark another Cargo profile.
@@ -24,10 +24,10 @@ USAGE
     python3 wqbench.py --profile release
 
     # Skip cargo build and use the binary for the selected profile.
-    python3 wqbench.py --no-build --profile R
+    python3 wqbench.py --no-build --profile release
 
     # Use an explicit binary path.
-    python3 wqbench.py --binary target/R/wq --no-build
+    python3 wqbench.py --binary target/release/wq --no-build
 
     # Quick validation with fewer runs.
     python3 wqbench.py --no-build --min-runs 3 --warmup 1
@@ -163,7 +163,7 @@ BENCHMARK_PROGRAMS_REL_DIR = BENCHMARK_PROGRAMS_DIR.relative_to(PROJECT_ROOT).as
 BENCHMARKS_ROOT = PROJECT_ROOT / ".benchmarks"
 HISTORY_JSONL = BENCHMARKS_ROOT / "history.jsonl"
 BINARY_NAME = "wq"
-DEFAULT_PROFILE = "R"
+DEFAULT_PROFILE = "release"
 DEFAULT_WARMUP = 1
 DEFAULT_MIN_RUNS = 10
 
