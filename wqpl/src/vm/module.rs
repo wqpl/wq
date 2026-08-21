@@ -12,6 +12,7 @@ use crate::value::{Value, WqResult};
 use crate::vm::call::CallSpec;
 use crate::vm::inst::ImportData;
 use crate::vm::{ModuleCacheEntry, Vm};
+use crate::wqdb::build::register_function_chunks;
 use crate::wqerror::{WqError, WqErrorType};
 
 impl Vm {
@@ -115,6 +116,15 @@ impl Vm {
                 initializer.instructions.len(),
             );
             initializer.dbg_chunk = Some(chunk);
+            let source_base_offset = initializer.dbg_source_base_offset;
+            let instructions = Arc::make_mut(&mut initializer.instructions);
+            register_function_chunks(
+                &mut self.debug_info,
+                file_id,
+                instructions,
+                source_base_offset,
+                Some(&self.debug_log),
+            );
         }
         Ok(initializer)
     }

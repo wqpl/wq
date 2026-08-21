@@ -1621,6 +1621,40 @@ mod tests {
     }
 
     #[test]
+    fn imported_nested_closure_backtrace_uses_module_source() {
+        let module_source = "outer:{x:0;inner:{F 0+x};inner[]};outer";
+        let caller_source = "padding:\"................................................................\";exported:@i\"module\";exported[]";
+        let mut session = Session::new();
+        session.set_module_resolver(TestModuleResolver::new([("module", module_source)]));
+
+        let failure = session
+            .eval_string(caller_source)
+            .expect_err("the nested closure should reject bool indexing");
+        let frames = failure
+            .crash()
+            .expect("runtime error should capture a backtrace")
+            .frames();
+        let frame_source = |index| match &frames[index] {
+            crate::wqdb::data::CrashFrame::Located {
+                source: Some(source),
+                ..
+            } => source,
+            _ => unreachable!("expected a located frame with source"),
+        };
+
+        assert!(frames.len() >= 3, "frames were: {frames:?}");
+        assert_eq!(frame_source(0).path.as_ref(), "module");
+        assert_eq!(frame_source(0).source.as_ref(), module_source);
+        assert_eq!(frame_source(1).path.as_ref(), "module");
+        assert_eq!(frame_source(1).source.as_ref(), module_source);
+        assert_eq!(frame_source(frames.len() - 1).path.as_ref(), "<eval>");
+        assert_eq!(
+            frame_source(frames.len() - 1).source.as_ref(),
+            caller_source
+        );
+    }
+
+    #[test]
     fn imported_function_can_use_builtins() {
         let mut session = Session::new();
         session.set_module_resolver(TestModuleResolver::new([("length", "{len x}")]));

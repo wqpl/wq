@@ -514,7 +514,6 @@ fn format_span_snippet(
     out
 }
 
-#[cfg(test)]
 fn terminal_text_width(text: &str, start_column: usize) -> usize {
     const TAB_STOP: usize = 8;
     let mut column = start_column;
@@ -615,7 +614,7 @@ pub fn format_frame(
                 .next()
                 .map_or(start_byte, |ch| start_byte + ch.len_utf8());
         }
-        let (l, c) = sf.line_col(start_byte);
+        let (l, c) = sf.display_line_col(start_byte);
         let end_lookup = end_byte
             .saturating_sub(1)
             .min(sf.text().len().saturating_sub(1));
@@ -673,10 +672,16 @@ pub fn format_frame(
             }
             out.push('\n');
             if has_overlap && !use_inline_underline {
-                let pointer_start = if ln == l { c.saturating_sub(1) } else { 0 };
-                let pointer_width = sf.text()[span_start..span_end].chars().count().max(1);
+                let rel_start = span_start - line_start;
+                let rel_end = span_end - line_start;
+                let marker_width = format!("{ln:>4} -> ").chars().count();
+                let source_column = 2 + marker_width;
+                let pointer_start = terminal_text_width(&line_text[..rel_start], source_column);
+                let underline_start = source_column + pointer_start;
+                let pointer_width =
+                    terminal_text_width(&line_text[rel_start..rel_end], underline_start).max(1);
                 out.push_str(&gutter);
-                out.push_str("        ");
+                out.push_str(&" ".repeat(marker_width));
                 out.push_str(&paint(
                     &format!("{}{}", " ".repeat(pointer_start), "~".repeat(pointer_width)),
                     TextStyle::new().fg(AnsiColor::Green).bold(),
@@ -977,6 +982,33 @@ mod tests {
             rendered.lines().all(|line| !line.ends_with(' ')),
             "frame was: {rendered:?}"
         );
+    }
+
+    #[test]
+    fn format_frame_plain_underline_uses_terminal_columns() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("wq[test]", "α\t界x\n");
+        let chunk = di.new_chunk("a", file_id, 1);
+        di.expect_chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id,
+                start: 3,
+                end: 6,
+            },
+        );
+
+        let rendered = format_frame(&di, CodeLoc { chunk, pc: 0 }, "a", true, ColorMode::Never);
+        let pointer = rendered
+            .lines()
+            .find(|line| line.contains('~'))
+            .expect("plain frame should include an underline");
+
+        assert!(
+            rendered.contains("* at a, wq[test]:1:9"),
+            "frame was: {rendered:?}"
+        );
+        assert_eq!(pointer, format!("|{}~~", " ".repeat(15)));
     }
 
     #[test]
